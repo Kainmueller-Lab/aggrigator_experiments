@@ -8,3 +8,4 @@ torchvision
 ipython
 scikit-learn
 numba
+aggrigator

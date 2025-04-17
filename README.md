@@ -1,8 +1,8 @@
 # Aggrigator Experiments 🐊
 
-TODO: Add a description of the project here incl link to prublication.
+TODO: Add a description of the project here incl link to publication.
 
-
+TODO: Explain how to "pip install aggrigator"
 
 ## Installation
 
