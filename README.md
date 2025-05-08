@@ -26,23 +26,12 @@ micromamba activate aggr_experiments
 
 ```selective_risk_coverage_curve.py``` relies on the [```fd-shifts```]() repository, which has a dependency on numpy<2. However, Aggrigator requires numpy>2 for optimal functionality. To avoid dependency conflicts, we recommend the following:
 
-1. Clone the ```fd-shifts``` repository after setting up your environment.<br>
-2. Edit the ```pyproject.toml``` file to replace
-
-```toml
-"numpy>=1.22.2,<2.0.0"
-```
-
-with 
-
-```toml
-"numpy>=2.0.0"
-```
-
-3. Then, install ```fd-shifts``` from local cloning using, 
+1. Clone the ```fd-shifts``` repository after setting up your environment.
+2. Edit the ```pyproject.toml``` file to replace ```toml "numpy>=1.22.2,<2.0.0"``` with ```toml "numpy>=2.0.0"```.
+3. Then, install ```fd-shifts``` from local cloning using
 
 ```bash
 (aggr_experiments) pip install -e /path/to/local/fd-shifts
-```
+```.
 
 This modification is safe because the parts of fd-shifts used in this experiment are compatible with ```numpy>=2.0.0```.
