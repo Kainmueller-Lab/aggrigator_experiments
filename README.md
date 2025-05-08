@@ -34,4 +34,8 @@ micromamba activate aggr_experiments
 (aggr_experiments) pip install -e /path/to/local/fd-shifts
 ```
 
-This modification is safe because the parts of fd-shifts used in this experiment are compatible with ```numpy>=2.0.0```.
+This modification is safe because the parts of fd-shifts used in this experiment are compatible with ```numpy>=2.0.0```. Once everything is installed and configured correctly, run the test suite to make sure all components work as expected:
+
+```bash
+(aggr_experiments) pytest -v
+```
