@@ -15,7 +15,7 @@ This repository reproduces results related to our publication.<br>
 📖 For details, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator).
 
 
-## Pre-requisites
+## Prerequisites
 
 Setup the environment by running the following commands. Be careful to choose the right pytorch version for your installed CUDA Version.
 
