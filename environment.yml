@@ -13,6 +13,7 @@ dependencies:
   - numcodecs
   - pandas
   - pillow
+  - pytest
   - scikit-learn
   - scikit-image
   - scipy

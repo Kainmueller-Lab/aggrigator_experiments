@@ -27,6 +27,7 @@ dependencies = [
     "numcodecs",
     "pandas",
     "pillow",
+    "pytest",
     "opencv-python",
     "scikit-learn",
     "scikit-image",
