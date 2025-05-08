@@ -5,7 +5,7 @@ imagecodecs
 ipython
 jupyterlab
 matplotlib
-numpy<2
+numpy>2
 numba
 numcodecs
 pandas
@@ -19,4 +19,4 @@ shapely
 torch
 torchvision
 tqdm
-git+https://github.com/iml-dkfz/fd-shifts.git
+# git+https://github.com/iml-dkfz/fd-shifts.git

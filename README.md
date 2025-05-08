@@ -25,8 +25,14 @@ micromamba activate aggr_experiments
 pip install torch==2.1.1 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cu118
 ```
 
+```selective_risk_coverage_curve.py``` relies on the [```fd-shifts```]() repository, which has a dependency on numpy<2. However, Aggrigator requires numpy>2 for optimal functionality. To avoid conflicts, we recommend installing ```fd-shifts``` after building the environment, which will ensure that it can coexist with the experiment's dependencies,
+
+```bash
+(aggr_experiments) pip install git+https://github.com/iml-dkfz/fd-shifts.git
+```
+
 To make the current directory ```(.)``` importable without changing ```sys.path``` manually:
 
 ```bash
-pip install -e .
+(aggr_experiments) pip install -e .
 ```

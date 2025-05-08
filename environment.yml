@@ -2,6 +2,6 @@ name: "aggr_experiments"
 channels:
 - conda-forge
 dependencies:
-- python=3.10.12
+- python=3.11
 - pip:
   - -r requirements.txt
