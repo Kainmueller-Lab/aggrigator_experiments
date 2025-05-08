@@ -30,13 +30,13 @@ micromamba activate aggr_experiments
 2. Edit the ```pyproject.toml``` file to replace
 
 ```toml
-numpy >=1.22.2, <2.0.0
+"numpy>=1.22.2,<2.0.0"
 ```
 
 with 
 
 ```toml
-numpy >=2.0.0
+"numpy>=2.0.0"
 ```
 
 3. Then, install ```fd-shifts``` from local cloning using, 
