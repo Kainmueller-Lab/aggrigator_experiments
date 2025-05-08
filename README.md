@@ -25,7 +25,7 @@ micromamba activate aggr_experiments
 pip install torch==2.1.1 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cu118
 ```
 
-To make the current directory (.) importable without changing sys.path manually:
+To make the current directory ```(.)``` importable without changing ```sys.path``` manually:
 
 
 ```bash
