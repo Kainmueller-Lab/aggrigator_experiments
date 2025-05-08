@@ -3,7 +3,6 @@ import os
 import sys
 import argparse
 import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
 import multiprocessing as mp
 
@@ -14,147 +13,152 @@ from PIL import Image
 from matplotlib.patches import Patch
 from tqdm import tqdm
 
-current_dir = Path.cwd()
-root_dir = current_dir.parent.parent
-sys.path.append(str(root_dir))
-utils_dir = current_dir.parent / 'AggroUQ' / 'src'
-sys.path.append(str(utils_dir))
-
 from aggrigator.methods import AggregationMethods as am
 from aggrigator.uncertainty_maps import UncertaintyMap
 from aggrigator.optimized_gearys import fast_gearys_C
-from evaluation.data_utils import load_dataset
-
-COLOR = {
-    'Baseline': "#A31212",
-    'Context-aware' : "#BDB76B",
-    'Threshold': sns.light_palette("blue", n_colors=6)[1],
-    'Quantile': sns.light_palette("blue", n_colors=6)[2],
-    'Patch': sns.light_palette("blue", n_colors=6)[3],
-}
+from data_utils import load_dataset, load_unc_maps, rescale_maps
+from constants import (
+    AUROC_STRATEGIES,
+    NOISE_LEVELS,
+    BARPLOTS_COLORS
+    )
 
 def setup_plot_style() -> None:
     """Sets up the plot style using tueplots and custom configurations."""
     plt.rcParams["text.latex.preamble"] += (
         r"\usepackage{amsmath} \usepackage{amsfonts} \usepackage{bm}"
     )
-    
-def preprocess_slice_spatial_measure(maps):
-    """Ensures that hetmaps do not have negative values"""
-    return np.clip(np.array(maps), 0, None)
-    
-def load_unc_maps_and_metadata(uq_path, metadata_path, task, model_noise, 
-                                variation, data_noise, uq_method, decomp):
-    """Load uncertainty maps and their corresponding metadata indices."""
-    # Load uncertainty maps
-    map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}.npy"
-    map_file = uq_path.joinpath(map_type)
-    print(f"Loading uncertainty map: {map_type}")
-    
-    # uq_maps = preprocess_slice_spatial_measure(np.load(map_file))
-    uq_maps = np.load(map_file)
-    
-    # Load metadata indices
-    metadata_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}_sample_idx.npy"
-    metadata_file_path = metadata_path.joinpath(metadata_type)
-    indices = np.load(metadata_file_path)
-        
-    return uq_maps, indices
 
-def rescale_maps(unc_map, rescale_fact, uq_method):
-    if uq_method == 'softmax':
-        return unc_map
-    return unc_map / rescale_fact 
-
-def compute_auroc(uq_path, metadata_path, gt_list, task, model_noise, uq_method, 
-                     decomp, variation, data_noise, method, param, category):
-    """Aggregate uncertainty values and compute AUROC correctness between scalars and ID/OOD samples over UQ methods."""
-        
-    # Load zero-risk and noisy uncertainty maps and metadata
-    uq_maps_zr, metadata_file_zr = load_unc_maps_and_metadata(uq_path, metadata_path, task, model_noise, 
-                                                              variation, '0_00', uq_method, decomp)
-    uq_maps_r, metadata_file_r = load_unc_maps_and_metadata(uq_path, metadata_path, task, model_noise, 
-                                                            variation, data_noise, uq_method, decomp)
-    rescale_fact = np.log(3) if task == 'instance' else  np.log(6)
-    uq_maps_zr = rescale_maps(uq_maps_zr, rescale_fact, uq_method)
-    uq_maps_r = rescale_maps(uq_maps_r, rescale_fact, uq_method)
-    uq_maps = np.concatenate((uq_maps_zr, uq_maps_r), axis=0)   
-    
-    # Define masks for context-aware aggregators 
+def preload_uncertainty_maps(uq_path, metadata_path, gt_list, task, model_noise, variation, data_noise):
+    """Preload all uncertainty maps for a given noise level."""
+    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta']
     idx_task = 2 if task == 'instance' else 1
-    gt_array = np.array(gt_list)[..., idx_task]  
-    context_gt = np.concatenate([gt_array, gt_array], axis=0)
+    gt_array = np.array(gt_list)[..., idx_task]
     
-    # Apply aggregation strategies
-    uq_maps = [UncertaintyMap(array=array, mask=gt, name=None) for (array, gt) in zip(uq_maps, context_gt)]
-    metadata_file = [metadata_file_zr, metadata_file_r] #Tbd if necessary because the samples now appear correctly loaded for the same index 
+    # Dictionary to store loaded maps for each UQ method
+    cached_maps = {}
     
-    # Define iD and OoD targets for each sample
-    gt_labels_0 = np.zeros((len(uq_maps_zr)))
-    gt_labels_1 = np.ones((len(uq_maps_r)))
-    gt_labels = np.concatenate((gt_labels_0, gt_labels_1), axis=0)
+    for uq_method in uq_methods:
+        # Load zero-risk and noisy uncertainty maps
+        uq_maps_zr, metadata_file_zr = load_unc_maps(uq_path, task, model_noise, variation, '0_00', 
+                                                   uq_method, 'pu', False, metadata_path)
+        uq_maps_r, metadata_file_r = load_unc_maps(uq_path, task, model_noise, variation, data_noise, 
+                                                 uq_method, 'pu', False, metadata_path)
+        
+        # Normalize when needed
+        uq_maps_zr = rescale_maps(uq_maps_zr, uq_method, task)
+        uq_maps_r = rescale_maps(uq_maps_r, uq_method, task)
+        
+        # Concatenate maps
+        uq_maps = np.concatenate((uq_maps_zr, uq_maps_r), axis=0)
+        
+        # Setup context masks
+        context_gt = np.concatenate([gt_array, gt_array], axis=0)
+        
+        # Create UncertaintyMap objects
+        uncertainty_maps = [UncertaintyMap(array=array, mask=gt, name=None) 
+                           for (array, gt) in zip(uq_maps, context_gt)]
+        
+        # Define iD and OoD targets
+        gt_labels_0 = np.zeros((len(uq_maps_zr)))
+        gt_labels_1 = np.ones((len(uq_maps_r)))
+        gt_labels = np.concatenate((gt_labels_0, gt_labels_1), axis=0)
+        
+        # Store in cache
+        cached_maps[uq_method] = {
+            'maps': uncertainty_maps,
+            'gt_labels': gt_labels,
+            'metadata': [metadata_file_zr, metadata_file_r]
+        }
     
-    uncertainty_values = np.array([method(map, param) for map in uq_maps])
+    return cached_maps
+
+def compute_auroc_from_preloaded(cached_maps, uq_method, method, param, category):
+    """Compute AUROC using preloaded uncertainty maps."""
+    
+    uncertainty_maps = cached_maps[uq_method]['maps']
+    gt_labels = cached_maps[uq_method]['gt_labels']
+    
+    # Apply aggregation method
+    uncertainty_values = np.array([method(map, param) for map in uncertainty_maps])
+    
+    # Handle threshold methods
     if category == 'Threshold':
         uncertainty_values = np.nan_to_num(uncertainty_values, nan=0)
         mask = (uncertainty_values == -1) | (uncertainty_values == 0)
         uncertainty_values[mask] = 0
     
+    # Calculate AUROC
     fpr, tpr, _ = roc_curve(gt_labels, uncertainty_values)
     roc_auc = auc(fpr, tpr)
     
-    if uq_method == 'softmax' and category == 'Threshold': print(roc_auc)
+    if uq_method == 'softmax' and category == 'Threshold': 
+        print(roc_auc)
 
     return roc_auc
+
+def process_noise_level(uq_path, metadata_path, gt_list, task, model_noise, variation, noise_level, decomp):
+    """Process all strategies for a single noise level."""
+    print(f"Processing noise level: {noise_level}")
     
-def load_unc_and_compute_aggr_auroc(uq_path, metadata_path, gt_list, task, model_noise, variation, 
-                                    data_noise, aggr_method, param, decomp, category):
-    """Load uncertainty maps, aggregate them, define ID and OOD ground truth and calculate AUROC for each image."""
+    # Preload all uncertainty maps for this noise level
+    cached_maps = preload_uncertainty_maps(
+        uq_path, metadata_path, gt_list, task, model_noise, variation, noise_level
+    )
     
+    auroc_data = []
     uq_methods = ['softmax', 'ensemble', 'dropout', 'tta']
-    methods_to_process = len(uq_methods)
-    print(f"Processing {methods_to_process} uq methods")
-
-    auroc_values = np.zeros(len(uq_methods),)
-    for idx, unc_meth in enumerate(uq_methods):
-        auroc_val = compute_auroc(
-                uq_path, metadata_path, gt_list, task, model_noise, unc_meth, decomp, 
-                variation, data_noise, aggr_method, param, category
-        )
-        auroc_values[idx] = auroc_val
     
-    return auroc_values
+    # Process each aggregation strategy
+    for category, methods in AUROC_STRATEGIES.items():
+        for aggr_name, (aggr_method, param) in tqdm(methods.items(), desc=f"Aggregator for noise {noise_level}"):
+            try:
+                print(f"----Processing aggregator function: {aggr_name}, in {category} category----")
+                
+                # Compute AUROC for each UQ method using preloaded maps
+                auroc_values = np.zeros(len(uq_methods))
+                for idx, uq_method in enumerate(uq_methods):
+                    auroc_values[idx] = compute_auroc_from_preloaded(
+                        cached_maps, uq_method, aggr_method, param, category
+                    )
+                
+                # Store results
+                auroc_data.append({
+                    'Aggregator': aggr_name,
+                    'AUROC': np.mean(auroc_values),
+                    'AUROC_std': np.std(auroc_values),
+                    'Noise_Level': noise_level
+                })
+            
+            except Exception as e:
+                print(f"Error processing method {aggr_method} for noise level {noise_level}: {e}")
+                continue
+    
+    # Convert to DataFrame and sort by AUROC
+    df = pd.DataFrame(auroc_data)
+    df = df.sort_values('AUROC', ascending=False).reset_index(drop=True)
+    print(df)
+    
+    path = os.getcwd()
+    csv_file = f"{path}/output/tables/{task}_auroc_ood_detect_results.csv"
 
-def create_auroc_aggr_bar_plots(task, variation, uq_path, metadata_path, data_path,
+    # Check if the file exists to handle headers properly
+    try:
+        with open(csv_file, 'r') as f:
+            file_empty = f.tell() == 0  # Check if file is empty
+    except FileNotFoundError:
+        file_empty = True  # If file doesn't exist, it's empty
+
+    # Append to CSV (write header only if the file is empty)
+    df.to_csv(csv_file, mode='a', index=False, header=file_empty)
+    print(f"Data appended to {csv_file}")
+    
+    return df
+
+def create_auroc_aggr_bar_plots(task, variation, uq_path, metadata_path, data_path, 
                                 model_noise=0, decomp="pu"):
     """Create comparative bar plots of image-level AUROC values for different noise levels and UQ methods."""
     
-    # Constants
-    noise_levels = ["0_25", "0_50", "0_75", "1_00"]
-    strategies = {
-        'Baseline': {
-                'Mean': (am.mean, None), 
-            },
-        'Context-aware': {
-                'Equally-w. class avg.' : (am.class_mean_w_equal_weights, None),
-                'Imbalance-w. class avg.': (am.class_mean_weighted_by_occurrence, None),
-                        },
-        'Threshold':{
-                'Threshold 0.3': (am.above_threshold_mean, 0.3),
-                'Threshold 0.4': (am.above_threshold_mean, 0.4),
-                'Threshold 0.5': (am.above_threshold_mean, 0.5),
-            },
-        'Quantile':{
-                'Quantile 0.6': (am.above_quantile_mean, 0.6),
-            'Quantile 0.75': (am.above_quantile_mean, 0.75),
-            'Quantile 0.9': (am.above_quantile_mean, 0.9),
-            },
-        'Patch':{
-                'Patch 10': (am.patch_aggregation, 10), 
-                'Patch 20': (am.patch_aggregation, 20),
-                'Patch 50': (am.patch_aggregation, 50),
-            }
-    }
     # Define paths
     output_path = Path(os.getcwd())
     
@@ -171,64 +175,27 @@ def create_auroc_aggr_bar_plots(task, variation, uq_path, metadata_path, data_pa
     fig, axes = plt.subplots(1, 4, figsize=(20, 5))
     
     # Process each noise level
-    for idx, noise_level in enumerate(noise_levels):
-        print(f"Processing noise level: {noise_level}")
-        
-        auroc_data = []
-        for category, methods in strategies.items():
-            for aggr_name, (aggr_method, param) in tqdm(methods.items(), desc=f"Aggregator for noise {noise_level}"):
-                try:   
-                    print(f"----Processing aggregator function: {aggr_name}, in {category} category----")
-                    
-                    auroc_values = load_unc_and_compute_aggr_auroc(
-                        uq_path, metadata_path, gt_list, task, 
-                        model_noise, variation, noise_level, 
-                        aggr_method, param, decomp, category
-                    )
-                    
-                    # Store mean AUROC value for this method and noise level
-                    auroc_data.append({
-                        'Aggregator': aggr_name,
-                        'AUROC': np.mean(auroc_values),
-                        'AUROC_std': np.std(auroc_values),
-                        'Noise_Level': noise_level
-                    })
-
-                except Exception as e:
-                    print(f"Error processing method {aggr_method} for noise level {noise_level}: {e}")
-                    continue
-        
-        # Convert to DataFrame and sort by AUROC
-        df = pd.DataFrame(auroc_data)
-        # df['Aggregator'] = pd.Categorical(df['Aggregator'], categories=df['Aggregator'], ordered=True)
-        df = df.sort_values('AUROC', ascending=False).reset_index(drop=True)
-        print(df)
-        
-        path = os.getcwd()
-        csv_file = f"{path}/output/tables/{task}_auroc_ood_detect_results.csv"
-
-        # Check if the file exists to handle headers properly
-        try:
-            with open(csv_file, 'r') as f:
-                file_empty = f.tell() == 0  # Check if file is empty
-        except FileNotFoundError:
-            file_empty = True  # If file doesn't exist, it's empty
-
-        # Append to CSV (write header only if the file is empty)
-        df.to_csv(csv_file, mode='a', index=False, header=file_empty)
-        print(f"Data appended to {csv_file}")
-            
-        # Create bar plot for this noise level
+    results = []
+    for idx, noise_level in enumerate(NOISE_LEVELS):
+        # Process noise level and get results
+        df = process_noise_level(
+            uq_path, metadata_path, gt_list, task, 
+            model_noise, variation, noise_level, decomp
+        )
+        results.append(df)
+    
+    # Create plots for each noise level
+    for idx, (noise_level, df) in enumerate(zip(NOISE_LEVELS, results)):
         ax = axes[idx]
+        
         # Create a mapping from each method to its high-level category
-        method_to_category = {method: category for category, methods in strategies.items() for method in methods.keys()}
+        method_to_category = {method: category for category, methods in AUROC_STRATEGIES.items() for method in methods.keys()}
 
         bars = ax.bar(
             df['Aggregator'], 
             df['AUROC'],
             yerr=df['AUROC_std'],
-            # width=0.6,
-            color=[COLOR[method_to_category[m]] for m in df['Aggregator']],
+            color=[BARPLOTS_COLORS[method_to_category[m]] for m in df['Aggregator']],
             capsize=4,
             zorder=3,
         )
@@ -265,7 +232,7 @@ def create_auroc_aggr_bar_plots(task, variation, uq_path, metadata_path, data_pa
         ax.tick_params(bottom=False)   
     
     # Create legend
-    legend_elements = [Patch(facecolor=v, label=k) for k, v in COLOR.items()]
+    legend_elements = [Patch(facecolor=v, label=k) for k, v in BARPLOTS_COLORS.items()]
     fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.05),
               fancybox=True, shadow=True, ncol=3)
     

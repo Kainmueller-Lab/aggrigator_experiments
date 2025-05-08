@@ -19,6 +19,14 @@ class DataPaths:
     data: Path
     output: Path
     
+# ---- Uncertainty Maps Normalization ----
+
+def rescale_maps(unc_map, uq_method, task):
+    rescale_fact = np.log(3) if task == 'instance' else np.log(6)
+    if uq_method == 'softmax':
+        return unc_map
+    return unc_map / rescale_fact 
+        
 # ---- Data Loading Functions ----
 
 @lru_cache(maxsize=32)
@@ -30,15 +38,23 @@ def load_unc_maps(
         data_noise: str, 
         uq_method: str, 
         decomp: str,
-        calibr: bool = False
+        calibr: bool = False,
+        metadata_path: str = None,
     ) -> np.ndarray:
     """Load uncertainty maps"""
     map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}"
     if calibr: map_type += "_calib"
     map_type += ".npy"
     map_file = uq_path.joinpath(map_type)
-    print(f"Loading uncertainty map: {map_file}")
-    return np.load(map_file)
+    print(f"Loading uncertainty map: {map_type}")
+    
+    if metadata_path:
+        meta_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}_sample_idx"
+        meta_type += ".npy"
+        meta_file = metadata_path.joinpath(meta_type)
+        print(f"Loading metadata file: {meta_type}")
+        return np.load(map_file), np.load(meta_file)
+    return np.load(map_file) 
 
 def load_predictions(
         paths: DataPaths,
