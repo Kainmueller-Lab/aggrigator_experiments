@@ -10,6 +10,7 @@ With an intuitive API and a suite of built-in strategies, Aggrigator lets you:
 
 Designed to be modular, explainable, and research-friendly.  
 Use it out of the box, or extend it with your own aggregation logic!
+
 Bla bla
 
 This repository reproduces results related to our publication.
