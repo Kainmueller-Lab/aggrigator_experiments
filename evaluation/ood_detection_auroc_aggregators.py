@@ -205,7 +205,7 @@ def create_auroc_aggr_bar_plots(task, variation, uq_path, metadata_path, data_pa
         print(df)
         
         path = os.getcwd()
-        csv_file = f"{path}/output/{task}_auroc_ood_detect_results.csv"
+        csv_file = f"{path}/output/tables/{task}_auroc_ood_detect_results.csv"
 
         # Check if the file exists to handle headers properly
         try:
