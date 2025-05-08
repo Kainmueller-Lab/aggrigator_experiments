@@ -1,16 +1,18 @@
 # Aggrigator Experiments 🐊
 
-**Aggrigator** is a lightweight Python library for uncertainty aggregation in deep learning workflows.  
-Whether you're working with segmentation maps or just want to summarize per-pixel uncertainties — Aggrigator gives you a powerful and flexible toolbox to make sense of it all.
+**Aggrigator** is a lightweight and modular Python library for aggregating uncertainty in deep learning workflows, especially useful for tasks like segmentation or per-pixel analysis.
 
-With a clean API and built-in strategies, you can easily:
-- Reduce pixelwise uncertainty maps to scalar scores for evaluation or ranking.
-- Apply patch-based, class-specific, or thresholded aggregation.
-- Incorporate spatial correlation metrics like Moran's I or Geary’s C.
-- Compare strategies side-by-side with summaries and plots.
+With an intuitive API and a suite of built-in strategies, Aggrigator lets you:
+- Reduce pixel-wise uncertainty maps into scalar scores for ranking or evaluation.
+- Apply patch-based, class-specific, or thresholded aggregation strategies.
+- Integrate spatial correlation metrics like Moran’s I or Geary’s C.
+- Compare strategies side-by-side with insightful summaries and plots.
 
 Designed to be modular, explainable, and research-friendly.  
 Use it out of the box, or extend it with your own aggregation logic!
+
+This repository reproduces results related to our publication.
+📖 For details, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator)
 
 ## Installation
 
