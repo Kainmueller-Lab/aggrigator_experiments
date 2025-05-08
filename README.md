@@ -15,39 +15,19 @@ This repository reproduces results related to our publication.<br>
 📖 For details, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator).
 
 
-## Installation
+## Pre-requisites
 
-To install the aggrigator, clone the repository, navigate inside the directory and run the following command:
+Setup the environment by running the following commands. Be careful to choose the right pytorch version for your installed CUDA Version.
 
 ```bash
-pip install -e .
+micromamba env create -f environment.yml
+micromamba activate aggr_experiments
+pip install torch==2.1.1 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cu118
 ```
 
-now you can import the library in your python code with:
+To make the current directory (.) importable without changing sys.path manually:
 
-```python
+
+```bash
 import aggrigator
 ```
-
-## Testing
-
-To run the tests locally, navigate inside the aggrigator directory and first install the dev dependencies if needed:
-
-```bash
-pip install .[dev]
-```
-
-and then run the tests with:
-
-```bash
-pytest tests
-```
-
-## Try it out yourself
-
-Check out the interactive [example_notebook.ipynb](example_notebook.ipynb) to see **Aggrigator** in action.  
-You’ll learn how to:
-
-- ✅ Generate and visualize uncertainty maps.  
-- ⚙️ Apply and compare aggregation strategies.  
-- 🧠 Use class-aware masks for targeted aggregation.
