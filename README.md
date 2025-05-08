@@ -11,7 +11,7 @@ With an intuitive API and a suite of built-in strategies, Aggrigator lets you:
 Designed to be modular, explainable, and research-friendly.  
 Use it out of the box, or extend it with your own aggregation logic!
 
-This repository reproduces results related to our publication.␣␣
+This repository reproduces results related to our publication.␣
 📖 For details, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator).
 
 ## Installation
