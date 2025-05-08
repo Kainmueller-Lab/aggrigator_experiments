@@ -8,11 +8,8 @@ With an intuitive API and a suite of built-in strategies, Aggrigator lets you:
 - Integrate spatial correlation metrics like Moran’s I or Geary’s C.
 - Compare strategies side-by-side with insightful summaries and plots.
 
-Designed to be modular, explainable, and research-friendly.  
-Use it out of the box, or extend it with your own aggregation logic!
-
-This repository reproduces results related to our publication.<br>
-📖 For details, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator).
+Designed to be modular, explainable, and research-friendly. This repository is designed to reproduce the results contained in the publication that first introduced it.<br>
+📖 For details and to contribute, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator).
 
 
 ## Prerequisites
