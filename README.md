@@ -24,7 +24,7 @@ micromamba env create -f environment.yml
 micromamba activate aggr_experiments
 ```
 
-```selective_risk_coverage_curve.py``` relies on the [```fd-shifts```]() repository, which has a dependency on numpy<2. However, Aggrigator requires numpy>2 for optimal functionality. To avoid dependency conflicts, we recommend the following:
+```selective_risk_coverage_curve.py``` relies on the [```fd-shifts```](https://github.com/IML-DKFZ/fd-shifts/tree/main) repository, which has a dependency on ```"numpy<2.0.0"```. However, Aggrigator requires ```"numpy>2.0.0"``` for optimal functionality. To avoid dependency conflicts, we recommend the following:
 
 1. Clone the ```fd-shifts``` repository after setting up your environment.
 2. Edit the ```pyproject.toml``` file to replace ```"numpy>=1.22.2,<2.0.0"``` with ```"numpy>=2.0.0"```.
