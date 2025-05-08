@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aggrigator_experiments"
+version = "0.1.0"
+description = "Aggregation experiments framework"
+authors = [
+    { name = "Vanessa Emanuela Guarino", email = "VanessaEmanuela.Guarino@mdc-berlin.de"},
+    { name = "Chris Karg", email = "Chris.Karg@mdc-berlin.de"},
+    { name = "Claudia Winklmayr", email = "Claudia.Winklmayr@mdc-berlin.de"},
+    { name = "Jannik Franzen", email = "Jannik.Franzen@mdc-berlin.de"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aggrigator",
+    "distro==1.8.0",
+    "h5py",
+    "imagecodecs",
+    "ipython",
+    "jupyterlab",
+    "matplotlib",
+    "numpy>2",
+    "numba",
+    "numcodecs",
+    "pandas",
+    "pillow",
+    "opencv-python",
+    "scikit-learn",
+    "scikit-image",
+    "scipy",
+    "seaborn",
+    "shapely",
+    "torch",
+    "torchvision",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "ruff",
+    "pytest",
+    "pre-commit"
+]
+
+[tool.setuptools]
+packages = ["evaluation"]
+
+[tool.ruff]
+line-length = 120
+select = ["E", "F", "W"]
+exclude = ["build", "dist"]
+
+[tool.pytest.ini_options]
+addopts = ["--maxfail=1", "--disable-warnings"]
+testpaths = ["tests"]

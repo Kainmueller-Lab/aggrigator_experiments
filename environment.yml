@@ -1,7 +1,25 @@
-name: "aggr_experiments"
+name: aggr_experiments
 channels:
-- conda-forge
+  - conda-forge
 dependencies:
-- python=3.11
-- pip:
-  - -r requirements.txt
+  - python=3.11
+  - pip
+  - h5py
+  - imagecodecs
+  - ipython
+  - jupyterlab
+  - matplotlib
+  - numba
+  - numcodecs
+  - pandas
+  - pillow
+  - scikit-learn
+  - scikit-image
+  - scipy
+  - seaborn
+  - shapely
+  - pytorch
+  - torchvision
+  - tqdm
+  - pip:
+      - -e .
