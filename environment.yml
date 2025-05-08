@@ -9,6 +9,7 @@ dependencies:
   - ipython
   - jupyterlab
   - matplotlib
+  - mahotas
   - numba
   - numcodecs
   - pandas

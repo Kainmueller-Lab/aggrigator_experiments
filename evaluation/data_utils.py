@@ -29,10 +29,13 @@ def load_unc_maps(
         variation: str, 
         data_noise: str, 
         uq_method: str, 
-        decomp: str
+        decomp: str,
+        calibr: bool = False
     ) -> np.ndarray:
     """Load uncertainty maps"""
-    map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}.npy"
+    map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}"
+    if calibr: map_type += "_calib"
+    map_type += ".npy"
     map_file = uq_path.joinpath(map_type)
     print(f"Loading uncertainty map: {map_file}")
     return np.load(map_file)
@@ -42,11 +45,16 @@ def load_predictions(
         model_noise: int,
         variation: str,
         image_noise: str,
-        uq_method: str
+        uq_method: str,
+        calibr: bool = False
     ) -> List[np.ndarray]:
     """Load panoptic model predictions"""
-    preds_inst_type = f"instance_noise_{model_noise}_{variation}_{image_noise}_{uq_method}.npy"
-    preds_sem_type = f"semantic_noise_{model_noise}_{variation}_{image_noise}_{uq_method}.npy"
+    preds_inst_type = f"instance_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
+    if calibr: preds_inst_type += "_calib"
+    preds_inst_type += ".npy"
+    preds_sem_type = f"semantic_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
+    if calibr: preds_sem_type += "_calib"
+    preds_sem_type += ".npy"
     
     preds_file_path_inst = paths.predictions.joinpath(preds_inst_type)
     preds_file_path_sem = paths.predictions.joinpath(preds_sem_type)
@@ -59,16 +67,22 @@ def load_dataset(
         data_path: Path,
         image_noise: str,
         is_ood: bool,
-        num_workers: int
+        num_workers: int,
+        dataset_name: str
     ) -> Tuple[DataLoader, np.ndarray]:
     """Load uq data loader and gt"""
-
-    data_loader = renderHE_UQ_HVNext(
-        data_path, 
-        'test', 
-        OOD=is_ood, 
-        image_noise=image_noise
-    )
+    
+    if dataset_name.startswith("arctique"):        
+        data_loader = renderHE_UQ_HVNext(
+            data_path,
+            'test',
+            OOD=is_ood,
+            image_noise=image_noise
+        )
+    elif dataset_name.startswith("lizard"): 
+        data_loader =  LizardDataset(
+            root_dir=f"{data_path}", 
+            mode="test")
     
     dataset = DataLoader(
         data_loader, 
@@ -80,6 +94,7 @@ def load_dataset(
     )
     
     gt_list = np.array([label.numpy().squeeze() for _, label in dataset])
+    print(f"✓ Loaded {dataset_name} test set and ground truth")
     return dataset, gt_list
 
 # ---- Dataset Creation Functions ----
@@ -110,6 +125,53 @@ def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     if clip:
         x = np.clip(x, 0, 1)
     return x
+
+class LizardDataset(Dataset):
+    def __init__(self, root_dir, mode, norm=True): # mode is either train, val or test 
+        self.mode = mode
+        self.root_dir = root_dir
+        self.norm = norm
+        
+        if mode == 'train':
+            self.images_file = 'images_train.npy'
+            self.labels_file = 'labels_train.npy'  
+        elif mode == 'val':
+            self.images_file = 'images_val.npy'
+            self.labels_file = 'labels_val.npy' 
+        elif mode == 'test': 
+            self.images_file = 'images_test.npy'
+            self.labels_file = 'labels_test.npy' 
+        
+        self.images = np.load(Path(root_dir).joinpath(self.images_file))
+        self.labels = np.load(Path(root_dir).joinpath(self.labels_file))
+        
+        #match fibroblasts to the connective tissue 
+        self.class_mapping = {0: 0, 1: 6, 2: 1, 3: 3, 4: 2, 5: 4, 6: 5} 
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):        
+        image_tmp = self.images[idx].astype(np.float32)
+        if self.norm:
+            image_tmp = normalize_min_max(image_tmp, 0, 255)
+        image_tmp = torch.tensor(image_tmp, dtype=torch.float32) 
+        image =  image_tmp.permute(2, 0, 1) # CxHxW
+        
+        if self.labels is not None:
+            lab_tmp = self.labels[idx].astype(np.float32)
+            labinst_tmp, labsem_tmp, lab3c_tmp = lab_tmp[...,0], lab_tmp[...,1], lab_tmp[...,2]
+        
+        # if self.mode == 'val' or self.mode == 'test':
+        labsem_tmp = self.rearrange_class(labsem_tmp)
+        label = np.stack((labinst_tmp, labsem_tmp, lab3c_tmp), axis=-1)
+        label = torch.tensor(label, dtype=torch.int64)
+        
+        return image, label
+    
+    def rearrange_class(self, sem_label):
+        vectorized_mapping = np.vectorize(lambda x: self.class_mapping.get(x, x))
+        return vectorized_mapping(sem_label)
 
 class renderHE_UQ_HVNext(Dataset): 
     def __init__(self, root_dir, mode, OOD = False, image_noise = "0_00"): #mode is val, test

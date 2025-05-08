@@ -22,6 +22,7 @@ dependencies = [
     "ipython",
     "jupyterlab",
     "matplotlib",
+    "mahotas",
     "numpy>2",
     "numba",
     "numcodecs",
