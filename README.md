@@ -27,7 +27,6 @@ pip install torch==2.1.1 torchvision==0.16.1 --index-url https://download.pytorc
 
 To make the current directory ```(.)``` importable without changing ```sys.path``` manually:
 
-
 ```bash
-import aggrigator
+pip install -e .
 ```
