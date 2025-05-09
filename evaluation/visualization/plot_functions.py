@@ -11,13 +11,23 @@ from evaluation.constants import COLORS
 
 # ---- Visualization Functions ----
 
-def setup_plot_style() -> None:
+def setup_plot_style_auroc() -> None:
     """
-    Set up the plot style using custom configurations.
+    Set up the AUROC barplots style using custom configurations.
     """
     plt.rcParams["text.latex.preamble"] += (
         r"\usepackage{amsmath} \usepackage{amsfonts} \usepackage{bm}"
     )
+
+def setup_plot_style() -> None:
+    """
+    Set up the AURC plot style using custom configurations.
+    """
+    plt.rcParams["text.latex.preamble"] += (
+        r"\usepackage{amsmath} \usepackage{amsfonts} \usepackage{bm}"
+    )
+    plt.rcParams['axes.grid'] = True
+    plt.rcParams['grid.alpha'] = 0.3
 
 def create_auroc_barplot(
     results: List[pd.DataFrame],

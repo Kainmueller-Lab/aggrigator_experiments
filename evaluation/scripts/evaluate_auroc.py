@@ -10,7 +10,7 @@ from typing import List, Dict, Tuple, Any, Callable, NamedTuple
 
 from evaluation.data_utils import load_dataset, preload_uncertainty_maps, setup_paths
 from evaluation.metrics.auroc_ood_detection import evaluate_all_strategies
-from evaluation.visualization.plot_functions import setup_plot_style, create_auroc_barplot
+from evaluation.visualization.plot_functions import setup_plot_style_auroc, create_auroc_barplot
 from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, BARPLOTS_COLORS
 
 # ---- Script to evaluate AUROC for OoD detection for various aggregation methods and create comparison plots

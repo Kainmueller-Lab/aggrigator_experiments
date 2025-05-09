@@ -26,7 +26,7 @@ from evaluation.data_utils import (DataPaths,
                                    load_dataset, 
                                    load_unc_maps, 
                                    inst_to_3c)
-from evaluation.visualization.plot_functions import create_selective_risks_coverage_plot
+from evaluation.visualization.plot_functions import setup_plot_style_aurc, create_selective_risks_coverage_plot
 from fd_shifts.analysis.metrics import StatsCache
 from aggrigator.uncertainty_maps import UncertaintyMap
     
@@ -45,16 +45,6 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"Cleared content of {csv_file}")
     else:
         print(f"{csv_file} does not exist yet.")
-        
-def setup_plot_style() -> None:
-    """Sets up the plot style using tueplots and custom configurations."""
-    plt.rcParams["text.latex.preamble"] += (
-        r"\usepackage{amsmath} \usepackage{amsfonts} \usepackage{bm}"
-    )
-    # plt.style.use('seaborn-v0_8-whitegrid')
-    # plt.rcParams['figure.facecolor'] = 'white'
-    plt.rcParams['axes.grid'] = True
-    plt.rcParams['grid.alpha'] = 0.3
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Create accuracy-rejection curves for aggregators')
@@ -442,7 +432,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
 
 def main():
     # Set up plot style
-    setup_plot_style()
+    setup_plot_style_aurc()
     
     # Parse arguments 
     args = parse_args()
