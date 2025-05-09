@@ -6,15 +6,15 @@ import argparse
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from tqdm import tqdm
+from typing import List, Dict, Tuple, Any, Callable, NamedTuple
 
-from evaluation.data_utils import load_dataset, preload_uncertainty_maps
+from evaluation.data_utils import load_dataset, preload_uncertainty_maps, setup_paths
 from evaluation.metrics.auroc_ood_detection import evaluate_all_strategies
 from evaluation.visualization.plot_functions import setup_plot_style, create_auroc_barplot
 from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, BARPLOTS_COLORS
 
 # ---- Script to evaluate AUROC for OoD detection for various aggregation methods and create comparison plots
-
+    
 def clear_csv_file(output_path: Path, task: str) -> None:
     """Clears the content of the CSV file if it exists."""
     csv_file = output_path.joinpath(f'tables/{task}_auroc_ood_detect_results.csv')
@@ -120,27 +120,23 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 def main():
-    setup_plot_style() # Set up plot style
+    # Set up plot style
+    setup_plot_style() 
     
+    # Parse arguments 
     args = parse_arguments()
     
-    # Convert string paths to Path objects
-    uq_path = Path(args.uq_path).joinpath("UQ_maps")
-    data_path = Path(args.label_path).joinpath(args.variation) 
-    metadata_path = Path(args.uq_path).joinpath("UQ_metadata")
-    output_path = Path(os.getcwd())
-    
-    # Make sure output directory exists
-    output_path.joinpath('output').mkdir(exist_ok=True)
+    #Set paths and make sure output directory exists
+    paths = setup_paths(args)
     
     # Run evaluation
     run_auroc_evaluation(
         task=args.task,
         variation=args.variation,
-        uq_path=uq_path,
-        metadata_path=metadata_path,
-        data_path=data_path,
-        output_path=output_path,
+        uq_path=paths.uq_maps,
+        metadata_path=paths.metadata,
+        data_path=paths.data,
+        output_path=paths.output,
         model_noise=args.model_noise,
         decomp=args.decomp
     )

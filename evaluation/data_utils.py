@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import argparse
 import mahotas as mh
 import os
 
@@ -8,9 +9,11 @@ from torch.utils.data import Dataset, DataLoader
 from functools import lru_cache
 from pathlib import Path
 from PIL import Image
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, NamedTuple
 
 from aggrigator.uncertainty_maps import UncertaintyMap
+
+# ---- Data Structures ----
 
 @dataclass
 class DataPaths:
@@ -20,6 +23,38 @@ class DataPaths:
     predictions: Path
     data: Path
     output: Path
+
+class AnalysisResults(NamedTuple):
+    """Container for AURC analysis results."""
+    mean_aurc_val: np.ndarray
+    coverages: np.ndarray
+    mean_selective_risks: np.ndarray
+    std_selective_risks: np.ndarray
+
+def setup_paths(args: argparse.Namespace) -> DataPaths:
+    """Create and validate all necessary paths."""
+    base_path = Path(args.uq_path)
+    uq_maps_path = base_path.joinpath("UQ_maps")
+    metadata_path = base_path.joinpath("UQ_metadata")
+    preds_path = base_path.joinpath("UQ_predictions")
+    if args.variation:
+        data_path = Path(args.label_path).joinpath(args.variation) 
+    else: 
+        data_path = Path(args.label_path)
+    output_dir = Path.cwd().joinpath('output')
+    output_dir.mkdir(exist_ok=True)
+
+    for path in [uq_maps_path, metadata_path, preds_path, data_path]: # Validate paths
+        if not path.exists():
+            raise FileNotFoundError(f"Path does not exist: {path}")
+    
+    return DataPaths(
+        uq_maps=uq_maps_path,
+        metadata=metadata_path,
+        predictions=preds_path,
+        data=data_path,
+        output=output_dir
+    )
     
 # ---- Uncertainty Maps Normalization ----
 

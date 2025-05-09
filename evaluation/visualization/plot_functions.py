@@ -1,9 +1,13 @@
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Tuple
 from matplotlib.patches import Patch
+
+from evaluation.data_utils import AnalysisResults
+from evaluation.constants import COLORS
 
 # ---- Visualization Functions ----
 
@@ -127,5 +131,102 @@ def create_auroc_barplot(
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
     # Save the plot
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Plot saved to: {output_file}")
+
+def create_selective_risks_coverage_plot(
+        method_names: List[str],
+        aurc_res: AnalysisResults,
+        output_path: Path, 
+        args: argparse.Namespace
+    ) -> None:
+    """
+    Create and save AURC plot.
+    
+    Args:
+        method_names: List of method names
+        augrc_res: Analysis results containing AURC data
+        output_path: Path to save output
+        args: Command line arguments
+    """
+    # # Plot mean results
+    x = aurc_res.coverages.flatten() # Flatten to 1D for plotting
+    y = aurc_res.mean_selective_risks # Shape: [coverage points, num_strategies]
+    y_std = aurc_res.std_selective_risks # Shape: same as y
+    
+    # Prepare data dictionary for CSV export
+    data_dict = {"Coverage": x[::-1]} # Reverse to match plotting order
+    
+    # Define method categories for styling
+    method_categories = ["Threshold", "Patch", "Quantile"]
+    first_occurrence = {cat: True for cat in method_categories}
+    
+    # Plot each method
+    plt.figure(figsize=(8, 6))
+    for j, method_name in enumerate(method_names):
+        data_dict[f"{method_name} (Mean Risk)"] = y[:, j][::-1]
+        data_dict[f"{method_name} (Std Dev)"] = y_std[:, j][::-1]
+        
+        color = COLORS[j % len(COLORS)]
+        linestyle = '-'  # Default solid line
+        alpha = 1.0  # Default opacity
+        linewidth = 2  # Default line width
+        alpha_fill_in = 0.2 #default fill-in transparency
+        
+        # Check if the method belongs to a category
+        for cat in method_categories:
+            if method_name.startswith(cat):
+                if first_occurrence[cat]:
+                    first_occurrence[cat] = False  # Mark first as used
+                else:
+                    linestyle = '--'  # Dashed line for subsequent ones
+                    linewidth = 1 # Make itthinner
+                    alpha = 0.5  # Make it more transparent
+                    alpha_fill_in = 0.1
+                break  # Exit loop once category is found
+        
+        if method_name.startswith("mean"):
+            color = 'gray'
+            linewidth = 2
+        
+        plt.plot(x[::-1], y[:, j][::-1], 
+                 label=f"{method_names[j]} (AURC: {aurc_res.mean_aurc_val[j]:.4f})",
+                 linewidth=linewidth, color=color, linestyle=linestyle, alpha=alpha)
+        
+        # Add shaded area (mean ± std)
+        plt.fill_between(x[::-1], 
+                        (y[:, j] - y_std[:, j])[::-1],  # Lower bound
+                        (y[:, j] + y_std[:, j])[::-1],  # Upper bound
+                        color=color, alpha=alpha_fill_in)  # Transparency
+    
+    # Convert to DataFrame and save
+    df = pd.DataFrame(data_dict)
+    
+    # Define output file paths
+    ood = 'ood' if args.image_noise != '0_00' else 'id'
+    csv_file = output_path.joinpath(
+        f'tables/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{ood}.csv'
+    )
+    
+    # Check if file exists to handle headers
+    file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
+    df.to_csv(csv_file, mode='a', index=False, header=file_empty)
+    print(f"Data saved to: {csv_file}")
+    
+    # Finalize plot
+    plt.xlabel("Coverage")
+    plt.ylabel("Selective Risks")
+    plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.2), ncol=4, fontsize=8)
+    plt.grid(False)
+    
+    # Remove top and right spines
+    ax = plt.gca()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Save plot
+    output_file = output_path.joinpath(
+        f'figures/aurc_plot_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{ood}.png'
+    )
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")

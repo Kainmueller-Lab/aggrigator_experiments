@@ -19,37 +19,29 @@ from evaluation.constants import (CLASS_NAMES_ARCTIQUE,
                        AURC_DISPLAY_SCALE, 
                        COLORS)
 from evaluation.metrics.accuracy_metrics import per_tile_metrics
-from evaluation.data_utils import load_predictions, load_dataset, load_unc_maps, inst_to_3c
+from evaluation.data_utils import (DataPaths,
+                                   AnalysisResults,
+                                   setup_paths, 
+                                   load_predictions, 
+                                   load_dataset, 
+                                   load_unc_maps, 
+                                   inst_to_3c)
+from evaluation.visualization.plot_functions import create_selective_risks_coverage_plot
 from fd_shifts.analysis.metrics import StatsCache
 from aggrigator.uncertainty_maps import UncertaintyMap
-
-# ---- Data Structures ----
-@dataclass
-class DataPaths:
-    """Container for all data paths used in the program."""
-    uq_maps: Path
-    metadata: Path
-    predictions: Path
-    data: Path
-    output: Path
-    
-class AnalysisResults(NamedTuple):
-    """Container for analysis results."""
-    acc_portion: np.ndarray
-    aggr_unc_val: np.ndarray
-    class_names: Dict[str, int]
-    cl_acc_portion: List[Dict[str, float]]
     
 # ---- Configuration Functions ----
 
-def clear_csv_file(args):
+def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
-    path = os.getcwd()
-    variation = args.variation if args.variation else 'LizardData'
-    csv_file = f"{path}/output/tables/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{variation}_{args.data_mod}.csv" 
-
-    if os.path.exists(csv_file):  # Check if the file exists
-        open(csv_file, 'w').close()  # Open in write mode to clear contents
+    csv_file = output_path.joinpath(
+        f'tables/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{args.data_mod}.csv'
+    )
+    # Ensure directory exists
+    csv_file.parent.mkdir(exist_ok=True, parents=True)
+    
+    if csv_file.exists():
+        csv_file.open('w').close()  # Open in write mode to clear contents
         print(f"Cleared content of {csv_file}")
     else:
         print(f"{csv_file} does not exist yet.")
@@ -83,31 +75,6 @@ def parse_args():
     
     return parser.parse_args()
 
-def setup_paths(args: argparse.Namespace) -> DataPaths:
-    """Create and validate all necessary paths."""
-    base_path = Path(args.uq_path)
-    uq_maps_path = base_path.joinpath("UQ_maps")
-    metadata_path = base_path.joinpath("UQ_metadata")
-    preds_path = base_path.joinpath("UQ_predictions")
-    if args.variation:
-        data_path = Path(args.label_path).joinpath(args.variation) 
-    else: 
-        data_path = Path(args.label_path)
-    output_dir = Path.cwd().joinpath('output')
-    output_dir.mkdir(exist_ok=True)
-    
-    for path in [uq_maps_path, metadata_path, preds_path, data_path]: # Validate paths
-        if not path.exists():
-            raise FileNotFoundError(f"Path does not exist: {path}")
-    
-    return DataPaths(
-        uq_maps=uq_maps_path,
-        metadata=metadata_path,
-        predictions=preds_path,
-        data=data_path,
-        output=output_dir
-    )
-
 # ---- Analysis Functions ----
 
 def process_aggr_unc(uq_path: Path, 
@@ -137,7 +104,7 @@ def process_aggr_unc(uq_path: Path,
         return zip(*res)
     res = [method(map, param) for map in uq_maps]
     if category == 'Threshold':
-            res = [np.nan_to_num(np.array(res), nan=0)]
+        res = [np.nan_to_num(np.array(res), nan=0)]
     return res, None 
 
 def acc_score(acc_y: np.ndarray, 
@@ -368,9 +335,14 @@ def validate_indices(metadata_file_path, dataset, dataset_name):
     else:
         print('✓ Uncertainty values, predictions and masks indices match')
 
-def main(args):
-    # Set up paths and configuration
-    paths = setup_paths(args)
+def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
+    """
+    Run the AURC evaluation pipeline.
+    
+    Args:
+        args: Command line arguments
+        output_path: Path to save output
+    """
     
     # Extract parameters from arguments
     task = args.task
@@ -453,111 +425,36 @@ def main(args):
     all_results["generalized_risks"] = np.array(all_results["generalized_risks"])
     
     # Calculate mean across all UQ methods
-    mean_augrc_val = np.mean(all_results["augrc_val"], axis=0)
-    mean_generalized_risks = np.mean(all_results["generalized_risks"], axis=0)
-    std_generalized_risks = np.std(all_results["generalized_risks"], axis=0)
+    mean_aurc_val = np.mean(all_results["augrc_val"], axis=0)
+    mean_selective_risks = np.mean(all_results["generalized_risks"], axis=0)
+    std_selective_risks = np.std(all_results["generalized_risks"], axis=0)
     
-    # Define method categories
-    method_categories = ["Threshold", "Patch", "Quantile"]
-    first_occurrence = {cat: True for cat in method_categories}
+    # Create final results structure for plotting
+    final_results = AnalysisResults(
+        mean_aurc_val=mean_aurc_val,
+        coverages=all_results["coverages"],
+        mean_selective_risks=mean_selective_risks,
+        std_selective_risks=std_selective_risks
+    )
     
-    # Plot mean results
-    x = all_results["coverages"].flatten()  # Flatten to 1D for plotting
-    y = mean_generalized_risks             # Shape: [coverage points, num_strategies]
-    y_std = std_generalized_risks       # Shape: same as y
-    
-    # Prepare data dictionary
-    data_dict = {"Coverage": x[::-1]}  # Reverse to match plotting order
-    
-    # Plot each column as a separate line
-    plt.figure(figsize=(8, 6))
-    for j, method_name in enumerate(method_names):
-        
-        data_dict[f"{method_name} (Mean Risk)"] = y[:, j][::-1]
-        data_dict[f"{method_name} (Std Dev)"] = y_std[:, j][::-1]
-        
-        color = COLORS[j % len(COLORS)]  # Get color for each method            
-        linestyle = '-'  # Default solid line
-        alpha = 1.0  # Default opacity
-        linewidth = 2  # Default line width
-        alpha_fill_in = 0.2 #default fill-in transparency
-        
-        # Check if the method belongs to a category
-        for cat in method_categories:
-            if method_name.startswith(cat):
-                if first_occurrence[cat]:
-                    first_occurrence[cat] = False  # Mark first as used
-                else:
-                    linestyle = '--'  # Dashed line for subsequent ones
-                    linewidth = 1 # Make itthinner
-                    alpha = 0.5  # Make it more transparent
-                    alpha_fill_in = 0.1
-                break  # Exit loop once category is found
-        
-        if method_name.startswith("Mean"): 
-            method_name = 'Mean (baseline)'
-            color = 'gray'
-            linewidth = 2
-            alpha_fill_in = 0.4
-        
-        plt.plot(x[::-1], y[:, j][::-1], 
-                 label=f"{method_names[j]} (AURC: {mean_augrc_val[j]:.4f})",
-                 linewidth=linewidth, color=color, linestyle=linestyle, alpha=alpha)
-        
-        # Add shaded area (mean ± std)
-        plt.fill_between(x[::-1], 
-                        (y[:, j] - y_std[:, j])[::-1],  # Lower bound
-                        (y[:, j] + y_std[:, j])[::-1],  # Upper bound
-                        color=color, alpha=alpha_fill_in)  # Transparency
+    # Create plot
+    create_selective_risks_coverage_plot(method_names, final_results, paths.output, args)
 
-    # Define directory
-    output_dir = Path.cwd().joinpath('output')
-    output_dir.mkdir(exist_ok=True)
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(data_dict)
-
-    # Define output Excel file path
-    ood = 'ood' if image_noise != '0_00' else 'id'
-    csv_file = output_dir.joinpath(f'tables/aurc_data_{aggregator_type}_aggr_multi_uq_methods_{task}_{variation}_{ood}.csv')
-    
-    # Check if the file exists to handle headers properly
-    try:
-        with open(csv_file, 'r') as f:
-            file_empty = f.tell() == 0  # Check if file is empty
-    except FileNotFoundError:
-        file_empty = True  # If file doesn't exist, it's empty
-            
-    df.to_csv(csv_file, mode='a', index=False, header=file_empty)
-    print(f"Data saved to: {csv_file}")
-    
-    # Labels and legend
-    plt.xlabel("Coverage")
-    plt.ylabel("Selective Risks")
-    
-    # Move legend to the bottom with 12 columns
-    plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.2), ncol=4, fontsize=8)
-
-    plt.grid(False)   
-     
-    # Remove top and right quadrant lines (spines)
-    ax = plt.gca()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    
-    class_names = CLASS_NAMES_ARCTIQUE if dataset_name.startswith("arctique") else CLASS_NAMES_LIZARD
-    dataset_name = 'lizard' if len(class_names) > 5 else 'arctique'
-    output_file = output_dir.joinpath(f'figures/aurc_plot_{aggregator_type}_aggr_multi_uq_methods_{task}_{variation}_{ood}.png')
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Plot saved to: {output_file}")
-    
-if __name__ == "__main__":
+def main():
+    # Set up plot style
     setup_plot_style()
     
+    # Parse arguments 
     args = parse_args()
+    
+    #Set paths and make sure output directory exists
     paths = setup_paths(args)
     
     #Clean Excel file for plot
-    clear_csv_file(args)
+    clear_csv_file(paths.output, args)
     
-    main(args)
+    # Run evaluation
+    run_aurc_evaluation(args, paths)
+
+if __name__ == "__main__":
+    main()
