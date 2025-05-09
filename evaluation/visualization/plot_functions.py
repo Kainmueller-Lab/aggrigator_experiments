@@ -23,7 +23,7 @@ def create_auroc_barplot(
     task: str,
     variation: str,
     output_path: Path
-) -> None:
+    ) -> None:
     """
     Create comparative bar plots of image-level AUROC values.
     

@@ -13,7 +13,7 @@ def compute_auroc_from_maps(
     aggregation_method: Callable,
     params: Any,
     category: str
-) -> float:
+    ) -> float:
     """
     Compute AUROC to assess an aggregator's ability to detect OoD images, by defining:
     - True Positive Rate (TPR) as the proportion of correctly identified OoD images, 
@@ -45,15 +45,14 @@ def compute_auroc_from_maps(
     ])
     
     # Handle threshold methods
-    if category == 'Threshold':
+    if category == 'Threshold': 
         uncertainty_values = np.nan_to_num(uncertainty_values, nan=0)
         mask = (uncertainty_values == -1) | (uncertainty_values == 0)
         uncertainty_values[mask] = 0
-    
+
     # Calculate AUROC
     fpr, tpr, _ = roc_curve(gt_labels, uncertainty_values)
     roc_auc = auc(fpr, tpr)
-    
     return roc_auc
 
 
@@ -64,7 +63,7 @@ def evaluate_aggregation_strategy(
     aggr_method: Callable,
     param: Any,
     category: str
-) -> Dict:
+    ) -> Dict:
     """
     Evaluate an aggregation strategy across multiple UQ methods.
     
@@ -94,7 +93,6 @@ def evaluate_aggregation_strategy(
     for idx, uq_method in enumerate(uq_methods):
         uncertainty_maps = cached_maps[uq_method]['maps']
         gt_labels = cached_maps[uq_method]['gt_labels']
-        
         auroc_values[idx] = compute_auroc_from_maps(
             uncertainty_maps, gt_labels, aggr_method, param, category
         )
@@ -111,7 +109,7 @@ def evaluate_all_strategies(
     cached_maps: Dict,
     strategies: Dict,
     noise_level: str
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """
     Evaluate all aggregation strategies for a given noise level.
     
@@ -137,15 +135,12 @@ def evaluate_all_strategies(
         for aggr_name, (aggr_method, param) in methods.items():
             try:
                 print(f"----Processing aggregator function: {aggr_name}, in {category} category----")
-                
                 # Evaluate the strategy
                 result = evaluate_aggregation_strategy(
                     cached_maps, uq_methods, aggr_name, aggr_method, param, category
                 )
-                
                 # Add noise level
                 result['Noise_Level'] = noise_level
-                
                 # Store results
                 auroc_data.append(result)
             
@@ -156,5 +151,4 @@ def evaluate_all_strategies(
     # Convert to DataFrame and sort by AUROC
     df = pd.DataFrame(auroc_data)
     df = df.sort_values('AUROC', ascending=False).reset_index(drop=True)
-    
     return df

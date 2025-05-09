@@ -8,7 +8,9 @@ from torch.utils.data import Dataset, DataLoader
 from functools import lru_cache
 from pathlib import Path
 from PIL import Image
-from typing import List, Tuple
+from typing import Dict, List, Tuple
+
+from aggrigator.uncertainty_maps import UncertaintyMap
 
 @dataclass
 class DataPaths:
@@ -26,6 +28,67 @@ def rescale_maps(unc_map, uq_method, task):
     if uq_method == 'softmax':
         return unc_map
     return unc_map / rescale_fact 
+
+# ---- Pre-cache uncertainty maps and compute AUROC targets ----
+
+def preload_uncertainty_maps(
+    uq_path: Path, 
+    metadata_path: Path, 
+    gt_list: List[np.ndarray], 
+    task: str, 
+    model_noise: int, 
+    variation: str, 
+    data_noise: str
+    ) -> Dict[str, Dict]:
+    """Preload all uncertainty maps for a given noise level, their metadata indices
+    and iD and OoD image targets as either 0 or 1 to then calculate the aggregators AUROC score."""
+    
+    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta']
+    idx_task = 2 if task == 'instance' else 1
+    gt_array = np.array(gt_list)[..., idx_task]
+    
+    # Dictionary to store loaded maps for each UQ method
+    cached_maps = {}
+    
+    for uq_method in uq_methods:
+        # Load zero-risk and noisy uncertainty maps
+        uq_maps_zr, metadata_file_zr = load_unc_maps(
+            uq_path, task, model_noise, variation, '0_00', 
+            uq_method, 'pu', False, metadata_path
+        )
+        uq_maps_r, metadata_file_r = load_unc_maps(
+            uq_path, task, model_noise, variation, data_noise, 
+            uq_method, 'pu', False, metadata_path
+        )
+        
+        # Normalize when needed
+        uq_maps_zr = rescale_maps(uq_maps_zr, uq_method, task)
+        uq_maps_r = rescale_maps(uq_maps_r, uq_method, task)
+        
+        # Concatenate maps
+        uq_maps = np.concatenate((uq_maps_zr, uq_maps_r), axis=0)
+        
+        # Setup context masks
+        context_gt = np.concatenate([gt_array, gt_array], axis=0)
+        
+        # Create UncertaintyMap objects
+        uncertainty_maps = [
+            UncertaintyMap(array=array, mask=gt, name=None) 
+            for (array, gt) in zip(uq_maps, context_gt)
+        ]
+        
+        # Define iD and OoD targets
+        gt_labels_0 = np.zeros((len(uq_maps_zr)))
+        gt_labels_1 = np.ones((len(uq_maps_r)))
+        gt_labels = np.concatenate((gt_labels_0, gt_labels_1), axis=0)
+        
+        # Store in cache
+        cached_maps[uq_method] = {
+            'maps': uncertainty_maps,
+            'gt_labels': gt_labels,
+            'metadata': [metadata_file_zr, metadata_file_r]
+        }
+    return cached_maps
         
 # ---- Data Loading Functions ----
 
