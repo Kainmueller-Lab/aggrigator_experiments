@@ -29,7 +29,7 @@ micromamba activate aggr_experiments
 3. Then, install ```fd-shifts``` from local cloning using
 
 ```bash
-(aggr_experiments) pip install -e /path/to/local/fd-shifts
+(aggr_experiments) pip install -e /path-to-local/fd-shifts
 ```
 
 This modification is safe because the functions of ```fd-shifts``` used in this experiment are compatible with ```numpy>=2.0.0```. Once everything is installed and configured correctly, run the test suite to make sure all components work as expected:
