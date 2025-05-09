@@ -106,7 +106,7 @@ def load_unc_maps(
     ) -> np.ndarray:
     """Load uncertainty maps"""
     map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}"
-    if calibr: map_type += "_calib"
+    if calibr and variation != "nuclei_intensity": map_type += "_calib"
     map_type += ".npy"
     map_file = uq_path.joinpath(map_type)
     print(f"Loading uncertainty map: {map_type}")
@@ -129,10 +129,10 @@ def load_predictions(
     ) -> List[np.ndarray]:
     """Load panoptic model predictions"""
     preds_inst_type = f"instance_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
-    if calibr: preds_inst_type += "_calib"
+    if calibr and variation != "nuclei_intensity": preds_inst_type += "_calib"
     preds_inst_type += ".npy"
     preds_sem_type = f"semantic_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
-    if calibr: preds_sem_type += "_calib"
+    if calibr and variation != "nuclei_intensity": preds_sem_type += "_calib"
     preds_sem_type += ".npy"
     
     preds_file_path_inst = paths.predictions.joinpath(preds_inst_type)

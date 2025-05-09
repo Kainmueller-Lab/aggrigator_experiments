@@ -73,7 +73,7 @@ def per_tile_worker(cnt, gt_tile, pred_tile, match_euc_dist, class_names):
         f1 = (2 * tp) / ((2 * tp) + fp + fn)
     except ZeroDivisionError:
         # this means neither on GT nor pred there is a nucleus
-        f1 = np.NaN
+        f1 = np.nan
     precision = np.float64(tp) / np.maximum(tp + fp, 1)
     recall = np.float64(tp) / np.maximum(tp + fn, 1)
     ap = precision * recall if tp > 0 else 0.0
@@ -124,13 +124,13 @@ def per_tile_worker(cnt, gt_tile, pred_tile, match_euc_dist, class_names):
         try:
             f1_c = (2 * tp_c) / ((2 * tp_c) + fp_c + fn_c)
         except ZeroDivisionError:
-            f1_c = np.NaN
+            f1_c = np.nan
         try:
             precision_c = 1. * (tp_c) / max(1, tp_c + fp_c)
             recall_c = 1. * (tp_c) / max(1, tp_c + fn_c)
             ap_c = precision_c * recall_c
         except ZeroDivisionError:
-            ap_c = np.NaN
+            ap_c = np.nan
             
         sub_metrics.append(
             {
