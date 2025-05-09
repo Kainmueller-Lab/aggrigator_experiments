@@ -41,9 +41,9 @@ This modification is safe because the functions of ```fd-shifts``` used in this 
 ## Evaluation
 To quantify the impact of choosing an aggregation method in one's use case, the repo offers answers to the following five questions:
 
-1. How similar are the aggregated uncertainty scores produced by the different aggregators? (cf. )
-2. When translating a UQ method into a real-world scenario, how does the aggregator affect its reliability? <br> (cf. ```evaluation/scripts/evaluate_auroc.py```)
-3. To what extent does parameter choice in non–parameter-free aggregators modify method reliability? (cf. )
-4. How can an aggregator impact on the selection of an optimal UQ model in benchmarking environments? (cf. )
-5. How can spatial measures improve the aggregation performance of context-free aggregators? (cf. )
+1. How similar are the aggregated uncertainty scores produced by the different aggregators? <br> cf. 
+2. When translating a UQ method into a real-world scenario, how does the aggregator affect its reliability? <br> cf. ```evaluation/scripts/evaluate_auroc.py```
+3. To what extent does parameter choice in non–parameter-free aggregators modify method reliability? <br> cf. 
+4. How can an aggregator impact on the selection of an optimal UQ model in benchmarking environments? <br> cf. 
+5. How can spatial measures improve the aggregation performance of context-free aggregators? <br> cf. 
 
