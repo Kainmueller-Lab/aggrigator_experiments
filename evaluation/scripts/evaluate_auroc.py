@@ -79,7 +79,7 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     # Clear previous results
     clear_csv_file(output_path, task)
     
-    # Load zero-risk labels
+    # Load ground truth masks 
     _, gt_list = load_dataset(
         data_path, 
         '0_00',
@@ -113,7 +113,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--task', type=str, default='instance', help='Task type (e.g., instance or semantic)')
     parser.add_argument('--variation', type=str, default='nuclei_intensity', help='Variation type (e.g., nuclei_intensity or blood_cells)')
     parser.add_argument('--uq_path', type=str, default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results')
+    # '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     parser.add_argument('--label_path', type=str, default='/home/vanessa/Desktop/synth_unc_models/data/v1-0-variations/variations/', help='Path to labels')
+    # '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
     parser.add_argument('--model_noise', type=int, default=0, help='Model noise level')
     parser.add_argument('--decomp', type=str, default='pu', help='Decomposition component (e.g. pu, au, eu)')
     
@@ -121,7 +123,7 @@ def parse_arguments() -> argparse.Namespace:
 
 def main():
     # Set up plot style
-    setup_plot_style() 
+    setup_plot_style_auroc() 
     
     # Parse arguments 
     args = parse_arguments()

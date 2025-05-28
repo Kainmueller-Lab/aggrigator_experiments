@@ -137,7 +137,7 @@ def create_auroc_barplot(
     plt.tight_layout(rect=[0, 0, 1, 0.90])
     
     # Ensure output directory exists
-    output_file = output_path.joinpath(f'output/figures/aggregators_auroc_{task}_{variation}_barplots.png')
+    output_file = output_path.joinpath(f'figures/aggregators_auroc_{task}_{variation}_barplots.png')
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
     # Save the plot

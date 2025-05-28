@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib",
     "mahotas",
     "numpy>2",
+    "nibabel",
     "numba",
     "numcodecs",
     "pandas",

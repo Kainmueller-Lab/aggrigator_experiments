@@ -186,7 +186,7 @@ def load_dataset(
     ) -> Tuple[DataLoader, np.ndarray]:
     """Load uq data loader and gt"""
     
-    if dataset_name.startswith("arctique"):        
+    if dataset_name.startswith("arctique"):  
         data_loader = renderHE_UQ_HVNext(
             data_path,
             'test',
@@ -301,7 +301,9 @@ class renderHE_UQ_HVNext(Dataset):
         self.sem_mask_dir = Path(hovernext_masks_path).joinpath(f"{image_noise}/masks/semantic_indexing") #.joinpath(self.mode).joinpath(f"masks/semantic_indexing") prior to v1-0-corrected
     
         # extract the integer indices from filenames    
-        self.sample_names = [int(''.join(filter(str.isdigit, filename))) for filename in os.listdir(self.image_dir)] 
+        self.sample_names = [int(digits) for filename in os.listdir(self.image_dir) 
+                             if (digits := ''.join(filter(str.isdigit, filename)))
+                             ]
 
     def __len__(self):
         return len(self.sample_names)
