@@ -29,6 +29,117 @@ def setup_plot_style() -> None:
     plt.rcParams['axes.grid'] = True
     plt.rcParams['grid.alpha'] = 0.3
 
+def create_single_auroc_barplot(
+    results: pd.DataFrame,
+    barplot_colors: Dict[str, str],
+    strategies_dict: Dict,
+    task: str,
+    variation: str,
+    output_path: Path,
+) -> None:
+    """
+    Create a single bar plot of image-level AUROC values.
+    
+    Parameters
+    ----------
+    results : pd.DataFrame
+        DataFrame with AUROC results
+    barplot_colors : Dict[str, str]
+        Dictionary mapping categories to colors
+    strategies_dict : Dict
+        Dictionary of strategies by category
+    task : str
+        Task type ('instance' or 'semantic')
+    variation : str
+        Variation type
+    output_path : Path
+        Path to save the output figure
+    """
+    # Create figure
+    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+    
+    # Create a mapping from each method to its high-level category
+    method_to_category = {
+        method: category
+        for category, methods in strategies_dict.items()
+        for method in methods.keys()
+    }
+    
+    # Create bar plot
+    bars = ax.bar(
+        results['Aggregator'],
+        results['AUROC'],
+        yerr=results['AUROC_std'],
+        color=[barplot_colors[method_to_category[m]] for m in results['Aggregator']],
+        capsize=4,
+        zorder=3,
+    )
+    
+    # Add AUROC values on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(
+            f'{height:.3f}',
+            xy=(bar.get_x() + bar.get_width()/2, height),
+            xytext=(0, 3), # 3 points vertical offset
+            textcoords="offset points",
+            ha='center', va='bottom'
+        )
+    
+    # Add method label inside the bar, rotated vertically
+    for bar, label in zip(bars, results['Aggregator']):
+        y_offset = 0.005 * 2 * bar.get_height() # Adjust offset as needed
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            y_offset,
+            label,
+            ha="center",
+            va="bottom",
+            rotation="vertical",
+            fontsize=15,
+            zorder=4,
+        )
+    
+    # Set labels and formatting
+    ax.set_ylabel('AUROC' + r" $\uparrow$", fontsize=12)
+    ax.set_ylim(0, 1) # AUROC is between 0 and 1
+    ax.spines[['right', 'top']].set_visible(False)
+    ax.tick_params(axis='y', which='major', labelsize=13)
+    ax.set(xticklabels=[])
+    ax.tick_params(bottom=False)
+    
+    # Create legend
+    legend_elements = [
+        Patch(facecolor=v, label=k)
+        for k, v in barplot_colors.items()
+    ]
+    ax.legend(
+        handles=legend_elements, 
+        loc='upper center', 
+        bbox_to_anchor=(0.5, -0.025),
+        fancybox=True, 
+        shadow=True, 
+        ncol=3
+    )
+    
+    # Add title
+    title_text = (
+        f'OOD correctness measured by the AUROC w.r.t. model confidence correctness.\n'
+        f'Task: {task}, Variation: {variation}'
+    )
+    
+    plt.title(title_text, fontsize=16, pad=20)
+    plt.tight_layout()
+    
+    # Ensure output directory exists
+    output_file = output_path.joinpath(f'figures/aggregators_auroc_{task}_{variation}_barplot.png')
+    output_file.parent.mkdir(exist_ok=True, parents=True)
+    
+    # Save the plot
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Plot saved to: {output_file}")
+    plt.close()  # Close figure to free memory
+    
 def create_auroc_barplot(
     results: List[pd.DataFrame],
     noise_levels: List[str],

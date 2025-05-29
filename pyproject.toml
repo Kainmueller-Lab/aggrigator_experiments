@@ -49,8 +49,8 @@ dev = [
     "pre-commit"
 ]
 
-[tool.setuptools]
-packages = ["evaluation"]
+[tool.setuptools.packages.find]
+where = ["."]
 
 [tool.ruff]
 line-length = 120

@@ -10,8 +10,8 @@ from typing import List, Dict, Tuple, Any, Callable, NamedTuple
 
 from evaluation.data_utils import load_dataset, preload_uncertainty_maps, setup_paths
 from evaluation.metrics.auroc_ood_detection import evaluate_all_strategies
-from evaluation.visualization.plot_functions import setup_plot_style_auroc, create_auroc_barplot
-from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, BARPLOTS_COLORS
+from evaluation.visualization.plot_functions import setup_plot_style_auroc, create_auroc_barplot, create_single_auroc_barplot
+from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, NOISE_LEVELS_ARCTIQUE, BARPLOTS_COLORS
 
 # ---- Script to evaluate AUROC for OoD detection for various aggregation methods and create comparison plots
     
@@ -26,14 +26,14 @@ def clear_csv_file(output_path: Path, task: str) -> None:
     else:
         print(f"{csv_file} does not exist yet.")
 
-def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, task: str, model_noise: int, 
-                        variation: str, noise_level: str, output_path: Path) -> pd.DataFrame:
+def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, 
+                        model_noise: int, variation: str, noise_level: str, output_path: Path) -> pd.DataFrame:
     """Process all strategies for a single noise level."""
     print(f"Processing noise level: {noise_level}")
     
     # Preload all uncertainty maps for this noise level
     cached_maps = preload_uncertainty_maps(
-        uq_path, metadata_path, gt_list, task, model_noise, variation, noise_level
+        uq_path, metadata_path, gt_list, gt_labels, task, model_noise, variation, noise_level
     )
     
     # Evaluate all strategies
@@ -53,7 +53,7 @@ def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, task:
     return df
 
 def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path: Path, data_path: Path,
-                         output_path: Path, model_noise: int = 0, decomp: str = "pu") -> None:
+                         dataset_name: str, output_path: Path, model_noise: int = 0, decomp: str = "pu") -> None:
     """
     Create comparative bar plots of image-level AUROC values for different noise levels and UQ methods.
     
@@ -69,6 +69,7 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
         Path to metadata files
     data_path : Path
         Path to dataset
+    dataset_name : str
     output_path : Path
         Path to save output
     model_noise : int, optional
@@ -77,47 +78,64 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
         Decomposition component, by default "pu"
     """
     # Clear previous results
-    clear_csv_file(output_path, task)
+    # clear_csv_file(output_path, task)
+    
+    # Define noise levels
+    nls = NOISE_LEVELS_ARCTIQUE if dataset_name.startswith('arctique') else NOISE_LEVELS
     
     # Load ground truth masks 
-    _, gt_list = load_dataset(
+    _, gt_list, gt_labels = load_dataset(
         data_path, 
         '0_00',
         is_ood='ood',
         num_workers=2,
-        dataset_name='arctique'
+        dataset_name=dataset_name,
+        task=task
     )
     
     # Process each noise level
     results = []
-    for noise_level in NOISE_LEVELS:
+    for noise_level in nls:
         df = process_noise_level(
-            uq_path, metadata_path, gt_list, task, 
+            uq_path, metadata_path, gt_list, gt_labels, task, 
             model_noise, variation, noise_level, output_path
         )
         results.append(df)
     
     # Create plots
-    create_auroc_barplot(
-        results,
-        NOISE_LEVELS,
-        BARPLOTS_COLORS,
-        AUROC_STRATEGIES,
-        task,
-        variation,
-        output_path
-    )
+    if len(results) == 1:
+        create_single_auroc_barplot(
+            results[0],
+            BARPLOTS_COLORS,
+            AUROC_STRATEGIES,
+            task,
+            variation,
+            output_path
+        )
+    else:
+        create_auroc_barplot(
+            results,
+            nls,
+            BARPLOTS_COLORS,
+            AUROC_STRATEGIES,
+            task,
+            variation,
+            output_path
+        )
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Create ranked AUROC plots of unc. heatmaps at image level')
-    parser.add_argument('--task', type=str, default='instance', help='Task type (e.g., instance or semantic)')
-    parser.add_argument('--variation', type=str, default='nuclei_intensity', help='Variation type (e.g., nuclei_intensity or blood_cells)')
+    parser.add_argument('--task', type=str, default='instance', help='Task type (e.g. fgbg, instance, semantic)')
+    parser.add_argument('--variation', type=str, default='nuclei_intensity', help='Variation type (e.g. nuclei_intensity, blood_cells, malignancy, texture)')
     parser.add_argument('--uq_path', type=str, default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results')
-    # '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
-    parser.add_argument('--label_path', type=str, default='/home/vanessa/Desktop/synth_unc_models/data/v1-0-variations/variations/', help='Path to labels')
-    # '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
+    # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
+    # lidc: '/fast/AG_Kainmueller/data/ValUES/FirstCycle/'
+    parser.add_argument('--label_path', type=str, help='Path to labels')
+    # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
+    # lidc: '/fast/AG_Kainmueller/data/ValUES/FirstCycle/'
     parser.add_argument('--model_noise', type=int, default=0, help='Model noise level')
     parser.add_argument('--decomp', type=str, default='pu', help='Decomposition component (e.g. pu, au, eu)')
+    parser.add_argument('--dataset_name', type=str, default='arctique', help='Dataset name (e.g. arctique, lidc)')
     
     return parser.parse_args()
 
@@ -127,6 +145,8 @@ def main():
     
     # Parse arguments 
     args = parse_arguments()
+    if args.label_path is None:
+        args.label_path = args.uq_path 
     
     #Set paths and make sure output directory exists
     paths = setup_paths(args)
@@ -138,9 +158,10 @@ def main():
         uq_path=paths.uq_maps,
         metadata_path=paths.metadata,
         data_path=paths.data,
+        dataset_name = args.dataset_name, 
         output_path=paths.output,
         model_noise=args.model_noise,
-        decomp=args.decomp
+        decomp=args.decomp,
     )
 
 if __name__ == "__main__":

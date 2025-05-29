@@ -11,7 +11,8 @@ def load_and_sum_nifti(file_path):
         img = nib.load(file_path)
         data = img.get_fdata()
         # Sum over the last dimension (z-axis)
-        summed_data = np.sum(data, axis=-1) #TODO: to confirm with Carsten 
+        summed_data = data[:, :, data.shape[2] // 2]
+        # summed_data = np.sum(data, axis=-1) #TODO: to confirm with Carsten
         return summed_data
     except Exception as e:
         print(f"Error loading {file_path}: {e}")
@@ -76,12 +77,13 @@ def main():
     uq_metadata_dir = os.path.join(base_dir, "UQ_metadata")
     os.makedirs(uq_maps_dir, exist_ok=True)
     os.makedirs(uq_metadata_dir, exist_ok=True)
+    
     print(f"UQ_maps directory: {uq_maps_dir}")
     print(f"UQ_metadata directory: {uq_metadata_dir}")
     
     # Methods and their corresponding folder names
     methods = ["Dropout", "Ensemble", "Softmax", "TTA"]
-    method_names = ["dropout", "ensemble", "softmax", "tta"]  # lowercase for filename
+    method_names = ["dropout", "ensemble", "softmax", "tta"] # lowercase for filename
     
     # OOD variations
     ood_variations = ["malignancy", "texture"]
@@ -95,7 +97,7 @@ def main():
         if not os.path.exists(method_path):
             print(f"Method path does not exist: {method_path}")
             continue
-            
+        
         print(f"\nProcessing method: {method}")
         
         for ood_var in ood_variations:
@@ -106,7 +108,7 @@ def main():
             if not os.path.exists(folder_path):
                 print(f"Folder does not exist: {folder_path}")
                 continue
-                
+            
             print(f"  Processing OOD variation: {ood_var}")
             
             for data_type, data_noise in data_noise_mapping.items():
@@ -115,7 +117,7 @@ def main():
                 if not os.path.exists(data_type_path):
                     print(f"    Data type path does not exist: {data_type_path}")
                     continue
-                    
+                
                 pred_entropy_path = os.path.join(data_type_path, "pred_entropy")
                 
                 if not os.path.exists(pred_entropy_path):
@@ -132,13 +134,19 @@ def main():
                     base_filename = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}_pu"
                     npy_filename = f"{base_filename}.npy"
                     json_filename = f"{base_filename}.json"
+                    sample_idx_filename = f"{base_filename}_sample_idx.npy"
                     
                     npy_output_path = os.path.join(uq_maps_dir, npy_filename)
                     json_output_path = os.path.join(uq_metadata_dir, json_filename)
+                    sample_idx_output_path = os.path.join(uq_metadata_dir, sample_idx_filename)
                     
                     # Save the numpy array
                     np.save(npy_output_path, processed_array)
                     print(f"    Saved: {npy_filename} with shape {processed_array.shape}")
+                    
+                    # Save the sample indices as a separate numpy array
+                    np.save(sample_idx_output_path, np.array(sample_indices))
+                    print(f"    Saved: {sample_idx_filename} with {len(sample_indices)} sample indices")
                     
                     # Create and save metadata
                     metadata = create_metadata(method, method_name, ood_var, data_noise, data_type, sample_indices)

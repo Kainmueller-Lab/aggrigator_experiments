@@ -12,6 +12,7 @@ from PIL import Image
 from typing import Dict, List, Tuple, NamedTuple
 
 from aggrigator.uncertainty_maps import UncertaintyMap
+from datasets.LIDC.lidc_dataset_creation import LIDC_UQ_Dataset
 
 # ---- Data Structures ----
 
@@ -37,14 +38,21 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     uq_maps_path = base_path.joinpath("UQ_maps")
     metadata_path = base_path.joinpath("UQ_metadata")
     preds_path = base_path.joinpath("UQ_predictions")
-    if args.variation:
+    
+    if args.variation and args.dataset_name.startswith('arctique'):
         data_path = Path(args.label_path).joinpath(args.variation) 
-    else: 
+    elif args.variation and args.dataset_name.startswith('lidc'):
+        cycle = 'FirstCycle'
+        folder = f'{args.variation}_fold0_seed123'
+        placehold = 'Softmax'
+        data_path = Path(args.label_path).joinpath(f'{cycle}/{placehold}/test_results/{folder}/') 
+    elif args.dataset_name.startswith('lizard'): 
         data_path = Path(args.label_path)
+        
     output_dir = Path.cwd().joinpath('output')
     output_dir.mkdir(exist_ok=True)
 
-    for path in [uq_maps_path, metadata_path, preds_path, data_path]: # Validate paths
+    for path in [uq_maps_path, metadata_path, data_path]: # Validate paths - we exclude for now preds_path
         if not path.exists():
             raise FileNotFoundError(f"Path does not exist: {path}")
     
@@ -59,7 +67,12 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
 # ---- Uncertainty Maps Normalization ----
 
 def rescale_maps(unc_map, uq_method, task):
-    rescale_fact = np.log(3) if task == 'instance' else np.log(6)
+    if task == 'instance':
+        rescale_fact = np.log(3) 
+    elif task == 'semantic':
+        rescale_fact = np.log(6)
+    else:
+        rescale_fact = np.log(2) #TODO: define how to normalize ValUES maps
     if uq_method == 'softmax':
         return unc_map
     return unc_map / rescale_fact 
@@ -69,7 +82,8 @@ def rescale_maps(unc_map, uq_method, task):
 def preload_uncertainty_maps(
     uq_path: Path, 
     metadata_path: Path, 
-    gt_list: List[np.ndarray], 
+    context_gt: List[np.ndarray], 
+    gt_labels: List[np.ndarray], 
     task: str, 
     model_noise: int, 
     variation: str, 
@@ -79,8 +93,6 @@ def preload_uncertainty_maps(
     and iD and OoD image targets as either 0 or 1 to then calculate the aggregators AUROC score."""
     
     uq_methods = ['softmax', 'ensemble', 'dropout', 'tta']
-    idx_task = 2 if task == 'instance' else 1
-    gt_array = np.array(gt_list)[..., idx_task]
     
     # Dictionary to store loaded maps for each UQ method
     cached_maps = {}
@@ -103,19 +115,11 @@ def preload_uncertainty_maps(
         # Concatenate maps
         uq_maps = np.concatenate((uq_maps_zr, uq_maps_r), axis=0)
         
-        # Setup context masks
-        context_gt = np.concatenate([gt_array, gt_array], axis=0)
-        
         # Create UncertaintyMap objects
         uncertainty_maps = [
             UncertaintyMap(array=array, mask=gt, name=None) 
             for (array, gt) in zip(uq_maps, context_gt)
         ]
-        
-        # Define iD and OoD targets
-        gt_labels_0 = np.zeros((len(uq_maps_zr)))
-        gt_labels_1 = np.ones((len(uq_maps_r)))
-        gt_labels = np.concatenate((gt_labels_0, gt_labels_1), axis=0)
         
         # Store in cache
         cached_maps[uq_method] = {
@@ -177,39 +181,105 @@ def load_predictions(
     preds = np.stack((preds_inst, preds_sem), axis=-1)    
     return list(preds)
 
+def extract_gt_masks_labels(dataset_dict: Dict[str, DataLoader], task: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Extract ground truth masks from id and ood datasets and create binary labels for them."""
+    idx_task = 2 if task == 'instance' else 1
+    id_gt_list = np.array([label.numpy().squeeze() for _, label in dataset_dict['id_masks']])  # Extract id masks
+    id_gt_processed = id_gt_list[..., idx_task] if id_gt_list.ndim > 3 else id_gt_list  #panoptic masks vs non-panoptic case
+    
+    # Check if id and ood datasets are the same (arctique/lizard case)
+    if dataset_dict['id_masks'] is dataset_dict['ood_masks']:
+        context_gt = np.concatenate((id_gt_processed, id_gt_processed), axis=0)
+        
+        # Create binary labels: first half id (0), second half ood (1)
+        num_samples = len(dataset_dict['id_masks'].dataset) 
+        gt_labels = np.concatenate([
+            np.zeros(num_samples),
+            np.ones(num_samples)
+        ], axis=0)
+        
+    else: # Different (non-panoptic) datasets (lidc case) with different id and ood masks 
+        ood_gt_list = np.array([label.numpy().squeeze() for _, label in dataset_dict['ood_masks']])
+        # Concatenate different masks
+        context_gt = np.concatenate((id_gt_processed, ood_gt_list), axis=0)
+        
+        # Create binary labels: first half id (0), second half ood (1)
+        num_id_samples = len(dataset_dict['id_masks'].dataset)
+        num_ood_samples = len(dataset_dict['ood_masks'].dataset)
+        gt_labels = np.concatenate([
+            np.zeros(num_id_samples),
+            np.ones(num_ood_samples)
+        ], axis=0)
+    return context_gt, gt_labels
+
 def load_dataset(
-        data_path: Path,
-        image_noise: str,
-        is_ood: bool,
-        num_workers: int,
-        dataset_name: str
-    ) -> Tuple[DataLoader, np.ndarray]:
+    data_path: Path,
+    image_noise: str,
+    is_ood: bool,
+    num_workers: int,
+    dataset_name: str,
+    task: str = 'semantic',
+    return_id_only: bool = False
+    ) -> Tuple[Dict[str, DataLoader], np.ndarray]:
     """Load uq data loader and gt"""
     
-    if dataset_name.startswith("arctique"):  
-        data_loader = renderHE_UQ_HVNext(
-            data_path,
-            'test',
-            OOD=is_ood,
-            image_noise=image_noise
+    dataset = {'id_masks': None, 'ood_masks': None} 
+    ood_values = {'id_masks': False, 'ood_masks': True}
+    
+    for key, val in dataset.items():
+        if dataset_name.startswith("arctique"):
+            # Create single data loader for arctique
+            data_loader = renderHE_UQ_HVNext(
+                root_dir=data_path,
+                mode="test",
+                OOD=is_ood,
+                image_noise=image_noise
+            )
+            
+        elif dataset_name.startswith("lizard"):
+            # Create single data loader for lizard
+            data_loader = LizardDataset(
+                root_dir=f"{data_path}",
+                mode="test"
+            )
+            
+        elif dataset_name.startswith("lidc"):
+            # Create ID dataset (OOD=False)
+            data_loader = LIDC_UQ_Dataset(
+                root_dir=data_path,
+                mode="test",
+                OOD=ood_values[key],
+                consensus_threshold=2,
+                return_2d_slices=True
+            )
+            
+        # Create DataLoader
+        loader = DataLoader(
+            data_loader,
+            batch_size=1,
+            shuffle=False,
+            prefetch_factor=2,
+            num_workers=num_workers,
+            pin_memory=True
         )
-    elif dataset_name.startswith("lizard"): 
-        data_loader =  LizardDataset(
-            root_dir=f"{data_path}", 
-            mode="test")
+        
+        dataset[key] = loader
+        if dataset_name.startswith(("arctique", "lizard")):
+            dataset['ood_masks'] = dataset['id_masks']
+            break
     
-    dataset = DataLoader(
-        data_loader, 
-        batch_size=1, 
-        shuffle=False, 
-        prefetch_factor=2,
-        num_workers=num_workers,
-        pin_memory=True
-    )
+    # Handle early return for id-only case (for selective classification)
+    if return_id_only:
+        id_gt_list = np.array([label.numpy().squeeze() for _, label in dataset['id_masks']])
+        print(f"GT masks shape: {context_gt.shape}")
+        print(f"✓ Loaded {dataset_name} id-only test set and ground truth")
+        return dataset['id_masks'], id_gt_list
     
-    gt_list = np.array([label.numpy().squeeze() for _, label in dataset])
+    # Create ground truth labels using separated function
+    context_gt, gt_labels = extract_gt_masks_labels(dataset, task)
+    print(f"GT masks shape: {context_gt.shape}")
     print(f"✓ Loaded {dataset_name} test set and ground truth")
-    return dataset, gt_list
+    return dataset, context_gt, gt_labels
 
 # ---- Dataset Creation Functions ----
 

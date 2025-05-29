@@ -23,7 +23,8 @@ CLASS_NAMES_LIZARD = {
     "neutrophil": 6
 }
 
-NOISE_LEVELS = ["0_25", "0_50", "0_75", "1_00"]
+NOISE_LEVELS_ARCTIQUE = ["0_25", "0_50", "0_75", "1_00"]
+NOISE_LEVELS = ["1_00"]
 
 AUROC_STRATEGIES = {
         'Context-aware': {
