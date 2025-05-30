@@ -13,8 +13,9 @@ from typing import Dict, List, Tuple, NamedTuple
 
 from aggrigator.uncertainty_maps import UncertaintyMap
 from datasets.LIDC.lidc_dataset_creation import LIDC_UQ_Dataset
-from datasets.Arctique.arctique_dataset_creation import renderHE_UQ_HVNext
+from datasets.Arctique.arctique_dataset_creation import renderHE_UQ_HVNext, inst_to_3c
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
+from evaluation.constants import BACKGROUND_FREE_STRATEGIES, AUROC_STRATEGIES
 
 # ---- Data Structures ----
 
@@ -65,21 +66,87 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
         data=data_path,
         output=output_dir
     )
+
+# ---- Sanity Check ----
+
+def validate_indices(args, metadata_path, uq_method, dataset, dataset_name):
+    meta_type = f"{args.task}_noise_{args.model_noise}_{args.variation}_{args.image_noise}_{uq_method}_{args.decomp}_sample_idx.npy"
+    metadata_file_path = metadata_path.joinpath(meta_type)
+        
+    if metadata_file_path.exists():
+        indices = np.load(metadata_file_path)
+        
+    if dataset_name.startswith("arctique"):
+        dataset_loader = dataset.dataset # Get the names of the samples, if the dataloader was used in the previous evaluation
+        if hasattr(dataset_loader, 'sample_names') and (dataset_loader.sample_names == indices).any():
+            print('✓ Uncertainty values, predictions and masks indices match')
+        else:
+            print('⚠ WARNING: Uncertainty values, predictions and masks indices DO NOT match')
+    else:
+        print('✓ Uncertainty values, predictions and masks indices match')
+
+def _process_instance_predictions(pred_list: List[np.ndarray], task: str, dataset_name: str) -> List[np.ndarray]:
+    """Apply instance-specific processing to predictions if needed."""
+    if task == 'instance' and dataset_name.startswith(('arctique', 'lizard')):
+        processed_pred_list = []
+        for pred in pred_list:
+            processed_inst = inst_to_3c(pred[..., 0], False)
+            stacked_pred = np.stack((processed_inst, pred[..., 1]), axis=-1)
+            processed_pred_list.append(stacked_pred)
+        return processed_pred_list
+    return pred_list
+
+def _process_gt_masks(gt_list: List[np.ndarray], idx_task: int, dataset_name: str) -> List[np.ndarray]:
+    """Apply instance-specific processing to gt masks if needed."""
+    if dataset_name.startswith(('arctique', 'lizard')):
+       return gt_list[...,idx_task]
+    return gt_list
+
+def remove_background_only_images(gt_list, pred_list, idx_task, task, dataset_name):
+    '''Excludes images containing only background (class 0) from ground truth and predictions for the AURC experiment.'''
+    if dataset_name.startswith(('arctique', 'lizard')):
+        mask = np.array([np.all(np.unique(gt[..., idx_task]) == 0) for gt in gt_list])
+    elif dataset_name.startswith('lidc'):
+        mask = np.array([np.all(np.unique(gt) == 0) for gt in gt_list])
+        
+    background_only_indices = np.where(mask)[0].tolist()  # Get indices of images to remove
+    
+    if not background_only_indices:
+        pred_list = _process_instance_predictions(pred_list, task, dataset_name)
+        return [], gt_list, pred_list
+    
+    keep_mask = ~mask  # Filter using boolean indexing
+    filtered_gt_list = [gt_list[i] for i in range(len(gt_list)) if keep_mask[i]]
+    filtered_pred_list = [pred_list[i] for i in range(len(pred_list)) if keep_mask[i]]
+    filtered_pred_list = _process_instance_predictions(filtered_pred_list, task, dataset_name) # Apply instance processing
+    
+    print(f"⚠ Removed {len(background_only_indices)} images containing only background: {background_only_indices}")
+    return background_only_indices, filtered_gt_list, filtered_pred_list
+    
+# ---- Aggregation strategies selection ----
+
+def select_strategies(str_type: str):
+    strategies = BACKGROUND_FREE_STRATEGIES if str_type == 'proportion-invariant' else AUROC_STRATEGIES
+    method_names = [method for category in strategies.values() for method in category.keys()]
+    # print(method_names)
+    return strategies, method_names
     
 # ---- Uncertainty Maps Normalization ----
 
-def rescale_maps(unc_map, uq_method, task):
+def rescale_maps(unc_maps, uq_method, task, dataset_name):
+    if uq_method == 'softmax':
+        return unc_maps
     if task == 'instance':
         rescale_fact = np.log(3) 
-    elif task == 'semantic':
+    elif task == 'semantic' and dataset_name.startswith('arctique'):
         rescale_fact = np.log(6)
-    else:
+    elif task == 'semantic' and dataset_name.startswith('lizard'):
+        rescale_fact = np.log(7) 
+    elif task == 'fgbg' and dataset_name.startswith('lidc'):
         rescale_fact = np.log(2) #TODO: define how to normalize ValUES maps
-    if uq_method == 'softmax':
-        return unc_map
-    return unc_map / rescale_fact 
+    return unc_maps / rescale_fact 
 
-# ---- Pre-cache uncertainty maps and compute AUROC targets ----
+# ---- Pre-cache uncertainty maps, gt and OoD AUROC targets ----
 
 def preload_uncertainty_maps(
     uq_path: Path, 
@@ -89,7 +156,8 @@ def preload_uncertainty_maps(
     task: str, 
     model_noise: int, 
     variation: str, 
-    data_noise: str
+    data_noise: str,
+    dataset_name: str,
     ) -> Dict[str, Dict]:
     """Preload all uncertainty maps for a given noise level, their metadata indices
     and iD and OoD image targets as either 0 or 1 to then calculate the aggregators AUROC score."""
@@ -111,8 +179,8 @@ def preload_uncertainty_maps(
         )
         
         # Normalize when needed
-        uq_maps_zr = rescale_maps(uq_maps_zr, uq_method, task)
-        uq_maps_r = rescale_maps(uq_maps_r, uq_method, task)
+        uq_maps_zr = rescale_maps(uq_maps_zr, uq_method, task, dataset_name)
+        uq_maps_r = rescale_maps(uq_maps_r, uq_method, task, dataset_name)
         
         # Concatenate maps
         uq_maps = np.concatenate((uq_maps_zr, uq_maps_r), axis=0)
@@ -142,22 +210,28 @@ def load_unc_maps(
         data_noise: str, 
         uq_method: str, 
         decomp: str,
+        dataset_name: str,
         calibr: bool = False,
         metadata_path: str = None,
     ) -> np.ndarray:
-    """Load uncertainty maps"""
+    '''Load UQ maps'''
     map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}"
-    if calibr and variation != "nuclei_intensity": map_type += "_calib"
-    map_type += ".npy"
-    map_file = uq_path.joinpath(map_type)
-    print(f"Loading uncertainty map: {map_type}")
     
+    if dataset_name.startswith(('arctique', 'lizard')):
+        """Load uncertainty maps"""
+        if calibr and variation != "nuclei_intensity": map_type += "_calib"
+        map_type += ".npy"
+        map_file = uq_path.joinpath(map_type)
+    elif dataset_name.startswith('lidc'):
+        map_type += ".npy"
+        map_file = uq_path.joinpath(map_type)
+        
+    print(f"Loading uncertainty map: {map_type}")
     if metadata_path:
-        meta_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}_sample_idx"
-        meta_type += ".npy"
-        meta_file = metadata_path.joinpath(meta_type)
-        print(f"Loading metadata file: {meta_type}")
-        return np.load(map_file), np.load(meta_file)
+            meta_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}_sample_idx.npy"
+            meta_file = metadata_path.joinpath(meta_type)
+            print(f"Loading metadata file: {meta_type}")
+            return np.load(map_file), np.load(meta_file)
     return np.load(map_file) 
 
 def load_predictions(
@@ -166,22 +240,29 @@ def load_predictions(
         variation: str,
         image_noise: str,
         uq_method: str,
-        calibr: bool = False
+        dataset_name: str,
+        # calibr: bool = False
     ) -> List[np.ndarray]:
-    """Load panoptic model predictions"""
-    preds_inst_type = f"instance_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
-    if calibr and variation != "nuclei_intensity": preds_inst_type += "_calib"
-    preds_inst_type += ".npy"
-    preds_sem_type = f"semantic_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
-    if calibr and variation != "nuclei_intensity": preds_sem_type += "_calib"
-    preds_sem_type += ".npy"
-    
-    preds_file_path_inst = paths.predictions.joinpath(preds_inst_type)
-    preds_file_path_sem = paths.predictions.joinpath(preds_sem_type)
-    
-    preds_inst, preds_sem = np.load(preds_file_path_inst), np.load(preds_file_path_sem)
-    preds = np.stack((preds_inst, preds_sem), axis=-1)    
-    return list(preds)
+    '''Load UQ model predictions'''
+    if dataset_name.startswith(('arctique', 'lizard')):
+        # Load panoptic model predictions
+        preds_inst_type = f"instance_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
+        if variation != "nuclei_intensity": preds_inst_type += "_calib"
+        preds_inst_type += ".npy"
+        preds_sem_type = f"semantic_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
+        if variation != "nuclei_intensity": preds_sem_type += "_calib"
+        preds_sem_type += ".npy"
+        
+        preds_file_path_inst = paths.predictions.joinpath(preds_inst_type)
+        preds_file_path_sem = paths.predictions.joinpath(preds_sem_type)
+        
+        preds_inst, preds_sem = np.load(preds_file_path_inst), np.load(preds_file_path_sem)
+        return np.stack((preds_inst, preds_sem), axis=-1) #list(np.stack((preds_inst, preds_sem), axis=-1))
+     
+    elif dataset_name.startswith('lidc'):
+        preds_type = f"fgbg_noise_{model_noise}_{variation}_{image_noise}_{uq_method}.npy"
+        preds_file_path = paths.predictions.joinpath(preds_type)
+        return np.load(preds_file_path) #list(np.load(preds_file_path))
 
 def extract_gt_masks_labels(dataset_dict: Dict[str, DataLoader], task: str) -> Tuple[np.ndarray, np.ndarray]:
     """Extract ground truth masks from id and ood datasets and create binary labels for them."""
@@ -217,7 +298,6 @@ def extract_gt_masks_labels(dataset_dict: Dict[str, DataLoader], task: str) -> T
 def load_dataset(
     data_path: Path,
     image_noise: str,
-    is_ood: bool,
     num_workers: int,
     dataset_name: str,
     task: str = 'semantic',
@@ -234,7 +314,6 @@ def load_dataset(
             data_loader = renderHE_UQ_HVNext(
                 root_dir=data_path,
                 mode="test",
-                OOD=is_ood,
                 image_noise=image_noise
             )
             
@@ -273,7 +352,7 @@ def load_dataset(
     # Handle early return for id-only case (for selective classification)
     if return_id_only:
         id_gt_list = np.array([label.numpy().squeeze() for _, label in dataset['id_masks']])
-        print(f"GT masks shape: {context_gt.shape}")
+        print(f"GT masks shape: {id_gt_list.shape}")
         print(f"✓ Loaded {dataset_name} id-only test set and ground truth")
         return dataset['id_masks'], id_gt_list
     

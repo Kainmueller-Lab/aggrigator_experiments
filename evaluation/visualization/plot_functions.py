@@ -19,7 +19,7 @@ def setup_plot_style_auroc() -> None:
         r"\usepackage{amsmath} \usepackage{amsfonts} \usepackage{bm}"
     )
 
-def setup_plot_style() -> None:
+def setup_plot_style_aurc() -> None:
     """
     Set up the AURC plot style using custom configurations.
     """

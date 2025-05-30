@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Any, Callable, NamedTuple
 
 from evaluation.data_utils import load_dataset, preload_uncertainty_maps, setup_paths
-from evaluation.metrics.auroc_ood_detection import evaluate_all_strategies
+from evaluation.metrics.auroc_ood import evaluate_all_strategies
 from evaluation.visualization.plot_functions import setup_plot_style_auroc, create_auroc_barplot, create_single_auroc_barplot
 from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, NOISE_LEVELS_ARCTIQUE, BARPLOTS_COLORS
 
@@ -26,14 +26,14 @@ def clear_csv_file(output_path: Path, task: str) -> None:
     else:
         print(f"{csv_file} does not exist yet.")
 
-def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, 
-                        model_noise: int, variation: str, noise_level: str, output_path: Path) -> pd.DataFrame:
+def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, model_noise: int, 
+                        variation: str, noise_level: str, output_path: Path, dataset_name: str) -> pd.DataFrame:
     """Process all strategies for a single noise level."""
     print(f"Processing noise level: {noise_level}")
     
     # Preload all uncertainty maps for this noise level
     cached_maps = preload_uncertainty_maps(
-        uq_path, metadata_path, gt_list, gt_labels, task, model_noise, variation, noise_level
+        uq_path, metadata_path, gt_list, gt_labels, task, model_noise, variation, noise_level, dataset_name
     )
     
     # Evaluate all strategies
@@ -83,11 +83,10 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     # Define noise levels
     nls = NOISE_LEVELS_ARCTIQUE if dataset_name.startswith('arctique') else NOISE_LEVELS
     
-    # Load ground truth masks 
+    # Load ground truth masks and AUROC target labels
     _, gt_list, gt_labels = load_dataset(
         data_path, 
         '0_00',
-        is_ood='ood',
         num_workers=2,
         dataset_name=dataset_name,
         task=task
@@ -97,8 +96,8 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     results = []
     for noise_level in nls:
         df = process_noise_level(
-            uq_path, metadata_path, gt_list, gt_labels, task, 
-            model_noise, variation, noise_level, output_path
+            uq_path, metadata_path, gt_list, gt_labels, task, model_noise, 
+            variation, noise_level, output_path, dataset_name
         )
         results.append(df)
     
@@ -129,7 +128,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--variation', type=str, default='nuclei_intensity', help='Variation type (e.g. nuclei_intensity, blood_cells, malignancy, texture)')
     parser.add_argument('--uq_path', type=str, default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results')
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
-    # lidc: '/fast/AG_Kainmueller/data/ValUES/FirstCycle/'
+    # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     parser.add_argument('--label_path', type=str, help='Path to labels')
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/FirstCycle/'

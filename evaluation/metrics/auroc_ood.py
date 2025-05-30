@@ -5,7 +5,7 @@ from sklearn.metrics import roc_curve, auc
 
 from aggrigator.uncertainty_maps import UncertaintyMap
 
-# ---- AUROC computation to assess an aggregator's ability to detect OoD images.
+# ---- AUROC computation to assess an aggregator's ability to detect OoD images. ----
 
 def compute_auroc_from_maps(
     uncertainty_maps: List[UncertaintyMap],

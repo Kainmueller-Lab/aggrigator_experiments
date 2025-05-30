@@ -37,10 +37,9 @@ def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     return x
 
 class renderHE_UQ_HVNext(Dataset): 
-    def __init__(self, root_dir, mode, OOD = False, image_noise = "0_00"): #mode is val, test
+    def __init__(self, root_dir, mode, image_noise = "0_00"): #mode is val, test
         self.root_dir = root_dir
         self.mode = mode
-        self.OOD = OOD
         self.image_noise = image_noise 
 
         hovernext_masks_path = root_dir 
@@ -67,7 +66,7 @@ class renderHE_UQ_HVNext(Dataset):
         image = np.array(Image.open(image_file)).astype(np.float32)
         image = image[:, :, :3] # remove alpha channel 
 
-        if self.OOD or self.mode == 'test': 
+        if self.mode == 'test': 
             inst_file = self.inst_mask_dir.joinpath(f"{fn}.tif")
             sem_file = self.sem_mask_dir.joinpath(f"{fn}.tif") 
         

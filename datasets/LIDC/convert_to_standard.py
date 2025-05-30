@@ -18,12 +18,19 @@ def load_and_sum_nifti(file_path):
         print(f"Error loading {file_path}: {e}")
         return None
 
-def process_pred_entropy_folder(pred_entropy_path):
+def process_pred_folder(pred_path, ftype: str, uq_m: str):
     """Process all .nii.gz files in a pred_entropy folder"""
-    nii_files = glob.glob(os.path.join(pred_entropy_path, "*.nii.gz"))
+    if ftype == 'entr':
+        file_extension = '.nii.gz' 
+    elif (ftype == 'pred' and uq_m != 'softmax'):
+        file_extension = '_mean.nii.gz' 
+    else: 
+        file_extension = '_01.nii.gz' 
+        
+    nii_files = glob.glob(os.path.join(pred_path, f"*{file_extension}"))
     
     if not nii_files:
-        print(f"No .nii.gz files found in {pred_entropy_path}")
+        print(f"No .nii.gz files found in {pred_path}")
         return None, None
     
     processed_data = []
@@ -37,7 +44,7 @@ def process_pred_entropy_folder(pred_entropy_path):
             processed_data.append(summed_data)
             # Extract sample index (e.g., "0014_01" from "0014_01.nii.gz")
             filename = os.path.basename(nii_file)
-            sample_idx = filename.replace('.nii.gz', '')
+            sample_idx = filename.replace(f'{file_extension}', '')
             sample_indices.append(sample_idx)
         else:
             print(f"Skipping {nii_file} due to loading error")
@@ -75,11 +82,14 @@ def main():
     # Create UQ_maps and UQ_metadata folders if they don't exist
     uq_maps_dir = os.path.join(base_dir, "UQ_maps")
     uq_metadata_dir = os.path.join(base_dir, "UQ_metadata")
+    uq_pred_dir = os.path.join(base_dir, "UQ_predictions")
     os.makedirs(uq_maps_dir, exist_ok=True)
     os.makedirs(uq_metadata_dir, exist_ok=True)
+    os.makedirs(uq_pred_dir, exist_ok=True)
     
     print(f"UQ_maps directory: {uq_maps_dir}")
     print(f"UQ_metadata directory: {uq_metadata_dir}")
+    print(f"UQ_pred directory: {uq_pred_dir}")
     
     # Methods and their corresponding folder names
     methods = ["Dropout", "Ensemble", "Softmax", "TTA"]
@@ -119,42 +129,62 @@ def main():
                     continue
                 
                 pred_entropy_path = os.path.join(data_type_path, "pred_entropy")
+                pred_seg_path = os.path.join(data_type_path, "pred_seg")
                 
                 if not os.path.exists(pred_entropy_path):
                     print(f"    pred_entropy path does not exist: {pred_entropy_path}")
                     continue
+                if not os.path.exists(pred_seg_path):
+                    print(f"    pred_entropy path does not exist: {pred_seg_path}")
+                    continue
                 
                 print(f"    Processing {data_type} data...")
                 
-                # Process the pred_entropy folder
-                processed_array, sample_indices = process_pred_entropy_folder(pred_entropy_path)
+                # Process the pred_entropy folder (entropy data)
+                processed_entr_array, sample_entr_indices = process_pred_folder(pred_entropy_path, 'entr', method_name)
                 
-                if processed_array is not None:
-                    # Generate filename: fgbg_noise_0_{ood_variation}_{data_noise}_{method}_pu.npy
-                    base_filename = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}_pu"
-                    npy_filename = f"{base_filename}.npy"
-                    json_filename = f"{base_filename}.json"
-                    sample_idx_filename = f"{base_filename}_sample_idx.npy"
+                # Process the pred_seg folder (prediction data)  
+                processed_pred_array, sample_pred_indices = process_pred_folder(pred_seg_path, 'pred', method_name)
+                
+                if processed_entr_array is not None:
+                    # Generate filename for entropy: fgbg_noise_0_{ood_variation}_{data_noise}_{method}_pu.npy
+                    base_filename_entr = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}_pu"
+                    npy_filename_entr = f"{base_filename_entr}.npy"
+                    json_filename_entr = f"{base_filename_entr}.json"
+                    sample_idx_filename_entr = f"{base_filename_entr}_sample_idx.npy"
                     
-                    npy_output_path = os.path.join(uq_maps_dir, npy_filename)
-                    json_output_path = os.path.join(uq_metadata_dir, json_filename)
-                    sample_idx_output_path = os.path.join(uq_metadata_dir, sample_idx_filename)
+                    npy_output_path_entr = os.path.join(uq_maps_dir, npy_filename_entr)
+                    json_output_path_entr = os.path.join(uq_metadata_dir, json_filename_entr)
+                    sample_idx_output_path_entr = os.path.join(uq_metadata_dir, sample_idx_filename_entr)
                     
-                    # Save the numpy array
-                    np.save(npy_output_path, processed_array)
-                    print(f"    Saved: {npy_filename} with shape {processed_array.shape}")
+                    # Save the entropy numpy array
+                    np.save(npy_output_path_entr, processed_entr_array)
+                    print(f"    Saved: {npy_filename_entr} with shape {processed_entr_array.shape}")
                     
                     # Save the sample indices as a separate numpy array
-                    np.save(sample_idx_output_path, np.array(sample_indices))
-                    print(f"    Saved: {sample_idx_filename} with {len(sample_indices)} sample indices")
+                    np.save(sample_idx_output_path_entr, np.array(sample_entr_indices))
+                    print(f"    Saved: {sample_idx_filename_entr} with {len(sample_entr_indices)} sample indices")
                     
-                    # Create and save metadata
-                    metadata = create_metadata(method, method_name, ood_var, data_noise, data_type, sample_indices)
-                    with open(json_output_path, 'w') as f:
+                    # Create and save metadata for entropy
+                    metadata = create_metadata(method, method_name, ood_var, data_noise, data_type, sample_entr_indices)
+                    with open(json_output_path_entr, 'w') as f:
                         json.dump(metadata, f, indent=2)
-                    print(f"    Saved: {json_filename}")
+                    print(f"    Saved: {json_filename_entr}")
                 else:
                     print(f"    Failed to process {pred_entropy_path}")
+                
+                if processed_pred_array is not None:
+                    # Generate filename for predictions (similar format but different identifier)
+                    base_filename_pred = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}"
+                    npy_filename_pred = f"{base_filename_pred}.npy"
+                    
+                    npy_output_path_pred = os.path.join(uq_pred_dir, npy_filename_pred)
+                    
+                    # Save the prediction numpy array
+                    np.save(npy_output_path_pred, processed_pred_array)
+                    print(f"    Saved: {npy_filename_pred} with shape {processed_pred_array.shape}")
+                else:
+                    print(f"    Failed to process {pred_seg_path}")
 
 if __name__ == "__main__":
     print("Starting NIfTI to NumPy conversion...")
