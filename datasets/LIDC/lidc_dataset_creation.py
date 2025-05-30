@@ -7,7 +7,7 @@ import nibabel as nib
 import glob
 from typing import Optional, Tuple
 
-# ---- Dataset Creation Functions ----
+# ---- LIDC_IDRI Dataset Creation Functions ----
 
 @staticmethod
 def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
