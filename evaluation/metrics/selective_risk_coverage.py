@@ -7,52 +7,14 @@ from evaluation.data_utils import (
     load_unc_maps, 
     rescale_maps, 
     remove_background_only_images,
-    _process_gt_masks
+    _process_gt_masks, 
+    process_aggr_unc
 )
 
 from evaluation.constants import CLASS_NAMES_ARCTIQUE, CLASS_NAMES_LIZARD
 from concurrent.futures import ThreadPoolExecutor
 from aggrigator.uncertainty_maps import UncertaintyMap
 
-# TODO - Move to data_utils.py after completing refactoring 
-def process_aggr_unc(uq_path: Path, 
-                     gt_sem: np.ndarray, 
-                     task: str, 
-                     model_noise: int, 
-                     uq_method: str, 
-                     decomp: str, 
-                     variation: str, 
-                     data_noise: str, 
-                     method: callable, 
-                     param: Any,
-                     category: str, 
-                     ind_to_rem: List,
-                     dataset_name: str):
-    """Aggregate uncertainty values with aggrigators' methods"""      
-    # Load uncertainty maps
-    uq_maps = load_unc_maps(uq_path=uq_path, 
-                            task=task, 
-                            model_noise=model_noise, 
-                            variation=variation, 
-                            data_noise=data_noise, 
-                            uq_method=uq_method, 
-                            decomp=decomp, 
-                            dataset_name=dataset_name,
-                            calibr=(dataset_name== 'arctique' or dataset_name== 'lizard')
-                            )
-    
-    uq_maps = rescale_maps(uq_maps, uq_method, task, dataset_name)
-    uq_maps = [uqmap for i, uqmap in enumerate(uq_maps) if i not in ind_to_rem]
-    uq_maps = [UncertaintyMap(array=array, mask=gt, name=None) for array, gt in zip(uq_maps, gt_sem)]
-    
-    # Apply aggregation method to each ma
-    if category == 'Class-based': 
-        res = [method(map, param, True) for map in uq_maps]
-        return zip(*res)
-    res = [method(map, param) for map in uq_maps]
-    if category == 'Threshold':
-        res = [np.nan_to_num(np.array(res), nan=0)]
-    return res, None 
 
 def process_strategy(
         strategy_data: Tuple[int, Callable, Any, Dict[str, Any]]

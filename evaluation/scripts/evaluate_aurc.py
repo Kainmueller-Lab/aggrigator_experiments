@@ -74,6 +74,7 @@ def parse_args():
 # ---- Analysis Functions ----
 
 # TODO - In need of total refactoring 
+# For LIDC: extract Dice score from ValUES folder instead of ricomputing it 
 def acc_score(acc_y: np.ndarray, 
         acc_preds: np.ndarray, 
         classes_names: List[str], 
@@ -226,7 +227,7 @@ def main():
     paths = setup_paths(args)
     
     #Clean Excel file for plot
-    clear_csv_file(paths.output, args)
+    # clear_csv_file(paths.output, args)
     
     # Run evaluation
     run_aurc_evaluation(args, paths)
