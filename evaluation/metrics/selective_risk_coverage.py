@@ -13,8 +13,10 @@ from evaluation.data_utils import (
 
 from evaluation.constants import CLASS_NAMES_ARCTIQUE, CLASS_NAMES_LIZARD
 from concurrent.futures import ThreadPoolExecutor
+from evaluation.metrics.accuracy_metrics import acc_score
+from evaluation.constants import AURC_DISPLAY_SCALE
 from aggrigator.uncertainty_maps import UncertaintyMap
-
+from fd_shifts.analysis.metrics import StatsCache
 
 def process_strategy(
         strategy_data: Tuple[int, Callable, Any, Dict[str, Any]]
@@ -29,7 +31,7 @@ def process_strategy(
     strategy_idx, method, param, shared, category, method_name = strategy_data
     
     # Get shared data
-    uq_path = shared['uq_path']
+    uq_path = shared['paths'].uq_maps
     gt_sem = shared['gt_sem']
     task = shared['task']
     model_noise = shared['model_noise']
@@ -48,9 +50,22 @@ def process_strategy(
     )
     return strategy_idx, aggr_unc
 
+def _pad_selective_risks(selective_risks, pred_list):
+    selective_risks = selective_risks
+    target_length = len(pred_list) + 1
+    if len(selective_risks) < target_length:
+        # Pad with the last value; TODO: check with Carsten why this happens 
+        last_value = selective_risks[-1] if len(selective_risks) > 0 else 0
+        padding_needed = target_length - len(selective_risks)
+        selective_risks = np.concatenate([
+            selective_risks, 
+            np.full(padding_needed, last_value)
+        ])       
+    return selective_risks
+
 def compute_selective_risks_coverage(gt_list: List[np.ndarray], 
         pred_list: List[np.ndarray],
-        uq_path: Path,  
+        paths: Path,  
         task: str, 
         model_noise: int, 
         uq_method: str, 
@@ -95,7 +110,7 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
     strategy_list = []
     idx = 0
     shared_data = {
-        'uq_path': uq_path,
+        'paths': paths,
         'gt_sem': gt_list_shared,
         'task': task,
         'model_noise': model_noise,
@@ -111,38 +126,35 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
         for method_name, (method, param) in methods.items():
             strategy_list.append((idx, method, param, shared_data, category, method_name))
             idx += 1
-            
+    
     # Process strategies in parallel
-    augrc_res = {'aurc_val': np.zeros((len(strategy_list))),  
-                 'coverages': np.zeros((len(pred_list) + 1)),
-                 'selective_risks': np.zeros((len(pred_list) + 1, len(strategy_list)))
-                }
+    aurc_res = {
+        'aurc': np.zeros((len(strategy_list))),
+        'coverages': np.zeros((len(pred_list) + 1)),
+        'selective_risks': np.zeros((len(pred_list) + 1, len(strategy_list)))
+        }
     
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [executor.submit(process_strategy, data) for data in strategy_list]
         
         for future in tqdm(futures, desc="Processing aggregation strategies"):
             idx, aggr_unc = future.result()
-    #         aggr_acc_val = acc_score(
-    #             gt_list, np.stack(pred_list, axis=0), 
-    #             list(class_names.keys()), len(class_names), 
-    #             shared_data['task']
-    #         )
-    #         valid_mask = np.isnan(aggr_acc_val)
-    #         aggr_acc[:, idx] = np.where(valid_mask, 0, aggr_acc_val)
-    #         aggr_unc_val[:, idx]  = np.where(valid_mask, 0, aggr_unc)
-                        
-    #         evaluator = StatsCache(- aggr_unc_val[:, idx], aggr_acc[:, idx], 10)
-    #         augrc_res['augrc_val'][idx] = evaluator.aurc/AURC_DISPLAY_SCALE
-    #         coverage = evaluator.coverages
-    #         if coverage.shape[0] < len(pred_list) + 1:
-    #             coverage = np.append(coverage, 0)
-    #         augrc_res['coverages'][:] = coverage
-    #         risks = evaluator.selective_risks
-    #         if risks.shape[0] < len(pred_list) + 1:
-    #             risks = np.append(risks, risks[-1])
-    #         augrc_res['generalized_risks'][:, idx] = risks
-    #         print(evaluator.aurc/AURC_DISPLAY_SCALE)
+            aggr_acc_val = acc_score(
+                gt_list, 
+                np.stack(pred_list, axis=0), 
+                list(class_names.keys()), 
+                len(class_names), 
+                shared_data
+            )
+            
+            valid_mask = np.isnan(aggr_acc_val)
+            aggr_acc[:, idx] = np.where(valid_mask, 0, aggr_acc_val)
+            aggr_unc_val[:, idx]  = np.where(valid_mask, 0, aggr_unc)
+            
+            evaluator = StatsCache(-aggr_unc_val[:, idx], aggr_acc[:, idx], 10)
+            aurc_res['aurc'][idx] = evaluator.aurc/AURC_DISPLAY_SCALE
+            selective_risks = _pad_selective_risks(evaluator.selective_risks, pred_list) #TODO - check why for threshold aggregations for softmax we get less selective risks values 
+            aurc_res['selective_risks'][:, idx] = selective_risks
+    aurc_res['coverages'] = evaluator.coverages
     
-    augrc_res = None
-    return augrc_res
+    return aurc_res

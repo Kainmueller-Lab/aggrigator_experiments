@@ -301,17 +301,17 @@ def create_selective_risks_coverage_plot(
                     first_occurrence[cat] = False  # Mark first as used
                 else:
                     linestyle = '--'  # Dashed line for subsequent ones
-                    linewidth = 1 # Make itthinner
+                    linewidth = 1 # Make it thinner
                     alpha = 0.5  # Make it more transparent
                     alpha_fill_in = 0.1
                 break  # Exit loop once category is found
         
-        if method_name.startswith("mean"):
+        if method_name.startswith("Mean"):
             color = 'gray'
             linewidth = 2
         
         plt.plot(x[::-1], y[:, j][::-1], 
-                 label=f"{method_names[j]} (AURC: {aurc_res.mean_aurc_val[j]:.4f})",
+                 label=f"{method_names[j]} (AURC: {aurc_res.mean_aurc[j]:.4f})",
                  linewidth=linewidth, color=color, linestyle=linestyle, alpha=alpha)
         
         # Add shaded area (mean ± std)

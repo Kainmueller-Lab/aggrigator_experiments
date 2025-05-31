@@ -26,11 +26,12 @@ class DataPaths:
     metadata: Path
     predictions: Path
     data: Path
+    metrics: Path
     output: Path
 
 class AnalysisResults(NamedTuple):
     """Container for AURC analysis results."""
-    mean_aurc_val: np.ndarray
+    mean_aurc: np.ndarray
     coverages: np.ndarray
     mean_selective_risks: np.ndarray
     std_selective_risks: np.ndarray
@@ -41,6 +42,7 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     uq_maps_path = base_path.joinpath("UQ_maps")
     metadata_path = base_path.joinpath("UQ_metadata")
     preds_path = base_path.joinpath("UQ_predictions")
+    metrics_path = base_path.joinpath("Performance_metrics")
     
     if args.variation and args.dataset_name.startswith('arctique'):
         data_path = Path(args.label_path).joinpath(args.variation) 
@@ -55,15 +57,17 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     output_dir = Path.cwd().joinpath('output')
     output_dir.mkdir(exist_ok=True)
 
-    for path in [uq_maps_path, metadata_path, data_path]: # Validate paths - we exclude for now preds_path
+    for path in [uq_maps_path, metadata_path, data_path, preds_path]: # Validate paths - we exclude for now preds_path
         if not path.exists():
             raise FileNotFoundError(f"Path does not exist: {path}")
-    
+        
+    metrics_path=metrics_path if metrics_path.exists() else None 
     return DataPaths(
         uq_maps=uq_maps_path,
         metadata=metadata_path,
         predictions=preds_path,
         data=data_path,
+        metrics=metrics_path,
         output=output_dir
     )
 
@@ -85,6 +89,35 @@ def validate_indices(args, metadata_path, uq_method, dataset, dataset_name):
     else:
         print('✓ Uncertainty values, predictions and masks indices match')
 
+def validate_metric_keys(metric_dict, metrics_path, task, ood_variation, data_noise, uq_method):
+    """Validates that keys in metric_dict match the metadata indices stored in the corresponding .npy file."""
+    # Construct path to metadata file
+    base_path = Path(metrics_path).parent / "UQ_metadata"
+    metadata_file = f'{task}_noise_0_{ood_variation}_{data_noise}_{uq_method}_pu_sample_idx.npy'
+    metadata_path = base_path / metadata_file
+    
+    # Load the metadata indices
+    metadata_indices = np.load(metadata_path)
+    
+    # Convert numpy array to list of strings (assuming indices are stored as strings in metric_dict)
+    metadata_keys_list = [str(idx) for idx in metadata_indices]
+    metric_keys_list = list(metric_dict.keys())
+    # Check exact match (content and order)
+    exact_match = metadata_keys_list == metric_keys_list
+    
+    # Check content match (ignoring order)
+    metadata_keys_set = set(metadata_keys_list)
+    metric_keys_set = set(metric_keys_list)
+    content_match = metadata_keys_set == metric_keys_set
+    
+    # Print summary
+    if exact_match:
+        print(f"\n✓ Perfect Match! Metric keys and indexes of UQ maps match exactly in content and order ({len(metadata_keys_list)} items)")
+    elif content_match:
+        raise ValueError(f"\n⚠ CONTENT MATCH between metric keys and indexes of UQ maps, but with different order")
+    else:
+        raise ValueError(f"\n✗ NO MATCH between metric keys and indexes of UQ maps")
+
 def _process_instance_predictions(pred_list: List[np.ndarray], task: str, dataset_name: str) -> List[np.ndarray]:
     """Apply instance-specific processing to predictions if needed."""
     if task == 'instance' and dataset_name.startswith(('arctique', 'lizard')):
@@ -99,7 +132,7 @@ def _process_instance_predictions(pred_list: List[np.ndarray], task: str, datase
 def _process_gt_masks(gt_list: List[np.ndarray], idx_task: int, dataset_name: str) -> List[np.ndarray]:
     """Apply instance-specific processing to gt masks if needed."""
     if dataset_name.startswith(('arctique', 'lizard')):
-       return gt_list[...,idx_task]
+       return list(np.array(gt_list)[...,idx_task])
     return gt_list
 
 def remove_background_only_images(gt_list, pred_list, idx_task, task, dataset_name):
@@ -231,13 +264,31 @@ def process_aggr_unc(uq_path: Path,
     uq_maps = [uqmap for i, uqmap in enumerate(uq_maps) if i not in ind_to_rem]
     uq_maps = [UncertaintyMap(array=array, mask=gt, name=None) for array, gt in zip(uq_maps, gt_sem)]
     
-    # Apply aggregation method to each ma
-    if category == 'Class-based': 
+    # Apply aggregation method to each map
+    if category == 'Class-based':
         res = [method(map, param, True) for map in uq_maps]
-        return zip(*res)
+        # Convert numpy types to Python types for consistency - in some cases the resulting values have a weird np.float(64) format..
+        converted_res = []
+        for item in res:
+            if hasattr(item, 'tolist'):
+                converted_res.append(item.tolist())
+            elif isinstance(item, (list, tuple)):
+                converted_res.append([x.tolist() if hasattr(x, 'tolist') else x for x in item])
+            else:
+                converted_res.append(item)
+        return list(zip(*converted_res))
+
     res = [method(map, param) for map in uq_maps]
+
+    # Convert numpy types to regular Python types for all cases
+    if hasattr(res[0], 'tolist'):
+        # If elements are numpy arrays
+        res = [item.tolist() if not isinstance(item, (int, np.integer)) else item for item in res]
+    elif any(hasattr(item, 'item') for item in res):
+        # If elements are numpy scalars
+        res = [item.item() if hasattr(item, 'item') else item for item in res]
     if category == 'Threshold':
-        res = [np.nan_to_num(np.array(res), nan=0)]
+        res = np.nan_to_num(np.array(res), nan=0).tolist()
     return res, None 
         
 # ---- Data Loading Functions ----
@@ -260,7 +311,7 @@ def load_unc_maps(
     
     if dataset_name.startswith(('arctique', 'lizard')):
         """Load uncertainty maps"""
-        if calibr and variation != "nuclei_intensity": map_type += "_calib"
+        # if calibr and variation != "nuclei_intensity": map_type += "_calib"  #TODO - recheck how the predictions were calibrated and recreate them 
         map_type += ".npy"
         map_file = uq_path.joinpath(map_type)
     elif dataset_name.startswith('lidc'):
@@ -288,10 +339,10 @@ def load_predictions(
     if dataset_name.startswith(('arctique', 'lizard')):
         # Load panoptic model predictions
         preds_inst_type = f"instance_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
-        if variation != "nuclei_intensity": preds_inst_type += "_calib"
+        # if variation != "nuclei_intensity": preds_inst_type += "_calib" #TODO - recheck how the predictions were calibrated and recreate them 
         preds_inst_type += ".npy"
         preds_sem_type = f"semantic_noise_{model_noise}_{variation}_{image_noise}_{uq_method}"
-        if variation != "nuclei_intensity": preds_sem_type += "_calib"
+        # if variation != "nuclei_intensity": preds_sem_type += "_calib"
         preds_sem_type += ".npy"
         
         preds_file_path_inst = paths.predictions.joinpath(preds_inst_type)

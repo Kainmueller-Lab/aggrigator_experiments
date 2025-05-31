@@ -14,7 +14,6 @@ from evaluation.constants import (CLASS_NAMES_ARCTIQUE,
                        CLASS_NAMES_LIZARD, 
                        AUROC_STRATEGIES, 
                        BACKGROUND_FREE_STRATEGIES, 
-                       AURC_DISPLAY_SCALE, 
                        COLORS)
 from evaluation.metrics.accuracy_metrics import per_tile_metrics
 from evaluation.metrics.selective_risk_coverage import compute_selective_risks_coverage
@@ -30,10 +29,14 @@ from evaluation.data_utils import (DataPaths,
                                    _process_gt_masks,
                                    remove_background_only_images)
 from evaluation.visualization.plot_functions import setup_plot_style_aurc, create_selective_risks_coverage_plot
-from fd_shifts.analysis.metrics import StatsCache
-from aggrigator.uncertainty_maps import UncertaintyMap
     
 # ---- Configuration Functions ----
+
+def variation_name():
+    # When there is no clear id and ood distinction in the inputs 
+    return { 
+        'lizard' : 'LizardData'
+    } 
 
 def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
@@ -55,11 +58,11 @@ def parse_args():
     parser.add_argument('--variation', type=str, help='Variation type (e.g. nuclei_intensity, blood_cells, malignancy, texture)')
     parser.add_argument('--uq_path', type=str, default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results')
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
-    # lizard:  '/home/vanessa/Documents/data/uncertainty_lizard_convnextv2_tiny_3' - TODO: check which Lizard data were used for the experiment
+    # lizard:  '/home/vanessa/Documents/data/uncertainty_lizard_convnextv2_tiny_3' 
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     parser.add_argument('--label_path', type=str, help='Path to labels')
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
-    # lizard:  '/home/vanessa/Documents/synthetic_uncertainty/data/LizardData/' - TODO: check which Lizard data were used for the experiment
+    # lizard:  '/fast/AG_Kainmueller/vguarin/synthetic_uncertainty/data/LizardData/' 
     parser.add_argument('--model_noise', type=int, default=0, help='Mask noise level with which the model was trained')
     parser.add_argument('--image_noise', type=str, default='0_00', help='Image noise level on which the model is evaluated')
     parser.add_argument('--uq_methods', type=str, default='tta,softmax,ensemble,dropout', help='Comma-separated list of UQ methods to evaluate')
@@ -72,47 +75,6 @@ def parse_args():
     return parser.parse_args()
 
 # ---- Analysis Functions ----
-
-# TODO - In need of total refactoring 
-# For LIDC: extract Dice score from ValUES folder instead of ricomputing it 
-def acc_score(acc_y: np.ndarray, 
-        acc_preds: np.ndarray, 
-        classes_names: List[str], 
-        num_classes: int,
-        task: str,
-    ) -> Tuple[float, Dict[str, float]]:
-    """Calculate weighted accuracy scores for panoptic models
-    
-    Args:
-        acc_y: gt masks
-        acc_preds: non-rejected predictions 
-        classes_names: classes names
-        num_classes: no. of classes
-        
-    Returns:
-        Tuple containing weighted-mean F1 score and class-specific average F1 scores
-    """
-    # Determine which accuracy metric to use 
-    acc_metric = "F1" #if classes_names[4].startswith("connective") else "acc"
-    
-    # Calculation of metrics for each individual tile - images can also be cropped 
-    metrics = per_tile_metrics(acc_y, acc_preds, classes_names, num_classes)
-    
-    if task == 'semantic':
-        # Extract F1 score per class for each image
-        class_f1_img = {}
-        for entry in metrics:
-            if entry["class"] != "all":  
-                img_id = entry["id"]
-                if img_id not in class_f1_img:
-                    class_f1_img[img_id] = {}
-                class_f1_img[img_id][entry["class"]] = entry[acc_metric] 
-    
-        f1_cl_avg_per_img = np.array([np.nanmean(list(d.values())) for d in class_f1_img.values()])
-        return f1_cl_avg_per_img
-    else: 
-        f1_scores = [entry[acc_metric] for entry in metrics if entry["class"] == "all"]
-        return f1_scores
 
 def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     """
@@ -149,12 +111,12 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         
     # Store results for all methods
     all_results = {
-        "aurc_val": [],
+        "aurc": [],
         "coverages": None,
         "selective_risks": []
     }
     # Process each UQ method
-    for uq_method in uq_methods:
+    for idx, uq_method in enumerate(uq_methods):
         print(f"\n=== Processing UQ method: {uq_method} ===")
         
         # Load prediction data for current UQ method
@@ -176,7 +138,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         results = compute_selective_risks_coverage(
             gt_list,
             pred_list,
-            paths.uq_maps,
+            paths,
             task,
             model_noise,
             uq_method,
@@ -188,31 +150,26 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
             dataset_name
         )
         
-    #     # Store results
-    #     all_results["augrc_val"].append(results["augrc_val"])
-    #     if all_results["coverages"] is None:
-    #         all_results["coverages"] = results["coverages"]
-    #     all_results["generalized_risks"].append(results["generalized_risks"])
+        # Store results
+        all_results["coverages"] = results["coverages"]
+        all_results["selective_risks"].append(results["selective_risks"])
+        all_results["aurc"].append(results["aurc"])
+
+    # Calculate mean and std across all UQ methods
+    mean_aurc = np.mean(np.array(all_results["aurc"]), axis=0)
+    mean_selective_risks = np.mean(np.array(all_results["selective_risks"]), axis=0)
+    std_selective_risks = np.std(np.array(all_results["selective_risks"]), axis=0)
     
-    # # Convert lists to numpy arrays for easier computation
-    # all_results["augrc_val"] = np.array(all_results["augrc_val"])
-    # all_results["generalized_risks"] = np.array(all_results["generalized_risks"])
+    # Create final results structure for plotting
+    final_results = AnalysisResults(
+        mean_aurc=mean_aurc,
+        coverages=all_results["coverages"],
+        mean_selective_risks=mean_selective_risks,
+        std_selective_risks=std_selective_risks
+    )
     
-    # # Calculate mean across all UQ methods
-    # mean_aurc_val = np.mean(all_results["augrc_val"], axis=0)
-    # mean_selective_risks = np.mean(all_results["generalized_risks"], axis=0)
-    # std_selective_risks = np.std(all_results["generalized_risks"], axis=0)
-    
-    # # Create final results structure for plotting
-    # final_results = AnalysisResults(
-    #     mean_aurc_val=mean_aurc_val,
-    #     coverages=all_results["coverages"],
-    #     mean_selective_risks=mean_selective_risks,
-    #     std_selective_risks=std_selective_risks
-    # )
-    
-    # # Create plot
-    # create_selective_risks_coverage_plot(method_names, final_results, paths.output, args)
+    # Create plot
+    create_selective_risks_coverage_plot(method_names, final_results, paths.output, args)
 
 def main():
     # Set up plot style
@@ -222,12 +179,15 @@ def main():
     args = parse_args()
     if args.label_path is None:
         args.label_path = args.uq_path 
+    if not args.variation:
+        alt_names = variation_name()
+        args.variation = alt_names[args.dataset_name]
     
     #Set paths and make sure output directory exists
     paths = setup_paths(args)
     
-    #Clean Excel file for plot
-    # clear_csv_file(paths.output, args)
+    # Clean Excel file for plot
+    clear_csv_file(paths.output, args)
     
     # Run evaluation
     run_aurc_evaluation(args, paths)

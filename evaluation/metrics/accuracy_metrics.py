@@ -1,9 +1,150 @@
 import numpy as np
 import concurrent.futures
 import math
+import json
+
+from enum import Enum
+from typing import List, Tuple, Dict, Union
+from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 from skimage.measure import regionprops, label
 from scipy.optimize import linear_sum_assignment
+
+from evaluation.data_utils import validate_metric_keys
+
+# ---- Functions to handle calculations of performance metrics or to load them if they exist. ----
+
+class TaskType(Enum):
+    """Enumeration for supported task types."""
+    SEMANTIC = "semantic"
+    INSTANCE = "instance" 
+    FGBG = "fgbg"
+
+class MetricType(Enum):
+    """Enumeration for supported metrics."""
+    F1 = "F1"
+    DICE = "dice" 
+    
+def _calculate_macro_score(metrics: List[Dict], metric_name: str) -> np.ndarray:
+    """Calculate class-averaged scores per image for semantic segmentation."""
+    # Group metrics by image and class
+    image_class_scores = {}
+    for entry in metrics:
+        # Skip aggregate entries
+        if entry.get("class") == "all":
+            continue
+            
+        image_id = entry.get("id")
+        class_name = entry.get("class")
+        score = entry.get(metric_name)
+            
+        if image_id not in image_class_scores:
+            image_class_scores[image_id] = {}
+            
+        image_class_scores[image_id][class_name] = score
+        
+    # Calculate average score per image across all classes
+    avg_scores_per_image = [np.nanmean(list(d.values())) for d in image_class_scores.values()]
+    return np.array(avg_scores_per_image)
+
+def _calculate_micro_score(metrics: List[Dict], metric_name: str) -> List[float]:
+    """Calculate overall scores per tile for instance segmentation."""
+    # Extract scores for aggregate entries (class == "all")
+    overall_scores = []
+    for entry in metrics:
+        if entry.get("class") == "all":
+            score = entry.get(metric_name)
+            if score is not None:
+                overall_scores.append(score)
+    return np.array(overall_scores)
+
+def calculate_accuracy_scores(
+    ground_truth_masks: np.ndarray,
+    predictions: np.ndarray,
+    class_names: List[str],
+    num_classes: int,
+    task: Union[str, TaskType],
+    metric: Union[str, MetricType] = MetricType.F1.value
+) -> Union[np.ndarray, List[float]]:
+    """Calculate accuracy scores for panoptic segmentation models.
+    
+    Args:
+        ground_truth_masks: Ground truth masks/labels
+        predictions: Model predictions (non-rejected)
+        class_names: List of class names
+        num_classes: Number of classes in the dataset
+        task: Task type - either 'semantic' or 'instance'
+        metric: Metric to calculate (default: F1)
+        
+    Returns:
+        For semantic task: Array of average F1 scores per class
+        For instance task: List of overall F1 scores per tile/image
+    """
+    
+    # Calculate per-tile metrics
+    tile_metrics = per_tile_metrics(
+        ground_truth_masks, 
+        predictions, 
+        class_names, 
+        num_classes
+    )
+     
+    if not tile_metrics:
+        raise ValueError("No metrics calculated - per_tile_metrics returned empty results")
+    
+    # Process metrics based on task type
+    if task == TaskType.SEMANTIC.value:
+        return _calculate_macro_score(tile_metrics, metric)
+    elif task == TaskType.INSTANCE.value:  
+        return _calculate_micro_score(tile_metrics, metric)
+
+def load_accuracy_scores(task, metrics_path, ood_variation, data_noise, uq_method, metric):
+    file_name = f'{task}_noise_0_{ood_variation}_{data_noise}_{uq_method}_{metric}'
+    with open(f'{metrics_path}/{file_name}.json') as f:
+        metric_dict = json.load(f)
+        del metric_dict['mean']
+    validate_metric_keys(metric_dict, metrics_path, task, ood_variation, data_noise, uq_method)
+    return np.array(list(metric_dict.values()))
+
+def acc_score(
+    acc_y: np.ndarray,
+    acc_preds: np.ndarray,
+    classes_names: List[str],
+    num_classes: int,
+    shared_data: Dict,
+) -> Union[np.ndarray, List[float]]:
+    """Legacy wrapper for calculate_accuracy_scores function.
+    
+    This function maintains backward compatibility with the original interface.
+    Consider using calculate_accuracy_scores directly for new code.
+    """
+    if shared_data["dataset_name"].startswith('lidc'):
+        # TODO - Predefine the check function to verify that Performance_metrics exists, 
+        # otherwise proceed with on-the-fly calculation 
+        return load_accuracy_scores(
+            task=shared_data["task"],
+            metrics_path=shared_data["paths"].metrics,
+            ood_variation=shared_data["variation"],
+            data_noise=shared_data["data_noise"],
+            uq_method=shared_data["uq_method"], 
+            metric=MetricType.DICE.value
+        )
+        
+    return calculate_accuracy_scores(
+        ground_truth_masks=acc_y,
+        predictions=acc_preds,
+        class_names=classes_names,
+        num_classes=num_classes,
+        task=shared_data["task"],
+        metric=MetricType.F1.value
+    )
+
+# ---- Functions to compute panoptic segmentation performance metrics. ----
+'''Sources: 
+- https://github.com/TissueImageAnalytics/CoNIC/blob/main/metrics/stats_utils.py;
+- https://github.com/TissueImageAnalytics/CoNIC/blob/main/misc/utils.py; 
+- https://github.com/digitalpathologybern/hover_next_train/blob/main/src/metrics.py.
+'''
 
 def get_class(regprop, cls_map):
     return cls_map[
