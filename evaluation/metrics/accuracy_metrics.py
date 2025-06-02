@@ -11,6 +11,7 @@ from skimage.measure import regionprops, label
 from scipy.optimize import linear_sum_assignment
 
 from evaluation.data_utils import validate_metric_keys
+from evaluation.metrics.dice import dice_coefficient_torchmetrics 
 
 # ---- Functions to handle calculations of performance metrics or to load them if they exist. ----
 
@@ -121,14 +122,24 @@ def acc_score(
     if shared_data["dataset_name"].startswith('lidc'):
         # TODO - Predefine the check function to verify that Performance_metrics exists, 
         # otherwise proceed with on-the-fly calculation 
-        return load_accuracy_scores(
-            task=shared_data["task"],
-            metrics_path=shared_data["paths"].metrics,
-            ood_variation=shared_data["variation"],
-            data_noise=shared_data["data_noise"],
-            uq_method=shared_data["uq_method"], 
-            metric=MetricType.DICE.value
+                
+        return dice_coefficient_torchmetrics(
+            preds=acc_preds, 
+            targets=acc_y, 
+            ignore_index=True, 
+            num_classes=2, 
+            smooth=1e-6
         )
+        
+        # 3d score
+        # return load_accuracy_scores( 
+        #     task=shared_data["task"],
+        #     metrics_path=shared_data["paths"].metrics,
+        #     ood_variation=shared_data["variation"],
+        #     data_noise=shared_data["data_noise"],
+        #     uq_method=shared_data["uq_method"], 
+        #     metric=MetricType.DICE.value
+        # )
         
     return calculate_accuracy_scores(
         ground_truth_masks=acc_y,

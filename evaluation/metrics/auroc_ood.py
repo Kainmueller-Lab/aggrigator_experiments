@@ -108,7 +108,8 @@ def evaluate_aggregation_strategy(
 def evaluate_all_strategies(
     cached_maps: Dict,
     strategies: Dict,
-    noise_level: str
+    noise_level: str,
+    decomp: str
     ) -> pd.DataFrame:
     """
     Evaluate all aggregation strategies for a given noise level.
@@ -127,7 +128,7 @@ def evaluate_all_strategies(
     pd.DataFrame
         DataFrame with AUROC results for all strategies
     """
-    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta']
+    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta'] if decomp == 'pu' else ['ensemble', 'dropout', 'tta']
     auroc_data = []
     
     # Process each aggregation strategy

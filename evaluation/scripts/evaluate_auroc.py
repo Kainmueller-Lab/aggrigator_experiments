@@ -15,9 +15,9 @@ from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, NOISE_LEVELS_AR
 
 # ---- Script to evaluate AUROC for OoD detection for various aggregation methods and create comparison plots
     
-def clear_csv_file(output_path: Path, task: str) -> None:
+def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: str, decomp: str) -> None:
     """Clears the content of the CSV file if it exists."""
-    csv_file = output_path.joinpath(f'tables/{task}_auroc_ood_detect_results.csv')
+    csv_file = output_path.joinpath(f'tables/{task}_{dataset_name}_{variation}_{decomp}_auroc_ood_results.csv')
     # Ensure directory exists
     csv_file.parent.mkdir(exist_ok=True, parents=True)
     if csv_file.exists():
@@ -27,21 +27,21 @@ def clear_csv_file(output_path: Path, task: str) -> None:
         print(f"{csv_file} does not exist yet.")
 
 def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, model_noise: int, 
-                        variation: str, noise_level: str, output_path: Path, dataset_name: str) -> pd.DataFrame:
+                        variation: str, noise_level: str, output_path: Path, dataset_name: str, decomp: str) -> pd.DataFrame:
     """Process all strategies for a single noise level."""
     print(f"Processing noise level: {noise_level}")
     
     # Preload all uncertainty maps for this noise level
     cached_maps = preload_uncertainty_maps(
-        uq_path, metadata_path, gt_list, gt_labels, task, model_noise, variation, noise_level, dataset_name
+        uq_path, metadata_path, gt_list, gt_labels, task, model_noise, variation, noise_level, dataset_name, decomp
     )
     
     # Evaluate all strategies
-    df = evaluate_all_strategies(cached_maps, AUROC_STRATEGIES, noise_level)
+    df = evaluate_all_strategies(cached_maps, AUROC_STRATEGIES, noise_level, decomp)
     print(df)
     
     # Save results to CSV
-    csv_file = output_path.joinpath(f'tables/{task}_auroc_ood_detect_results.csv')
+    csv_file = output_path.joinpath(f'tables/{task}_{dataset_name}_{variation}_{decomp}_auroc_ood_results.csv')
     
     # Check if the file exists to handle headers properly
     file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
@@ -78,7 +78,7 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
         Decomposition component, by default "pu"
     """
     # Clear previous results
-    # clear_csv_file(output_path, task)
+    clear_csv_file(output_path, task, dataset_name, variation, decomp)
     
     # Define noise levels
     nls = NOISE_LEVELS_ARCTIQUE if dataset_name.startswith('arctique') else NOISE_LEVELS
@@ -97,7 +97,7 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     for noise_level in nls:
         df = process_noise_level(
             uq_path, metadata_path, gt_list, gt_labels, task, model_noise, 
-            variation, noise_level, output_path, dataset_name
+            variation, noise_level, output_path, dataset_name, decomp
         )
         results.append(df)
     
@@ -109,6 +109,8 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
             AUROC_STRATEGIES,
             task,
             variation,
+            dataset_name,
+            decomp,
             output_path
         )
     else:
@@ -119,6 +121,8 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
             AUROC_STRATEGIES,
             task,
             variation,
+            dataset_name,
+            decomp,
             output_path
         )
 
@@ -131,7 +135,6 @@ def parse_arguments() -> argparse.Namespace:
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     parser.add_argument('--label_path', type=str, help='Path to labels')
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
-    # lidc: '/fast/AG_Kainmueller/data/ValUES/FirstCycle/'
     parser.add_argument('--model_noise', type=int, default=0, help='Model noise level')
     parser.add_argument('--decomp', type=str, default='pu', help='Decomposition component (e.g. pu, au, eu)')
     parser.add_argument('--dataset_name', type=str, default='arctique', help='Dataset name (e.g. arctique, lidc)')

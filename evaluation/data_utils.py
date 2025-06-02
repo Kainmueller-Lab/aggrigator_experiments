@@ -43,7 +43,7 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     metadata_path = base_path.joinpath("UQ_metadata")
     preds_path = base_path.joinpath("UQ_predictions")
     metrics_path = base_path.joinpath("Performance_metrics")
-    
+        
     if args.variation and args.dataset_name.startswith('arctique'):
         data_path = Path(args.label_path).joinpath(args.variation) 
     elif args.variation and args.dataset_name.startswith('lidc'):
@@ -191,11 +191,12 @@ def preload_uncertainty_maps(
     variation: str, 
     data_noise: str,
     dataset_name: str,
+    decomp: str,
     ) -> Dict[str, Dict]:
     """Preload all uncertainty maps for a given noise level, their metadata indices
     and iD and OoD image targets as either 0 or 1 to then calculate the aggregators AUROC score."""
     
-    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta']
+    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta'] if decomp == 'pu' else ['ensemble', 'dropout', 'tta']
     
     # Dictionary to store loaded maps for each UQ method
     cached_maps = {}
@@ -204,11 +205,11 @@ def preload_uncertainty_maps(
         # Load zero-risk and noisy uncertainty maps
         uq_maps_zr, metadata_file_zr = load_unc_maps(
             uq_path, task, model_noise, variation, '0_00', 
-            uq_method, 'pu', False, metadata_path
+            uq_method, decomp, dataset_name, False, metadata_path
         )
         uq_maps_r, metadata_file_r = load_unc_maps(
             uq_path, task, model_noise, variation, data_noise, 
-            uq_method, 'pu', False, metadata_path
+            uq_method, decomp, dataset_name, False, metadata_path
         )
         
         # Normalize when needed
@@ -320,7 +321,7 @@ def load_unc_maps(
         
     print(f"Loading uncertainty map: {map_type}")
     if metadata_path:
-            meta_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}_sample_idx.npy"
+            meta_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_pu_sample_idx.npy"
             meta_file = metadata_path.joinpath(meta_type)
             print(f"Loading metadata file: {meta_type}")
             return np.load(map_file), np.load(meta_file)

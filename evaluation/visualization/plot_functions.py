@@ -35,6 +35,8 @@ def create_single_auroc_barplot(
     strategies_dict: Dict,
     task: str,
     variation: str,
+    dataset_name : str,
+    decomp: str,
     output_path: Path,
 ) -> None:
     """
@@ -52,6 +54,10 @@ def create_single_auroc_barplot(
         Task type ('instance' or 'semantic')
     variation : str
         Variation type
+    dataset_name : str
+        Dataset analyzed (e.g. 'lizard')
+    decomp : str
+        Uncertainty component tested ('pu', 'eu' or 'au')
     output_path : Path
         Path to save the output figure
     """
@@ -132,7 +138,7 @@ def create_single_auroc_barplot(
     plt.tight_layout()
     
     # Ensure output directory exists
-    output_file = output_path.joinpath(f'figures/aggregators_auroc_{task}_{variation}_barplot.png')
+    output_file = output_path.joinpath(f'figures/ood_auroc_{task}_{dataset_name}_{variation}_{decomp}_barplot.png')
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
     # Save the plot
@@ -147,7 +153,9 @@ def create_auroc_barplot(
     strategies_dict: Dict,
     task: str,
     variation: str,
-    output_path: Path
+    dataset_name : str,
+    decomp: str,
+    output_path: Path,
     ) -> None:
     """
     Create comparative bar plots of image-level AUROC values.
@@ -248,7 +256,7 @@ def create_auroc_barplot(
     plt.tight_layout(rect=[0, 0, 1, 0.90])
     
     # Ensure output directory exists
-    output_file = output_path.joinpath(f'figures/aggregators_auroc_{task}_{variation}_barplots.png')
+    output_file = output_path.joinpath(f'figures/ood_auroc_{task}_{dataset_name}_{variation}_{decomp}_barplot.png')
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
     # Save the plot

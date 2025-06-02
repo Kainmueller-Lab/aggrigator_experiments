@@ -130,12 +130,20 @@ def main():
                 
                 pred_entropy_path = os.path.join(data_type_path, "pred_entropy")
                 pred_seg_path = os.path.join(data_type_path, "pred_seg")
+                pred_aleat_path = os.path.join(data_type_path, "aleatoric_uncertainty")
+                pred_epist_path = os.path.join(data_type_path, "epistemic_uncertainty")
                 
                 if not os.path.exists(pred_entropy_path):
                     print(f"    pred_entropy path does not exist: {pred_entropy_path}")
                     continue
                 if not os.path.exists(pred_seg_path):
-                    print(f"    pred_entropy path does not exist: {pred_seg_path}")
+                    print(f"    pred_seg path does not exist: {pred_seg_path}")
+                    continue
+                if not os.path.exists(pred_aleat_path):
+                    print(f"    aleatoric_uncertainty path does not exist: {pred_aleat_path}")
+                    continue
+                if not os.path.exists(pred_aleat_path):
+                    print(f"    epistemic_uncertainty path does not exist: {pred_epist_path}")
                     continue
                 
                 print(f"    Processing {data_type} data...")
@@ -144,7 +152,13 @@ def main():
                 processed_entr_array, sample_entr_indices = process_pred_folder(pred_entropy_path, 'entr', method_name)
                 
                 # Process the pred_seg folder (prediction data)  
-                processed_pred_array, sample_pred_indices = process_pred_folder(pred_seg_path, 'pred', method_name)
+                processed_pred_array, _ = process_pred_folder(pred_seg_path, 'pred', method_name)
+                
+                # Process the aleatoric_uncertainty folder (aleatoric component)  
+                processed_aleat_array, _ = process_pred_folder(pred_aleat_path, 'entr', method_name)
+                
+                # Process the epistemic_uncertainty folder (epistemic component)  
+                processed_epist_array, _ = process_pred_folder(pred_epist_path, 'entr', method_name)
                 
                 if processed_entr_array is not None:
                     # Generate filename for entropy: fgbg_noise_0_{ood_variation}_{data_noise}_{method}_pu.npy
@@ -173,6 +187,33 @@ def main():
                 else:
                     print(f"    Failed to process {pred_entropy_path}")
                 
+                # Save aleatoric uncertainty data
+                if processed_aleat_array is not None:
+                    base_filename_aleat = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}_au"
+                    npy_filename_aleat = f"{base_filename_aleat}.npy"
+                    
+                    npy_output_path_aleat = os.path.join(uq_maps_dir, npy_filename_aleat)
+                    
+                    # Save the aleatoric uncertainty numpy array
+                    np.save(npy_output_path_aleat, processed_aleat_array)
+                    print(f"    Saved: {npy_filename_aleat} with shape {processed_aleat_array.shape}")
+                else:
+                    print(f"    Failed to process or path not found: {pred_aleat_path}")
+                
+                # Save epistemic uncertainty data
+                if processed_epist_array is not None:
+                    base_filename_epist = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}_eu"
+                    npy_filename_epist = f"{base_filename_epist}.npy"
+                    
+                    npy_output_path_epist = os.path.join(uq_maps_dir, npy_filename_epist)
+                    
+                    # Save the epistemic uncertainty numpy array
+                    np.save(npy_output_path_epist, processed_epist_array)
+                    print(f"    Saved: {npy_filename_epist} with shape {processed_epist_array.shape}")
+                else:
+                    print(f"    Failed to process or path not found: {pred_epist_path}")
+                
+                # Save prediction data
                 if processed_pred_array is not None:
                     # Generate filename for predictions (similar format but different identifier)
                     base_filename_pred = f"fgbg_noise_0_{ood_var}_{data_noise}_{method_name}"
