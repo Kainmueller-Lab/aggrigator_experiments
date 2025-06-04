@@ -35,14 +35,14 @@ AUROC_STRATEGIES = {
                 'Mean': (am.mean, None), 
             },
         'Threshold':{
-                # 'Threshold 0.2': (am.above_threshold_mean, 0.2),
+                'Threshold 0.2': (am.above_threshold_mean, 0.2),
                 'Threshold 0.3': (am.above_threshold_mean, 0.3),
                 'Threshold 0.4': (am.above_threshold_mean, 0.4),
                 'Threshold 0.5': (am.above_threshold_mean, 0.5),
-                # 'Threshold 0.6': (am.above_threshold_mean, 0.6),
-                # 'Threshold 0.7': (am.above_threshold_mean, 0.7),
-                # 'Threshold 0.8': (am.above_threshold_mean, 0.8),
-                # 'Threshold 0.9': (am.above_threshold_mean, 0.9),
+                'Threshold 0.6': (am.above_threshold_mean, 0.6),
+                'Threshold 0.7': (am.above_threshold_mean, 0.7),
+                'Threshold 0.8': (am.above_threshold_mean, 0.8),
+                'Threshold 0.9': (am.above_threshold_mean, 0.9),
             },
         'Quantile':{
                 'Quantile 0.6': (am.above_quantile_mean, 0.6),
@@ -57,7 +57,7 @@ AUROC_STRATEGIES = {
     }
 
 BACKGROUND_FREE_STRATEGIES = {
-    'Class-based': {
+    'Context-aware': {
         "equally-weighted average": (am.class_mean_w_equal_weights, None),
         "imbalance-weighted average": (am.class_mean_weighted_by_occurrence, None),
     }

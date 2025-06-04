@@ -73,6 +73,28 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
 
 # ---- Sanity Check ----
 
+def reorder_gt_data_by_metadata(gt_list, gt_labels, metadata_zr, metadata_r, dataset): # TODO - understand whether gt_labels should also be re-indexed !
+    """Reorder gt_list and gt_labels to match the order in cached_maps metadata."""
+    # Extract sample names from dataset
+    id_sample_names = dataset['id_masks'].dataset.sample_names
+    ood_sample_names = dataset['ood_masks'].dataset.sample_names
+    
+    # Combine all current sample names and metadata order
+    current_sample_names = list(id_sample_names) + list(ood_sample_names)
+    target_order = list(metadata_zr) + list(metadata_r)
+    
+    # Create mapping from sample name to current index
+    name_to_current_idx = {name: idx for idx, name in enumerate(current_sample_names)}
+    
+    # Create reordering indices based on target metadata order
+    reorder_indices = []
+    for target_name in target_order:
+        if target_name in name_to_current_idx:
+            reorder_indices.append(name_to_current_idx[target_name])
+        else:
+            raise ValueError(f"Sample name {target_name} not found in current data")
+    return gt_list[reorder_indices], gt_labels[reorder_indices] # Reorder the arrays
+
 def validate_indices(args, metadata_path, uq_method, dataset, dataset_name):
     meta_type = f"{args.task}_noise_{args.model_noise}_{args.variation}_{args.image_noise}_{uq_method}_{args.decomp}_sample_idx.npy"
     metadata_file_path = metadata_path.joinpath(meta_type)
@@ -85,7 +107,7 @@ def validate_indices(args, metadata_path, uq_method, dataset, dataset_name):
         if hasattr(dataset_loader, 'sample_names') and (dataset_loader.sample_names == indices).any():
             print('✓ Uncertainty values, predictions and masks indices match')
         else:
-            print('⚠ WARNING: Uncertainty values, predictions and masks indices DO NOT match')
+            raise ValueError('⚠ WARNING: Uncertainty values, predictions and masks indices DO NOT match')
     else:
         print('✓ Uncertainty values, predictions and masks indices match')
 
@@ -186,6 +208,7 @@ def preload_uncertainty_maps(
     metadata_path: Path, 
     context_gt: List[np.ndarray], 
     gt_labels: List[np.ndarray], 
+    dataset: DataLoader,
     task: str, 
     model_noise: int, 
     variation: str, 
@@ -207,6 +230,7 @@ def preload_uncertainty_maps(
             uq_path, task, model_noise, variation, '0_00', 
             uq_method, decomp, dataset_name, False, metadata_path
         )
+        print()
         uq_maps_r, metadata_file_r = load_unc_maps(
             uq_path, task, model_noise, variation, data_noise, 
             uq_method, decomp, dataset_name, False, metadata_path
@@ -219,6 +243,11 @@ def preload_uncertainty_maps(
         # Concatenate maps
         uq_maps = np.concatenate((uq_maps_zr, uq_maps_r), axis=0)
         
+        # Ensures that the ground truth masks, labels and uncertainty maps are consistent
+        context_gt, _ = reorder_gt_data_by_metadata(
+            context_gt, gt_labels, metadata_file_zr, metadata_file_r, dataset
+        )
+        
         # Create UncertaintyMap objects
         uncertainty_maps = [
             UncertaintyMap(array=array, mask=gt, name=None) 
@@ -229,7 +258,7 @@ def preload_uncertainty_maps(
         cached_maps[uq_method] = {
             'maps': uncertainty_maps,
             'gt_labels': gt_labels,
-            'metadata': [metadata_file_zr, metadata_file_r]
+            'metadata': [metadata_file_zr, metadata_file_r],
         }
     return cached_maps
 
@@ -266,8 +295,9 @@ def process_aggr_unc(uq_path: Path,
     uq_maps = [UncertaintyMap(array=array, mask=gt, name=None) for array, gt in zip(uq_maps, gt_sem)]
     
     # Apply aggregation method to each map
-    if category == 'Class-based':
+    if category == 'Context-aware':
         res = [method(map, param, True) for map in uq_maps]
+        print('HERE -------', res)
         # Convert numpy types to Python types for consistency - in some cases the resulting values have a weird np.float(64) format..
         converted_res = []
         for item in res:

@@ -26,14 +26,14 @@ def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: s
     else:
         print(f"{csv_file} does not exist yet.")
 
-def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, model_noise: int, 
+def process_noise_level(dataset: dict, uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, model_noise: int, 
                         variation: str, noise_level: str, output_path: Path, dataset_name: str, decomp: str) -> pd.DataFrame:
     """Process all strategies for a single noise level."""
     print(f"Processing noise level: {noise_level}")
     
     # Preload all uncertainty maps for this noise level
     cached_maps = preload_uncertainty_maps(
-        uq_path, metadata_path, gt_list, gt_labels, task, model_noise, variation, noise_level, dataset_name, decomp
+        uq_path, metadata_path, gt_list, gt_labels, dataset, task, model_noise, variation, noise_level, dataset_name, decomp
     )
     
     # Evaluate all strategies
@@ -52,7 +52,7 @@ def process_noise_level(uq_path: Path, metadata_path: Path, gt_list: list, gt_la
     
     return df
 
-def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path: Path, data_path: Path,
+def run_auroc_evaluation(args: dict, task: str, variation: str, uq_path: Path, metadata_path: Path, data_path: Path,
                          dataset_name: str, output_path: Path, model_noise: int = 0, decomp: str = "pu") -> None:
     """
     Create comparative bar plots of image-level AUROC values for different noise levels and UQ methods.
@@ -83,8 +83,8 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     # Define noise levels
     nls = NOISE_LEVELS_ARCTIQUE if dataset_name.startswith('arctique') else NOISE_LEVELS
     
-    # Load ground truth masks and AUROC target labels
-    _, gt_list, gt_labels = load_dataset(
+    # Load whole dataset, ground truth masks and AUROC target labels
+    dataset, gt_list, gt_labels = load_dataset(
         data_path, 
         '0_00',
         num_workers=2,
@@ -96,7 +96,7 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     results = []
     for noise_level in nls:
         df = process_noise_level(
-            uq_path, metadata_path, gt_list, gt_labels, task, model_noise, 
+            dataset, uq_path, metadata_path, gt_list, gt_labels, task, model_noise, 
             variation, noise_level, output_path, dataset_name, decomp
         )
         results.append(df)
@@ -155,6 +155,7 @@ def main():
     
     # Run evaluation
     run_auroc_evaluation(
+        args=args,
         task=args.task,
         variation=args.variation,
         uq_path=paths.uq_maps,
