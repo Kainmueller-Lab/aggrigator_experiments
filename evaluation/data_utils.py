@@ -95,21 +95,42 @@ def reorder_gt_data_by_metadata(gt_list, gt_labels, metadata_zr, metadata_r, dat
             raise ValueError(f"Sample name {target_name} not found in current data")
     return gt_list[reorder_indices], gt_labels[reorder_indices] # Reorder the arrays
 
-def validate_indices(args, metadata_path, uq_method, dataset, dataset_name):
+def reorder_id_gt_data_by_metadata(gt_list, current_sample_names, indices): # TODO - understand whether gt_labels should also be re-indexed !
+    """Reorder id gt_list to match the order in cached_maps metadata."""
+    
+    # Create mapping from sample name to current index
+    name_to_current_idx = {name: idx for idx, name in enumerate(current_sample_names)}
+    
+    # Create reordering indices based on target metadata order
+    reorder_indices = []
+    for target_name in indices:
+        if target_name in name_to_current_idx:
+            reorder_indices.append(name_to_current_idx[target_name])
+        else:
+            raise ValueError(f"Sample name {target_name} not found in current data")
+    return gt_list[reorder_indices,] # Reorder the arrays
+
+def validate_indices(args, metadata_path, uq_method, dataset, gt_list, dataset_name):
     meta_type = f"{args.task}_noise_{args.model_noise}_{args.variation}_{args.image_noise}_{uq_method}_{args.decomp}_sample_idx.npy"
     metadata_file_path = metadata_path.joinpath(meta_type)
         
     if metadata_file_path.exists():
         indices = np.load(metadata_file_path)
         
-    if dataset_name.startswith("arctique"):
+    if dataset_name.startswith(("arctique", "lidc")):
         dataset_loader = dataset.dataset # Get the names of the samples, if the dataloader was used in the previous evaluation
         if hasattr(dataset_loader, 'sample_names') and (dataset_loader.sample_names == indices).any():
             print('✓ Uncertainty values, predictions and masks indices match')
+            return gt_list
         else:
-            raise ValueError('⚠ WARNING: Uncertainty values, predictions and masks indices DO NOT match')
+            print('⚠ WARNING: Uncertainty values, predictions and masks indices DO NOT match')
+            print('Reordering ground truth masks to match the order in cached_maps metadata...')
+            gt_list = reorder_id_gt_data_by_metadata(gt_list, dataset_loader.sample_names, indices)
+            print('✓ Uncertainty values, predictions and masks indices match')
+            return gt_list
     else:
         print('✓ Uncertainty values, predictions and masks indices match')
+        return gt_list
 
 def validate_metric_keys(metric_dict, metrics_path, task, ood_variation, data_noise, uq_method):
     """Validates that keys in metric_dict match the metadata indices stored in the corresponding .npy file."""
@@ -230,7 +251,6 @@ def preload_uncertainty_maps(
             uq_path, task, model_noise, variation, '0_00', 
             uq_method, decomp, dataset_name, False, metadata_path
         )
-        print()
         uq_maps_r, metadata_file_r = load_unc_maps(
             uq_path, task, model_noise, variation, data_noise, 
             uq_method, decomp, dataset_name, False, metadata_path
@@ -276,10 +296,11 @@ def process_aggr_unc(uq_path: Path,
                      param: Any,
                      category: str, 
                      ind_to_rem: List,
-                     dataset_name: str):
+                     dataset_name: str,
+                     metadata_path: Path):
     """Aggregate uncertainty values with aggrigators' methods"""      
     # Load uncertainty maps
-    uq_maps = load_unc_maps(uq_path=uq_path, 
+    uq_maps, meta = load_unc_maps(uq_path=uq_path, 
                             task=task, 
                             model_noise=model_noise, 
                             variation=variation, 
@@ -287,9 +308,9 @@ def process_aggr_unc(uq_path: Path,
                             uq_method=uq_method, 
                             decomp=decomp, 
                             dataset_name=dataset_name,
-                            calibr=(dataset_name== 'arctique' or dataset_name== 'lizard')
+                            calibr=(dataset_name== 'arctique' or dataset_name== 'lizard'),
+                            metadata_path=metadata_path
                             )
-    
     uq_maps = rescale_maps(uq_maps, uq_method, task, dataset_name)
     uq_maps = [uqmap for i, uqmap in enumerate(uq_maps) if i not in ind_to_rem]
     uq_maps = [UncertaintyMap(array=array, mask=gt, name=None) for array, gt in zip(uq_maps, gt_sem)]
@@ -297,7 +318,6 @@ def process_aggr_unc(uq_path: Path,
     # Apply aggregation method to each map
     if category == 'Context-aware':
         res = [method(map, param, True) for map in uq_maps]
-        print('HERE -------', res)
         # Convert numpy types to Python types for consistency - in some cases the resulting values have a weird np.float(64) format..
         converted_res = []
         for item in res:

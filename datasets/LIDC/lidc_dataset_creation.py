@@ -58,7 +58,7 @@ class LIDC_UQ_Dataset(Dataset):
         self.gt_seg_dir = self.data_dir / "gt_seg"
         
         # Get sample names by looking for input files
-        self._get_sample_names()
+        self.sample_names = self._get_sample_names()
         
     def _get_sample_names(self):
         """Extract unique sample names from input directory"""
@@ -75,7 +75,7 @@ class LIDC_UQ_Dataset(Dataset):
             sample_name = file.stem.replace('.nii', '')  # Remove .nii from .nii.gz
             self.sample_names.append(sample_name)
             
-        self.sample_names = sorted(list(set(self.sample_names)))
+        return sorted(list(set(self.sample_names)))
         # print(f"Found {len(self.sample_names)} samples: {self.sample_names[:5]}{'...' if len(self.sample_names) > 5 else ''}")
         
     def _load_nifti(self, file_path):

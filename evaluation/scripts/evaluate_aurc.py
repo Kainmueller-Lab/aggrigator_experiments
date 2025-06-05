@@ -58,7 +58,7 @@ def parse_args():
     parser.add_argument('--variation', type=str, help='Variation type (e.g. nuclei_intensity, blood_cells, malignancy, texture)')
     parser.add_argument('--uq_path', type=str, default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results')
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
-    # lizard:  '/home/vanessa/Documents/data/uncertainty_lizard_convnextv2_tiny_3' 
+    # lizard:  '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_lizard_convnextv2_tiny_3' 
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     parser.add_argument('--label_path', type=str, help='Path to labels')
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
@@ -93,7 +93,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     aggregator_type = args.aggregator_type
     num_workers = args.num_workers
     dataset_name = args.dataset_name
-    variation = args.variation if args.variation else 'LizardData'
+    variation = args.variation #if args.variation else 'LizardData'
     uq_methods = args.uq_methods.split(',')
     data_mod = args.data_mod
     
@@ -101,7 +101,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     strategies, method_names = select_strategies(aggregator_type)
     
     # Load dataset and ground truth
-    dataset, gt_list = load_dataset(
+    dataset, gt_list_old = load_dataset(
         data_path=paths.data, 
         image_noise=image_noise,
         num_workers=num_workers,
@@ -120,7 +120,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         print(f"\n=== Processing UQ method: {uq_method} ===")
         
         # Load prediction data for current UQ method
-        pred_list = load_predictions(
+        pred_list= load_predictions(
             paths,
             model_noise,
             variation,
@@ -131,8 +131,10 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         )
                 
         # Load and check metadata indices for consistency
-        validate_indices(args, paths.metadata, uq_method, dataset, dataset_name)
-        
+        gt_list = validate_indices(
+            args, paths.metadata, uq_method, dataset, gt_list_old, dataset_name
+        )
+
         # Analyze uncertainty and generate results
         print(f"Analyzing uncertainty using {aggregator_type} aggregation strategies with {uq_method}")
         results = compute_selective_risks_coverage(

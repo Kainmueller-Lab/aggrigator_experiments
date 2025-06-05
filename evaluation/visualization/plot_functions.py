@@ -355,7 +355,7 @@ def create_selective_risks_coverage_plot(
     
     # Save plot
     output_file = output_path.joinpath(
-        f'figures/aurc_plot_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{ood}.png'
+        f'figures/{ood}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}.png'
     )
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")

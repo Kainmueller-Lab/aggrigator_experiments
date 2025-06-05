@@ -32,7 +32,7 @@ def process_strategy(
     
     # Get shared data
     uq_path = shared['paths'].uq_maps
-    gt_sem = shared['gt_sem']
+    gt = shared['gt']
     task = shared['task']
     model_noise = shared['model_noise']
     uq_method = shared['uq_method']
@@ -45,8 +45,8 @@ def process_strategy(
     # Process the strategy
     print(f"Processing aggregator function {strategy_idx}")
     aggr_unc, _ = process_aggr_unc(
-        uq_path, gt_sem, task, model_noise, uq_method, decomp, variation, data_noise, 
-        method, param, category, ind_to_rem, dataset_name
+        uq_path, gt, task, model_noise, uq_method, decomp, variation, data_noise, 
+        method, param, category, ind_to_rem, dataset_name, shared['paths'].metadata
     )
     return strategy_idx, aggr_unc
 
@@ -111,7 +111,7 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
     idx = 0
     shared_data = {
         'paths': paths,
-        'gt_sem': gt_list_shared,
+        'gt': gt_list_shared,
         'task': task,
         'model_noise': model_noise,
         'uq_method': uq_method,
