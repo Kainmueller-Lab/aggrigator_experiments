@@ -110,9 +110,10 @@ def reorder_id_gt_data_by_metadata(gt_list, current_sample_names, indices): # TO
             raise ValueError(f"Sample name {target_name} not found in current data")
     return gt_list[reorder_indices,] # Reorder the arrays
 
-def validate_indices(args, metadata_path, uq_method, dataset, gt_list, dataset_name):
-    meta_type = f"{args.task}_noise_{args.model_noise}_{args.variation}_{args.image_noise}_{uq_method}_{args.decomp}_sample_idx.npy"
+def validate_indices(args, image_noise, metadata_path, uq_method, dataset, gt_list, dataset_name):
+    meta_type = f"{args.task}_noise_{args.model_noise}_{args.variation}_{image_noise}_{uq_method}_{args.decomp}_sample_idx.npy"
     metadata_file_path = metadata_path.joinpath(meta_type)
+    print(meta_type)
         
     if metadata_file_path.exists():
         indices = np.load(metadata_file_path)

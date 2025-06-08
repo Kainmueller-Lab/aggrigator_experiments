@@ -5,6 +5,118 @@ import torch.nn.functional as F
 from torchmetrics.segmentation import DiceScore
 import numpy as np
 
+def continuous_dice_coefficient(preds, targets, ignore_index=True, num_classes=2, smooth=1e-6):
+    """Computes the continuous Dice coefficient between soft predictions and targets using NumPy.
+    
+    Args:
+        preds: Soft predictions/probabilities. Can be:
+               - Raw logits (will be softmaxed)
+               - Probabilities (should sum to 1 across class dimension)
+               Shape: (batch, num_classes, H, W) or (batch, H, W, num_classes) or (batch, H, W)
+        targets: Ground truth masks/labels. Can be:
+                - One-hot encoded: (batch, num_classes, H, W)
+                - Class indices: (batch, H, W) - will be one-hot encoded
+        ignore_index: Whether to ignore background class (index 0)
+        num_classes: Number of classes in the dataset
+        smooth: Small number to avoid division by 0
+        
+    Returns:
+        Continuous Dice score per batch
+    """
+    
+    def ignore_background(preds: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Ignore the background class (assumed index 0)."""
+        preds = preds[:, 1:] if preds.shape[1] > 1 else preds
+        target = target[:, 1:] if target.shape[1] > 1 else target
+        return preds, target
+    
+    def safe_divide(
+        num: np.ndarray,
+        denom: np.ndarray,
+        zero_division: Union[float, Literal["warn", "nan"]] = 0.0,
+    ) -> np.ndarray:
+        """Safe division with handling for zero denominators."""
+        denom_safe = np.where(denom != 0, denom, np.nan)
+        result = np.divide(num, denom_safe)
+        result = np.nan_to_num(result, nan=zero_division)
+        return result
+    
+    def softmax(x, axis=1):
+        """Compute softmax along specified axis."""
+        exp_x = np.exp(x - np.max(x, axis=axis, keepdims=True))
+        return exp_x / np.sum(exp_x, axis=axis, keepdims=True)
+    
+    # Convert to numpy arrays
+    preds = np.asarray(preds, dtype=np.float32)
+    targets = np.asarray(targets)
+    
+    # Handle different input formats for predictions
+    if preds.ndim == 4:
+        # Check if channel dimension is last and move to second position
+        if preds.shape[-1] == num_classes and preds.shape[1] != num_classes:
+            preds = np.moveaxis(preds, -1, 1)  # (batch, H, W, C) -> (batch, C, H, W)
+    
+    # Apply softmax if predictions don't appear to be probabilities or normalized continous values 
+    # (assuming they're logits if any value is > 1 or < 0, or don't sum to ~1)
+    if len(preds.shape) == 4:  # (batch, C, H, W)
+        prob_sums = np.sum(preds, axis=1)  # Sum across class dimension
+        if np.any(preds < 0) or np.any(preds > 1) or not np.allclose(prob_sums, 1.0, atol=0.1):
+            preds = softmax(preds, axis=1)
+    
+    # Handle targets - convert to one-hot if needed
+    if targets.ndim == 3 and preds.ndim == 4:  # Class indices format (batch, H, W)
+        targets = targets.astype(np.int64)
+        targets = np.clip(targets, 0, num_classes - 1)
+        targets_onehot = np.eye(num_classes)[targets]  # (batch, H, W, C)
+        targets = np.moveaxis(targets_onehot, -1, 1)  # (batch, C, H, W)
+    elif targets.ndim == 4:  # Already one-hot or continuous
+        if targets.shape[-1] == num_classes and targets.shape[1] != num_classes:
+            targets = np.moveaxis(targets, -1, 1)  # (batch, H, W, C) -> (batch, C, H, W)
+        targets = targets.astype(np.float32)
+    
+    # Ensure both have same shape
+    assert preds.shape == targets.shape, f"Shape mismatch: preds {preds.shape} vs targets {targets.shape}"
+    
+    # Optionally ignore background class
+    if ignore_index and preds.shape[1] > 1:
+        preds, targets = ignore_background(preds, targets)
+    
+    # Compute intersection and union for continuous case
+    # Spatial dimensions to reduce over (everything except batch and class)
+    reduce_axes = tuple(range(2, preds.ndim))
+    
+    # Continuous intersection: element-wise product summed over spatial dimensions
+    intersection = preds * targets  # Element-wise product (batch, classes, H, W)
+    intersection_sum = np.sum(intersection, axis=reduce_axes)  # (batch, classes)
+    
+    # Compute c factor: mean value of intersection region in probability map
+    # c = sum(intersection) / max(count_of_positive_intersection, 1)
+    c_values = np.zeros_like(intersection_sum)
+    for b in range(preds.shape[0]):  # batch dimension
+        for cls in range(preds.shape[1]):  # class dimension
+            intersect_region = intersection[b, cls]
+            positive_count = np.sum(intersect_region > 0)
+            if positive_count > 0:
+                c_values[b, cls] = np.sum(intersect_region) / positive_count
+            else:
+                c_values[b, cls] = 1.0  # Default to 1 if no intersection
+    
+    # Continuous sums
+    pred_sum = np.sum(preds, axis=reduce_axes)  # (batch, classes)
+    target_sum = np.sum(targets, axis=reduce_axes)  # (batch, classes)
+    
+    # Compute continuous Dice coefficient as defined in https://www.biorxiv.org/content/10.1101/306977v1.full.pdf 
+    # cDC = 2 * sum(intersection) / (c * sum(binary) + sum(probability))
+    numerator = 2.0 * intersection_sum
+    denominator = c_values * target_sum + pred_sum + smooth
+    
+    dice_per_class = safe_divide(numerator, denominator, zero_division=0.0)
+    
+    # Return mean across classes for each batch item
+    dice_score = np.mean(dice_per_class, axis=-1)  # (batch,)
+    
+    return dice_score
+
 def dice_coefficient_torchmetrics(preds, targets, ignore_index=True, num_classes=2, smooth=1e-6):
     """Computes the Dice coefficient between predictions and targets using NumPy.
     Args:

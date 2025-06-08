@@ -1,33 +1,21 @@
-import sys
 import argparse
-import os
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
-
-from tqdm import tqdm
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from typing import List, Any, Tuple, Dict, NamedTuple, Callable
 
 from evaluation.constants import (CLASS_NAMES_ARCTIQUE, 
                        CLASS_NAMES_LIZARD, 
                        AUROC_STRATEGIES, 
                        BACKGROUND_FREE_STRATEGIES, 
                        COLORS)
-from evaluation.metrics.accuracy_metrics import per_tile_metrics
 from evaluation.metrics.selective_risk_coverage import compute_selective_risks_coverage
 from evaluation.data_utils import (DataPaths,
                                    AnalysisResults,
                                    setup_paths, 
                                    load_predictions, 
                                    load_dataset, 
-                                   load_unc_maps, 
                                    validate_indices,
-                                   select_strategies,
-                                   rescale_maps,
-                                   _process_gt_masks,
-                                   remove_background_only_images)
+                                   select_strategies)
 from evaluation.visualization.plot_functions import setup_plot_style_aurc, create_selective_risks_coverage_plot
     
 # ---- Configuration Functions ----
@@ -132,7 +120,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
                 
         # Load and check metadata indices for consistency
         gt_list = validate_indices(
-            args, paths.metadata, uq_method, dataset, gt_list_old, dataset_name
+            args, image_noise, paths.metadata, uq_method, dataset, gt_list_old, dataset_name
         )
 
         # Analyze uncertainty and generate results

@@ -4,8 +4,6 @@ from tqdm import tqdm
 from pathlib import Path 
 from typing import List, Any, Tuple, Callable, Dict
 from evaluation.data_utils import (
-    load_unc_maps, 
-    rescale_maps, 
     remove_background_only_images,
     _process_gt_masks, 
     process_aggr_unc
