@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
 
-class Dataset(ABC):
+class Dataset_Class(ABC):
     """Abstract class to define the structure of a dataset.
 
     Args:
@@ -11,15 +11,15 @@ class Dataset(ABC):
         uq_map_path (str): Path to the local directory where the uncertainty maps are stored.
         prediction_path (str): Path to the local directory where the predictions are stored.
         semantic_mapping_path (str): Path where the semantic mapping is stored.
-
-
+        **kwargs: Additional keyword arguments that can be passed to specific methods.
     """
-    def __init__(self, image_path: str, mask_path: str, uq_map_path: str, prediction_path: str, semantic_mapping_path:str):
+    def __init__(self, image_path: str, mask_path: str, uq_map_path: str, prediction_path: str, semantic_mapping_path:str, **kwargs):
         self.image_path = image_path
         self.mask_path = mask_path
         self.uq_map_path = uq_map_path
         self.prediction_path = prediction_path
         self.semantic_mapping_path = semantic_mapping_path
+        self.kwargs = kwargs
 
     @abstractmethod
     def __len__(self):
