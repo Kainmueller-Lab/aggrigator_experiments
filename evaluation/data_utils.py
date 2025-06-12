@@ -39,7 +39,10 @@ class AnalysisResults(NamedTuple):
 def setup_paths(args: argparse.Namespace) -> DataPaths:
     """Create and validate all necessary paths."""
     base_path = Path(args.uq_path)
-    uq_maps_path = base_path.joinpath("UQ_maps")
+    
+    main_folder_name = "UQ_maps" if not args.spatial else "UQ_spatial"
+    uq_maps_path = base_path.joinpath(main_folder_name)
+    
     metadata_path = base_path.joinpath("UQ_metadata")
     preds_path = base_path.joinpath("UQ_predictions")
     metrics_path = base_path.joinpath("Performance_metrics")
@@ -236,6 +239,7 @@ def preload_uncertainty_maps(
     data_noise: str,
     dataset_name: str,
     decomp: str,
+    spatial: str = None,
     ) -> Dict[str, Dict]:
     """Preload all uncertainty maps for a given noise level, their metadata indices
     and iD and OoD image targets as either 0 or 1 to then calculate the aggregators AUROC score."""
@@ -248,12 +252,12 @@ def preload_uncertainty_maps(
     for uq_method in uq_methods:
         # Load zero-risk and noisy uncertainty maps
         uq_maps_zr, metadata_file_zr = load_unc_maps(
-            uq_path, task, model_noise, variation, '0_00', 
-            uq_method, decomp, dataset_name, False, metadata_path
+            uq_path, task, model_noise, variation, '0_00', uq_method, 
+            decomp, dataset_name, False, metadata_path, spatial
         )
         uq_maps_r, metadata_file_r = load_unc_maps(
-            uq_path, task, model_noise, variation, data_noise, 
-            uq_method, decomp, dataset_name, False, metadata_path
+            uq_path, task, model_noise, variation, data_noise, uq_method, 
+            decomp, dataset_name, False, metadata_path, spatial
         )
         
         # Normalize when needed
@@ -356,9 +360,12 @@ def load_unc_maps(
         dataset_name: str,
         calibr: bool = False,
         metadata_path: str = None,
+        spatial: str = None
     ) -> np.ndarray:
     '''Load UQ maps'''
     map_type = f"{task}_noise_{model_noise}_{variation}_{data_noise}_{uq_method}_{decomp}"
+    if spatial:
+        map_type += f'_{spatial}'
     
     if dataset_name.startswith(('arctique', 'lizard')):
         """Load uncertainty maps"""

@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 
 # ---- LIDC_IDRI Dataset Creation Functions ----
 
-@staticmethod
+# @staticmethod
 def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     if mi is None:
         mi = np.min(x)

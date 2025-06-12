@@ -38,6 +38,7 @@ def create_single_auroc_barplot(
     dataset_name : str,
     decomp: str,
     output_path: Path,
+    spatial: str = None,
 ) -> None:
     """
     Create a single bar plot of image-level AUROC values.
@@ -138,7 +139,11 @@ def create_single_auroc_barplot(
     plt.tight_layout()
     
     # Ensure output directory exists
-    output_file = output_path.joinpath(f'figures/ood_auroc_{task}_{dataset_name}_{variation}_{decomp}_barplot.png')
+    file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
+    if spatial:
+        file_name += f'_{spatial}'
+        
+    output_file = output_path.joinpath(f'figures/{file_name}_barplot.png')
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
     # Save the plot
@@ -156,6 +161,7 @@ def create_auroc_barplot(
     dataset_name : str,
     decomp: str,
     output_path: Path,
+    spatial: str = None,
     ) -> None:
     """
     Create comparative bar plots of image-level AUROC values.
@@ -256,7 +262,11 @@ def create_auroc_barplot(
     plt.tight_layout(rect=[0, 0, 1, 0.90])
     
     # Ensure output directory exists
-    output_file = output_path.joinpath(f'figures/ood_auroc_{task}_{dataset_name}_{variation}_{decomp}_barplot.png')
+    file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
+    if spatial:
+        file_name += f'_{spatial}'
+        
+    output_file = output_path.joinpath(f'figures/{file_name}_barplot.png')
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
     # Save the plot
