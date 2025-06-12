@@ -48,6 +48,7 @@ AUROC_STRATEGIES = {
                 'Quantile 0.6': (am.above_quantile_mean, 0.6),
                 'Quantile 0.75': (am.above_quantile_mean, 0.75),
                 'Quantile 0.9': (am.above_quantile_mean, 0.9),
+                'Quantile fg. ratio' : (am.above_quantile_mean_fg_ratio, None)
             },
         'Patch':{
                 'Patch 10': (am.patch_aggregation, 10), 
