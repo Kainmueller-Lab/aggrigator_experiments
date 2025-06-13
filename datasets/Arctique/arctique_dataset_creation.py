@@ -7,7 +7,8 @@ from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 from PIL import Image
 from functools import lru_cache
-from datasets.datalaoders import Dataset_Class
+
+from datasets.dataset import Dataset_Class
 
 # ---- Arctique Config. Functions ----
 

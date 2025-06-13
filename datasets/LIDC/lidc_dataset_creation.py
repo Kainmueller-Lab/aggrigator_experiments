@@ -10,7 +10,7 @@ from pathlib import Path
 from functools import lru_cache
 from typing import Optional, Tuple
 
-from datasets.datalaoders import Dataset_Class
+from datasets.dataset import Dataset_Class
 
 # ---- Arctique Config. Functions ----
 
