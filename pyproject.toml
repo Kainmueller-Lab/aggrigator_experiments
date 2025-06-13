@@ -21,6 +21,7 @@ dependencies = [
     "imagecodecs",
     "ipython",
     "jupyterlab",
+    "lmdb",
     "matplotlib",
     "mahotas",
     "numpy>2",

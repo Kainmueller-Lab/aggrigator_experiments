@@ -212,7 +212,8 @@ class ArctiqueDataset(Dataset_Class):
         map_type_threeinst = f"instance_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_{self.decomp}"
 
         if self.spatial:
-            map_type += f'_{self.spatial}'
+            map_type_sem += f'_{self.spatial}'
+            map_type_threeinst += f'_{self.spatial}'
         map_type_sem += ".npy"
         map_type_threeinst += ".npy"
         
@@ -278,20 +279,21 @@ class ArctiqueDataset(Dataset_Class):
         return info_dictionary
 
 def main():
-    spatial = False
-    main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-    map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
-    base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
     extra_info = {
-        'task' : 'instance',
+        'task' : 'semantic',
         'variation' : 'blood_cells',
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '0_25',
         'uq_method' : 'dropout',
         'decomp' : 'pu',
-        'spatial' : None,
+        'spatial' : 'high_moran',
         'metadata' : True,
     }
+    
+    main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
+    map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
+    base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
+    
     image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
     mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
     prediction_path = map_path.joinpath('UQ_predictions')

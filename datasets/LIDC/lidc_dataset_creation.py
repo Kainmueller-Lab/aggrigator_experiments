@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 
 from datasets.dataset import Dataset_Class
 
-# ---- Arctique Config. Functions ----
+# ---- LIDC_IDRI Config. Functions ----
 
 # cell IDS from https://www.cancerimagingarchive.net/collection/lidc-idri/ 
 mapping_dict = {
