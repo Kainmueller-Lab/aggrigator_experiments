@@ -2,8 +2,10 @@ import torch
 import os 
 import numpy as np
 import mahotas as mh
+import matplotlib.pyplot as plt
 
 from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms.functional import rgb_to_grayscale
 from pathlib import Path
 from PIL import Image
 from functools import lru_cache
@@ -186,11 +188,16 @@ class ArctiqueDataset(Dataset_Class):
         
         inst_label = np.array(Image.open(inst_file), dtype = int)
         sem_label = np.array(Image.open(sem_file), dtype = int)
-
-        label_3c = inst_to_3c(inst_label, False)
-        label = np.stack((inst_label, sem_label, label_3c), axis=-1)
-        label = torch.tensor(label, dtype=torch.long)
-        return label 
+        three_label = inst_to_3c(inst_label, False)
+        
+        if self.task.startswith('semantic'):
+            return torch.tensor(sem_label, dtype=torch.long)
+        elif self.task.startswith('instance'):
+            label = np.stack((inst_label, three_label), axis=-1)
+            return torch.tensor(label, dtype=torch.long)
+        
+        label = np.stack((inst_label, sem_label, three_label), axis=-1)
+        return torch.tensor(label, dtype=torch.long)
     
     @lru_cache(maxsize=32)
     def get_uq_map(self, idx):
@@ -201,12 +208,23 @@ class ArctiqueDataset(Dataset_Class):
         else:
             fn = idx  # Fallback: assume sample_names order matches array order
         
-        map_type = f"{self.task}_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_{self.decomp}"
+        map_type_sem = f"semantic_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_{self.decomp}"
+        map_type_threeinst = f"instance_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_{self.decomp}"
+
         if self.spatial:
             map_type += f'_{self.spatial}'
-        map_type += ".npy"
-        map_file = self.uq_map_path .joinpath(map_type)
-        return np.load(map_file)[fn]
+        map_type_sem += ".npy"
+        map_type_threeinst += ".npy"
+        
+        map_file_sem = self.uq_map_path .joinpath(map_type_sem)
+        map_file_inst = self.uq_map_path .joinpath(map_type_threeinst)
+        
+        if self.task.startswith('semantic'):
+            return np.load(map_file_sem)[fn]
+        elif self.task.startswith('instance'):
+            return np.load(map_file_inst)[fn]
+        
+        return np.stack((np.load(map_file_inst)[fn],np.load(map_file_inst)[fn]), axis=-1)
     
     def get_prediction(self, idx, **kwargs):
         """Load panoptic model predictions"""
@@ -223,8 +241,14 @@ class ArctiqueDataset(Dataset_Class):
         preds_file_path_sem = self.prediction_path.joinpath(preds_sem_type)
         
         preds_inst, preds_sem = np.load(preds_file_path_inst)[fn], np.load(preds_file_path_sem)[fn]
-        preds_3c = inst_to_3c(preds_inst, False)
-        return np.stack((preds_inst, preds_sem, preds_3c), axis=-1) 
+        three_preds = inst_to_3c(preds_inst, False)
+        
+        if self.task.startswith('semantic'):
+            return preds_sem
+        elif self.task.startswith('instance'):
+            preds_inst = np.stack((preds_inst, three_preds), axis=-1)
+            return preds_inst
+        return np.stack((preds_inst, preds_sem, three_preds), axis=-1) 
     
     def get_sample_name(self, idx):
         """Return the sample name at the given index."""
@@ -259,7 +283,7 @@ def main():
     map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
     base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
     extra_info = {
-        'task' : 'semantic',
+        'task' : 'instance',
         'variation' : 'blood_cells',
         'model_noise' : 0,
         'data_noise': '0_00',
@@ -290,10 +314,84 @@ def main():
                         )
     data = next(iter(loader))
     print(data['image'].shape,
-          data['mask'].shape, 
-          data['uq_map'].shape, 
-          data['prediction'].shape,
+          data['mask'].shape, #if task == 'instance', then mask[...,0] is instances and mask[...,1] is 3-class instance
+          data['uq_map'].shape, #if task == 'instance', then uq_map[...,0] is instances and uq_map[...,1] is 3-class instance
+          data['prediction'].shape, #if task == 'instance', then uq_map[...,0] is instances and uq_map[...,1] is 3-class instance
           data['sample_name'])
+    
+    # Overleay colours 
+    label_colors_sem = {
+        0: [0, 0, 0],             # Background - black or transparent
+        1: [102, 0, 153],         # Epithelial - deep purple
+        2: [0, 0, 255],           # Plasma Cells - blue
+        3: [255, 255, 0],         # Lymphocytes - yellow
+        4: [255, 105, 180],       # Eosinophils - reddish pink
+        5: [0, 255, 0],           # Fibroblasts - green
+    }
+    
+    # Overleay colours 
+    label_colors_inst = {
+        0: [0, 0, 0],             # Background - black or transparent
+        1: [255, 105, 180],       # Border - reddish pink
+        2: [0, 0, 0],             # Nucleus - black or transparent
+    }
+    
+    def label_to_rgb(label_map, label_colors):
+        """Converts a (H, W) label map to an (H, W, 3) RGB overlay."""
+        h, w = label_map.shape
+        rgb = np.zeros((h, w, 3), dtype=np.uint8)
+        for label, color in label_colors.items():
+            mask = (label_map == label)
+            rgb[mask] = color
+        return rgb
+
+    # Main visualization
+    data = next(iter(loader))
+    image = data['image'].squeeze(0) # (C, H, W)
+    
+    if extra_info['task'].startswith('semantic'):
+        mask = data['mask'].squeeze(0).cpu().numpy()  # (H, W)
+        prediction = data['prediction'].squeeze(0).cpu().numpy()  # (H, W)
+        label_colors = label_colors_sem        
+    else:
+        mask = data['mask'][...,1].squeeze(0).cpu().numpy() # (H, W) 
+        prediction = data['prediction'][...,1].squeeze(0).cpu().numpy()  # (H, W)
+        label_colors = label_colors_inst
+        
+    uq_map = data['uq_map'].squeeze(0)
+    sample_name = data['sample_name'][0]
+
+    # Generate colored overlays
+    mask_rgb = label_to_rgb(mask, label_colors)
+    pred_rgb = label_to_rgb(prediction, label_colors)
+
+    # Create subplots
+    fig, axs = plt.subplots(1, 4, figsize=(16, 5))
+    titles = ['Input Image', 'Ground Truth', 'Prediction', 'UQ Map']
+    overlays = [None, mask_rgb, pred_rgb, uq_map.cpu().numpy()]
+    alphas = [1.0, 0.6, 0.6, 0.8]
+
+    for ax, title, overlay, alpha in zip(axs, titles, overlays, alphas):
+        if title == 'Input Image':
+            ax.imshow(image.permute(1, 2, 0).cpu().numpy())  # RGB input, normalized
+        else:
+            ax.imshow(image[2], cmap='gray')
+            if title in ['Ground Truth', 'Prediction']:
+                ax.imshow(overlay, alpha=alpha)
+            elif title == 'UQ Map':
+                ax.imshow(overlay, cmap='inferno', alpha=alpha)
+        ax.set_title(title, fontsize=10)
+        ax.axis('off')
+
+    fig.suptitle(f"Sample: {sample_name}", fontsize=12)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.85)
+
+    output_dir = Path(__file__).parent
+    output_file = output_dir / 'sample_batch_overlay_plot.png'
+    plt.savefig(output_file, bbox_inches='tight')
+    plt.close()
+    print(f"Overlay plot saved to {output_file}")
     
     
 if __name__ == "__main__":

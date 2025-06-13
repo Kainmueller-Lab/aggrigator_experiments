@@ -527,7 +527,5 @@ def main():
 
     print(f"Overlay plot saved to {output_file}")
     
-    
-    
 if __name__ == "__main__":
     main() 
