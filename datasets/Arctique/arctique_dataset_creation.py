@@ -9,6 +9,18 @@ from PIL import Image
 from functools import lru_cache
 from datasets.datalaoders import Dataset_Class
 
+# ---- Arctique Config. Functions ----
+
+# cell IDS from https://zenodo.org/records/14016860
+mapping_dict = {
+            0: "Background",
+            1: "Epithelial",
+            2: "Plasma Cells",
+            3: "Lymphocytes",
+            4: "Eosinophils",
+            5: "Fibroblasts",
+        }
+
 # ---- Arctique Dataset Creation Functions ----
 
 def inst_to_3c(gt_labels, lizard =  True):
@@ -221,7 +233,7 @@ class ArctiqueDataset(Dataset_Class):
         return self.sample_names
     
     def get_semantic_mapping(self):
-        return None
+        return mapping_dict
     
     def get_info(self):
         """Return a dictionary with information about the dataset."""
@@ -230,7 +242,7 @@ class ArctiqueDataset(Dataset_Class):
             'mask_path': str(self.mask_path),
             'uq_map_path': str(self.uq_map_path),
             'prediction_path': str(self.prediction_path),
-            'semantic_mapping': self.get_semantic_mapping(),  # Pass required idx parameter
+            'semantic_mapping': self.get_semantic_mapping(), 
             'dataset_size': len(self),  # Fixed typo: datset_size -> dataset_size
             'task': self.task,
             'num_classes': None,  # TODO: Implement based on your data
@@ -259,11 +271,6 @@ def main():
     mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
     prediction_path = map_path.joinpath('UQ_predictions')
     uq_map_path = map_path.joinpath(main_folder_name)
-  
-    # print(image_path)
-    # print(mask_path) 
-    # print(uq_map_path)
-    # print(prediction_path)
     
     data_loader = ArctiqueDataset(image_path, 
                                   mask_path, 
@@ -271,6 +278,7 @@ def main():
                                   prediction_path, 
                                   'abc',
                                   **extra_info)
+    print(data_loader.get_semantic_mapping())
     
     loader = DataLoader(data_loader, 
                         batch_size=1, 
