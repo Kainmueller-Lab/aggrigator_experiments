@@ -5,6 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 import multiprocessing
+from joblib import Parallel, delayed
 import time
 import yaml
 
@@ -150,74 +151,59 @@ def to_correlation_matrix(df):
     return corr_matrix
 
 
-def max_num_cpus():
-    return multiprocessing.cpu_count()
+def evaluate_correlation(dataset, sample_size, num_workers, out_name):
+    sample_size = len(dataset) if sample_size == 0 else sample_size
 
-
-def load_unc_data(dataset, sample_size):
-    uq_arrays = []
-    masks = []
-    filenames = []
-
-    samples = [dataset[i] for i in range(min(sample_size, len(dataset)))]
-
-    count = 0
-    for sample in dataset:
-        if sample_size > 0 and count >= sample_size:
-            break
-
-        uq = sample['uq_map']
-        mask = sample['mask']
-        name = sample['sample_name']
-
-        # Slice if 3D
-        if uq.ndim == 3:
-            mid_slice = uq.shape[0] // 2
-            uq = uq[mid_slice, :, :]
-            mask = mask[mid_slice, :, :]
-
-        h, w = uq.shape
-        if h >= 200 and w >= 200:
-            uq_arrays.append(uq)
-            masks.append(mask)
-            filenames.append(name)
-            count += 1  # Only count valid samples
-
-        # TODO: Normalize arrays by ln(K) where K is number of classes
-
-    return uq_arrays, masks, filenames
-
-
-def evaluate_correlation(dataset, sample_size):
     # Print info
     dataset_info = dataset.get_info()
-    dataset_info.pop('semantic_mapping') # NOTE: Semantic mapping too long bc of 150 classes
+    dataset_info.pop('semantic_mapping') # NOTE: Semantic mapping too long in case of many classes
     print("____________________")
     print(f"Evaluating correlation matrix")
     for key, value in dataset_info.items():
         print(f"{key}: {value}")
     print(f"Number of samples used for correlation matrix: {sample_size} of {len(dataset)}")
+    if not dataset_info['normalized_uq_maps']:
+        print(f"NOTE: Normalizing UQ maps by ln(K) where K={dataset_info['num_classes']} is the number of classes.")
     print("____________________")
 
-    # Load uncertainty maps and masks from dataset
-    # TODO: Add random sampling an seed
-    start = time.time()
-    arrays, masks, filenames= load_unc_data(dataset, sample_size)
-    print(f"Loaded uncertainty maps and masks from dataset: {time.time() - start} s")
 
-    # Create UncertaintyMap summary
-    # TODO: Maybe batch bc not all 2000 arrays + masks should be loaded at once into the summary...
-    # TODO: Solve empty values in correlation amtrix for high thresholds
+    def aggregate(sample):
+        # Load uncertainty maps and masks from dataset
+        mask = sample['mask']
+        uq_array = sample['uq_map']
+
+        # Slice if 3D
+        if uq_array.ndim == 3:
+            mid_slice = uq_array.shape[0] // 2
+            uq_array = uq_array[mid_slice, :, :]
+            mask = mask[mid_slice, :, :]
+
+        # Ignore too small images bc of patch aggregation with patch size 200
+        h, w = uq_array.shape
+        if h < 200 or w < 200:
+            return None
+        
+        # Normalize arrays by ln(K) where K is number of classes if UQ maps are not normalized in dataloader
+        if not dataset_info['normalized_uq_maps']:
+            uq_array = uq_array / np.log(dataset_info['num_classes'])
+
+        # Apply aggregation strategies
+        uq_map = UncertaintyMap(array=uq_array, mask=mask, name=sample['sample_name'])
+        summary = AggregationSummary(focus_strategy_list, num_cpus=1)
+        return summary.apply_methods([uq_map], save_to_excel=False, do_plot=False, max_value=1.0)
+    
+    # Aggregate all UQ maps
     start = time.time()
-    uq_maps = [UncertaintyMap(array=array, mask=mask, name=name) for array, mask, name in zip(arrays, masks, filenames)]
-    summary = AggregationSummary(focus_strategy_list, name=f"{dataset_info['dataset_name']}_{dataset_info['model_name']}_summary", num_cpus=max_num_cpus())
-    summary_df = summary.apply_methods(uq_maps, save_to_excel=False, do_plot=False, max_value=1.0)
+    n_jobs = multiprocessing.cpu_count() if num_workers == 0 else num_workers
+    summary_dfs = Parallel(n_jobs=n_jobs, verbose=10)(delayed(aggregate)(dataset[idx]) for idx in range(sample_size))
+    summary_dfs = [df.set_index("Name") for df in summary_dfs if df is not None]
+    summary_df = pd.concat(summary_dfs, axis=1).reset_index()
     print(f"Computed aggregation strategy summary: {time.time() - start} s")
 
     # Compute the correlation matrix
     start = time.time()
     corr_matrix = to_correlation_matrix(summary_df)
-    out_name = f"correlation_matrix_{dataset_info['dataset_name']}_{dataset_info['model_name']}"
+    out_name = f"correlation_matrix_{out_name}"
     print(f"Computed correlation matrix: {time.time() - start} s")
 
     # Save to csv
@@ -229,15 +215,14 @@ def evaluate_correlation(dataset, sample_size):
     print(f"Correlation heatmap {out_name}.png saved to output folder.")
 
 
-
-
-
+# TODO: Detach script from method so script can be altered easily
 from datasets.ADE20K.ade20k_loader import ADE20K
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
     parser.add_argument('--dataset_config', type=str, default='configs/ade20k_deeplabv3.yaml', help='Path to config file')
-    parser.add_argument('--sample_size', type=int, default='200', help='Number of samples from dataset used to evaluate correlation matrix')
+    parser.add_argument('--sample_size', type=int, default='200', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
+    parser.add_argument('--num_workers', type=int, default='0', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
     
     config = load_dataset_config(args.dataset_config)
@@ -248,7 +233,9 @@ if __name__ == "__main__":
                     config['prediction_dir'],
                     config['metadata_dir'])
     
-    evaluate_correlation(dataset, args.sample_size)
+    out_name = f"{config['dataset_name']}_{config['model_name']}"
+    
+    evaluate_correlation(dataset, args.sample_size, args.num_workers, out_name)
 
     
 

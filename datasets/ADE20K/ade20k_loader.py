@@ -131,6 +131,7 @@ class ADE20K(Dataset_Class):
 
             'uq_method': 'dropout',
             'decomposition': 'pu',
+            'normalized_uq_maps': True,
 
             'metadata': '/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/deeplabv3_r50-d8_4xb4-160k_ade20k-512x512/metadata/'
         }
