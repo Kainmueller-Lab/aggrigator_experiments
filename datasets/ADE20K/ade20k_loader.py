@@ -4,7 +4,7 @@ import json
 
 from PIL import Image
 
-from .dataset import Dataset_Class
+from ..dataset import Dataset_Class
 
 
 class ADE20K(Dataset_Class):
@@ -27,7 +27,7 @@ class ADE20K(Dataset_Class):
         self.kwargs = kwargs
 
         # Load filenames
-        self.image_filenames = [f.split(".")[0] for f in os.listdir(self.image_path) if f.endswith(".jpg")]
+        self.image_filenames = sorted([f.split(".")[0] for f in os.listdir(self.image_path) if f.endswith(".jpg")])
         self.check_matchig_filecount()
 
 
@@ -58,7 +58,7 @@ class ADE20K(Dataset_Class):
     def get_image(self, idx):
         """Return the image at the given index."""
         try:
-            img_array = np.array(Image.open(self.image_path + self.image_filenames[idx] + '.jpg'))
+            img_array = np.array(Image.open(os.path.join(self.image_path, self.image_filenames[idx] + '.jpg')))
             return img_array.transpose(2, 0, 1)
 
         except:

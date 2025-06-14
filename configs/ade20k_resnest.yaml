@@ -1,0 +1,8 @@
+dataset_name: ADE20K
+model_name: resnest
+
+image_dir: '/fast/AG_Kainmueller/data/ADEChallengeData2016/images/validation'
+label_dir: /fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/validation
+prediction_dir: /fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/resnest_s101-d8_fcn_4xb4-160k_ade20k-512x512/predictions/
+uq_map_dir: /fast/AG_Kainmueller/data/UQ_maps/ADE20K/validation_resnest/semantic/dropout/pu/
+metadata_dir: /fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json
