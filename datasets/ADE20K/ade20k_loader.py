@@ -106,9 +106,19 @@ class ADE20K(Dataset_Class):
         semantic_mapping = {idx: label_info["Name"] for idx, label_info in index_mapping.items()}
         return semantic_mapping
     
+    def extract_subdir_under_ade20k(self, full_path):
+        parts = os.path.normpath(full_path).split(os.sep)
+        if 'ADE20K' in parts:
+            idx = parts.index('ADE20K')
+            if idx + 1 < len(parts):
+                return parts[idx + 1]
+        return ""
+    
     def get_info(self):
         """Return a dictionary with information about the dataset."""
         info_dictionary =  {
+            'dataset_name': 'ADE20K',
+            'model_name': self.extract_subdir_under_ade20k(self.uq_map_path),
             'image_path': self.image_path,
             'mask_path': self.mask_path,
             'uq_map_path': self.uq_map_path,
