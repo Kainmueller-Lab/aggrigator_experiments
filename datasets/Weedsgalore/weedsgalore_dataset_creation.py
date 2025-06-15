@@ -7,11 +7,19 @@ import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 
-from ..dataset import Dataset_Class
+sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
+
+
+from .datasets.dataset import Dataset_Class
 
 
 
-class weedsgalore_dataset(Dataset):
+
+
+
+
+
+class weedsgalore_dataset(Dataset_Class):
     """Abstract class to define the structure of a dataset.
 
     Args:
