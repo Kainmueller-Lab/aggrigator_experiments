@@ -127,6 +127,9 @@ class LizardDataset(Dataset_Class):
         self.data_noise = kwargs.get('data_noise', None)
         self.metadata = kwargs.get('metadata', False)
         self.split_path = kwargs.get('split_path', None)
+        self.split = kwargs.get('split', ['test'])
+        
+        assert any(s in self.split for s in {"train", "test", "valid"})
         
         if self.split_path:
             self.get_split()
@@ -155,7 +158,7 @@ class LizardDataset(Dataset_Class):
         # enfore split names
         assert {"train", "test", "valid"} == set(split_df["train_test_val_split"].unique())
         # load intended split
-        for split in ["test"]:
+        for split in self.split:
             include_fovs = split_df[split_df["train_test_val_split"] == split]["sample_name"].tolist()
             if "tile" in str(include_fovs[0]).lower():
                 self.include_tile_names = include_fovs
@@ -395,7 +398,8 @@ def main():
         'decomp' : 'pu',
         'spatial' : None,
         'metadata' : True,
-        'split_path' : None
+        'split_path' : None,
+        'split' : ['test']
     }
     
     csv_path = Path(lmdb_path).parent.joinpath(f"splits/domain_shift_splits/lizard_domaingen_{extra_info['variation']}_test_split.csv")

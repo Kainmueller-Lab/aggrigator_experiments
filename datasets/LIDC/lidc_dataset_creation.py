@@ -500,7 +500,7 @@ def main():
         image_to_show = image  # Already H x W
 
     # Create subplots
-    fig, axs = plt.subplots(1, 4, figsize=(14, 5))
+    fig, axs = plt.subplots(1, 4, figsize=(16, 5))
     titles = ['Input Image', 'Ground Truth', 'Prediction', 'UQ Map']
     overlays = [None, mask, prediction, uq_map]
     cmaps = [None, 'Purples', 'Purples', 'inferno']
