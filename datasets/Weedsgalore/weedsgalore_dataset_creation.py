@@ -1,8 +1,17 @@
-from abc import ABC, abstractmethod
-from typing import Callable, Optional
+import sys 
+import os 
+import numpy as np
+import json
+import torch
+
+from PIL import Image
+import matplotlib.pyplot as plt
+
+from ..dataset import Dataset_Class
 
 
-class Dataset_Class(ABC):
+
+class weedsgalore_dataset(Dataset):
     """Abstract class to define the structure of a dataset.
 
     Args:
@@ -13,92 +22,130 @@ class Dataset_Class(ABC):
         semantic_mapping_path (str): Path where the semantic mapping is stored.
         **kwargs: Additional keyword arguments that can be passed to specific methods.
     """
-    def __init__(self, image_path: str, mask_path: str, uq_map_path: str, prediction_path: str, semantic_mapping_path:str, **kwargs):
+    def __init__(self, image_path: str, 
+                 mask_path: str, 
+                 uq_map_path: str, 
+                 prediction_path: str, 
+                 semantic_mapping_path:str,
+                 **kwargs):
+
+        for folder in [image_path, mask_path, mask_path, prediction_path]: 
+            if not os.path.exists(folder):
+                raise FileNotFoundError(f"File not found: {folder}")
+
         self.image_path = image_path
         self.mask_path = mask_path
         self.uq_map_path = uq_map_path
         self.prediction_path = prediction_path
         self.semantic_mapping_path = semantic_mapping_path
-        self.kwargs = kwargs
+        self.metadata = kwargs["metadata_file"]
 
-    @abstractmethod
+
+        # extract information about the uq maps frorm their location. 
+        # uq maps are expected to be saved in the following format: 
+        #  "<basefolder>/weedsgalore/<input-type>_<split>/<task>/<uq_methods>/<deomposition>/"
+        str_idx = self.uq_map_path.find("weedsgalore")
+        uq_info = self.uq_map_path[str_idx+len("weedsgalore/"):].split("/")
+        self.input_type, self.split = uq_info[0].split("_")
+        self.in_bands = 3 if self.input_type == "rgb" else 5
+        self.task = uq_info[1]
+        self.num_classes = 6 if self.task == "semantic" else 3
+        self.uq_method = uq_info[2]
+        self.decomposition = uq_info[3]
+
+        with open(image_path + f'/splits/{self.split}.txt', 'r') as file:
+            data = [line.rstrip('\n') for line in file]  # Assuming elements are numeric
+        self.img_list = np.array(data)
+
+        
     def __len__(self):
         """Return the length / number of samples of the dataset."""
-        raise NotImplementedError
+        return len(self.img_list)
     
 
-    @abstractmethod
     def __getitem__(self, idx):
-        """Return a dictionary with sample at given index. 
-
-        Code should look like this 
-
-        image = self.get_image(idx)
-        mask = self.get_mask(idx)
-        uq_map = self.get_uq_map(idx)
-        sample_name = self.get_sample_name(idx)
-        prediction = self.get_prediction(idx)
+        """Return a dictionary with sample at given index. """
 
         sample = {
-            'image': image,
-            'mask': mask,
-            'uq_map': uq_map,
-            'prediction': prediction,
-            'sample_name': sample_name
+            'image': self.get_image(idx),
+            'mask': self.get_mask(idx),
+            'uq_map': self.get_uq_map(idx),
+            'prediction': self.get_prediction(idx),
+            'sample_name': self.get_sample_name(idx)
             }
-
         return sample
-        
-        """
-
-        raise NotImplementedError
     
-    @abstractmethod
+
     def get_image(self, idx):
         """Return the image at the given index."""
-        raise NotImplementedError
+        
+        img_path = os.path.join(self.image_path, self.img_list[idx][:10], 'images', self.img_list[idx])
+        red_band = plt.imread(img_path + '_R.png')
+        green_band = plt.imread(img_path + '_G.png')
+        blue_band = plt.imread(img_path + '_B.png')
+        nir_band = plt.imread(img_path + '_NIR.png')
+        re_band = plt.imread(img_path + '_RE.png')
 
-    @abstractmethod
+        if self.in_bands == 3:
+            img = np.stack((red_band, green_band, blue_band))
+        elif self.in_bands == 5:
+            img = np.stack((red_band, green_band, blue_band, nir_band, re_band))
+        return img
+
+
     def get_mask(self, idx):
         """Return the mask at the given index."""
-        raise NotImplementedError
+        
+        # load semantic label
+        label_path = os.path.join(self.mask_path, self.img_list[idx][:10], 'semantics', self.img_list[idx])
+        label = Image.open(label_path + '.png')
+        label = np.array(label)
+
+        if self.task == "crops_vs_weed": 
+            label[label>1] = 2
+        
+        return label
     
-    @abstractmethod
+
     def get_uq_map(self, idx):
         """Return the uq_map at the given index."""
-        raise NotImplementedError
+        
+        uq_map = np.load(self.uq_map_path+ self.get_sample_name(idx) + ".npy")
+        return uq_map
     
-    @abstractmethod
+
     def get_prediction(self, idx):
         """Return the prediction at the given index."""
-        raise NotImplementedError
+        
+        pred = np.load(self.prediction_path+ self.get_sample_name(idx) + ".npy")       
+        return pred
 
-    @abstractmethod
+
     def get_sample_name(self, idx):
         """Return the sample name at the given index."""
-        raise NotImplementedError
+        
+        return self.img_list[idx]
 
-    @abstractmethod
+
     def get_sample_names(self):
         """Return the list of sample names."""
-        raise NotImplementedError
-    
-    @abstractmethod
-    def get_semantic_mapping(self, idx):
-        """Return the semantic mapping dictionary.
         
-        Should look like this: 
-
-        semantic_mapping = {0: 'background', 1: 'class1', 2: 'class2', ...}
-        return semantic_mapping
-        """
-        raise NotImplementedError
+        return self.img_list
     
-    @abstractmethod
+
+    def get_semantic_mapping(self):
+        """Return the semantic mapping dictionary."""
+        
+        if self.task == "crops_vs_weed": 
+            semantic_mapping = {0:"bg", 1:"crop", 2:"weed"}
+        else: 
+            semantic_mapping = {0:"bg", 1:"maize", 2:"amaranth", 3:"barnyard grass", 4:"quickweed", 5:"weed other"}
+        return semantic_mapping
+    
+
     def get_info(self):
         """Return a dictionary with information about the dataset.
-        
-        The info_dictionary should look like this:
+        """
 
         info_dictionary =  {
             'image_path': self.image_path,
@@ -108,18 +155,14 @@ class Dataset_Class(ABC):
             'semantic_mapping': self.get_semantic_mapping(),
             'datset_size': len(self),
 
-            'task': segmentation task
-            'num_classes': number of classes in the dataset,
-            'semantic_mapping': self.get_semantic_mapping(),
+            'task': self.task,
+            'num_classes': self.num_classes,
 
-            'uq_method': 'method used for uncertainty estimation',
-            'decomposition': AU, EU or PU,
+            'uq_method': self.uq_method,
+            'decomposition': self.decomposition,
 
-            'metadata': link to optional additional metadataset containing e.g info about the creation of uq maps (number of MC samples, augmentations for TTA...)
-
+            'metadata': self.metadata,
+            'input_typs': self.input_type, 
+            'split': self.split 
         }
-
-        """
-
-        raise NotImplementedError
-
+        return info_dictionary
