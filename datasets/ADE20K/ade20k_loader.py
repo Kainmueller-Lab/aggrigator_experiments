@@ -105,20 +105,37 @@ class ADE20K(Dataset_Class):
         
         semantic_mapping = {idx: label_info["Name"] for idx, label_info in index_mapping.items()}
         return semantic_mapping
-    
-    def extract_subdir_under_ade20k(self, full_path):
-        parts = os.path.normpath(full_path).split(os.sep)
-        if 'ADE20K' in parts:
-            idx = parts.index('ADE20K')
-            if idx + 1 < len(parts):
-                return parts[idx + 1]
+
+
+    def normalized_dataset_path(self, path, dataset_name):
+        """
+        Extracts the sub-path starting from the given dataset name and returns it with
+        all path separators replaced by underscores.
+
+        Args:
+            path (str): Full directory or file path.
+            dataset_name (str): Name of the dataset folder to start extraction from.
+
+        Returns:
+            str: Underscore-joined subpath starting at dataset_name (e.g., 'ADE20K_split_model').
+
+        Example:
+            >>> normalized_dataset_path('/data/UQ_maps/ADE20K/validation/deeplabv3', 'ADE20K')
+            'ADE20K_validation_deeplabv3'
+        """
+        norm_path = os.path.normpath(path)
+        parts = norm_path.split(os.sep)
+        if dataset_name in parts:
+            idx = parts.index(dataset_name)
+            sub_parts = parts[idx:]
+            return "_".join(sub_parts)
+        print(f"Warning: Dataset name '{dataset_name}' not found in path: {path}")
         return ""
+
     
     def get_info(self):
         """Return a dictionary with information about the dataset."""
         info_dictionary =  {
-            'dataset_name': 'ADE20K',
-            'model_name': self.extract_subdir_under_ade20k(self.uq_map_path),
             'image_path': self.image_path,
             'mask_path': self.mask_path,
             'uq_map_path': self.uq_map_path,
@@ -133,7 +150,8 @@ class ADE20K(Dataset_Class):
             'decomposition': 'pu',
             'normalized_uq_maps': True,
 
-            'metadata': '/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/deeplabv3_r50-d8_4xb4-160k_ade20k-512x512/metadata/'
+            'metadata': '/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/deeplabv3_r50-d8_4xb4-160k_ade20k-512x512/metadata/',
+            'dataset_name': self.normalized_dataset_path(self.uq_map_path, 'ADE20K'),
         }
         return info_dictionary
     
