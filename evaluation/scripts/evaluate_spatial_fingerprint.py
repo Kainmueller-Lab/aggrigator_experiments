@@ -79,7 +79,7 @@ def evaluate_spatial_fingerprint(dataset, sample_size, num_workers):
 
     # Decompose all UQ maps
     start = time.time()
-    n_jobs = multiprocessing.cpu_count() if num_workers == 0 else num_workers
+    n_jobs = 8 if num_workers == 0 else num_workers # NOTE: Strangely this gets slower for larger num_workers.
     measure_mass_ratios = Parallel(n_jobs=n_jobs, verbose=10)(delayed(get_measure_mass_ratios)(dataset[idx]) for idx in range(sample_size))
     measure_mass_ratio_df = pd.DataFrame.from_dict(dict(measure_mass_ratios), orient='index')
     print(f"Computed spatial measure mass ratios: {time.time() - start} s")
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
     parser.add_argument('--dataset_config', type=str, default='configs/ade20k_deeplabv3.yaml', help='Path to config file')
     parser.add_argument('--sample_size', type=int, default='0', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
-    parser.add_argument('--num_workers', type=int, default='32', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
+    parser.add_argument('--num_workers', type=int, default='0', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
     
     config = load_dataset_config(args.dataset_config)
