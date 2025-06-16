@@ -4,6 +4,7 @@ import numpy as np
 import mahotas as mh
 import matplotlib.pyplot as plt
 
+from typing import List, Dict
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms.functional import rgb_to_grayscale
 from pathlib import Path
@@ -274,10 +275,91 @@ class ArctiqueDataset(Dataset_Class):
             'num_classes': None,  # TODO: Implement based on your data
             'uq_method': self.uq_method,
             'decomposition': self.decomp,
+            'data_noise': self.data_noise,
+            'spatial': self.spatial
             # 'metadata': None  # TODO: Add metadata if available
         }
         return info_dictionary
-
+    
+class OptimizedArctiqueDataset(ArctiqueDataset):
+    """Memory-efficient version that can skip loading images"""
+    
+    def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
+                 semantic_mapping_path, shared_masks, load_images=False, load_preds=False, **kwargs):
+        super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
+                        semantic_mapping_path, **kwargs)
+        self.load_images = load_images
+        self.load_preds = load_preds
+        self.shared_masks = shared_masks # Dictionary of cached masks
+        
+    def __getitem__(self, idx):
+        if idx >= self.__len__():
+            raise IndexError("Index out of bounds.")
+        
+        sample_name = self.sample_names[idx]
+                
+        data = {
+            'mask': self.shared_masks[sample_name], # Pre-loaded and cached
+            'uq_map': self.get_uq_map(idx),
+            'sample_name': self.get_sample_name(idx),
+        }
+        
+        # Only load images if requested
+        if self.load_images:
+            data['image'] = self.get_image(idx)
+        
+        # Only load predictions if requested
+        if self.load_preds:
+            data['prediction'] = self.get_prediction(idx)
+        return data
+    
+class SharedMaskCache:
+    """Singleton class to cache masks across different datasets"""
+    _instance = None
+    _mask_cache = {}
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def get_masks(self, mask_path: Path, sample_names: List[int], task: str) -> Dict[int, any]:
+        """Load and cache masks once"""
+        cache_key = f"{mask_path}_{task}"
+        
+        if cache_key not in self._mask_cache:
+            print(f"Loading masks for {task} task...")
+            masks = {}
+            
+            inst_mask_dir = mask_path.joinpath("instance_indexing")
+            sem_mask_dir = mask_path.joinpath("semantic_indexing")
+            
+            for sample_name in sample_names:
+                inst_file = inst_mask_dir.joinpath(f"{sample_name}.tif")
+                sem_file = sem_mask_dir.joinpath(f"{sample_name}.tif")
+                
+                inst_label = np.array(Image.open(inst_file), dtype=int)
+                sem_label = np.array(Image.open(sem_file), dtype=int)
+                three_label = inst_to_3c(inst_label, False)
+                
+                if task.startswith('semantic'):
+                    mask = torch.tensor(sem_label, dtype=torch.long)
+                elif task.startswith('instance'):
+                    label = np.stack((inst_label, three_label), axis=-1)
+                    mask = torch.tensor(label, dtype=torch.long)
+                else:
+                    label = np.stack((inst_label, sem_label, three_label), axis=-1)
+                    mask = torch.tensor(label, dtype=torch.long)
+                
+                masks[sample_name] = mask
+            
+            self._mask_cache[cache_key] = masks
+            print(f"Cached {len(masks)} masks")
+        
+        return self._mask_cache[cache_key] 
+    
+# ---- Main Functionto to test ArctiqueDataset ----   
+    
 def main():
     extra_info = {
         'task' : 'semantic',

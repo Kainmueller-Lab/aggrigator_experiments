@@ -214,7 +214,7 @@ class LIDCDataset(Dataset_Class):
         self.metadata = kwargs.get('metadata', False)
         self.render_2d = kwargs.get('render_2d', True)
         self.norm_input =  kwargs.get('norm_input', True)
-        self.cons_thresh = kwargs.get('cons_thresh', True)
+        self.cons_thresh = kwargs.get('cons_thresh', 2)
         self.render_ind_masks = kwargs.get('render_ind_masks', False)
         
         # Load and cache metadata indices if metadata validation is enabled
@@ -423,6 +423,36 @@ class LIDCDataset(Dataset_Class):
             'metadata': None  # TODO: Add metadata if available
         }
         return info_dictionary
+    
+class OptimizedLIDCDataset(LIDCDataset):
+    """Memory-efficient version that can skip loading images"""
+    
+    def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
+                 semantic_mapping_path, load_images=False, load_preds=False, **kwargs):
+        super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
+                        semantic_mapping_path, **kwargs)
+        self.load_images = load_images
+        self.load_preds = load_preds
+        self.render_ind_masks = False
+        
+    def __getitem__(self, idx):
+        if idx >= self.__len__():
+            raise IndexError("Index out of bounds.")
+                        
+        data = {
+            'mask': self.get_mask(idx), 
+            'uq_map': self.get_uq_map(idx),
+            'sample_name': self.get_sample_name(idx),
+        }
+    
+        # Only load images if requested
+        if self.load_images:
+            data['image'] = self.get_image(idx)
+        
+        # Only load predictions if requested
+        if self.load_preds:
+            data['prediction'] = self.get_prediction(idx)
+        return data
 
 def main():
     spatial = False
