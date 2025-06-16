@@ -66,9 +66,7 @@ def evaluate_spatial_fingerprint(dataset, sample_size, num_workers):
         uq_array = np.where(uq_array < 0, 0, uq_array)
         
         # Normalize arrays by ln(K) where K is number of classes if UQ maps are not normalized in dataloader
-        # TODO: Maybe move normalization to dataloader?
-        if not dataset_info['normalized_uq_maps']:
-            uq_array = uq_array / np.log(dataset_info['num_classes'])
+        uq_array = uq_array / np.log(dataset_info['num_classes'])
 
         # Compute spatial decomposition for all spatial measures
         spatial_measures = ["moran", "entropy", "eds"]
