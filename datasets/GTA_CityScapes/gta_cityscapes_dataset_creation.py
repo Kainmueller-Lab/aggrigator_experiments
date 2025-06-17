@@ -8,7 +8,9 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 #sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
-from .datasets.dataset import Dataset_Class
+# sys.path.append('/fast/AG_Kainmueller/vguarin/aggrigator_experiments/')
+# print(sys.path)
+from datasets.dataset import Dataset_Class
 
 semantic_mapping =  {
     0: 'unlabeled',
@@ -54,7 +56,7 @@ semantic_mapping =  {
     38: 'road_2'
 }
 
-class CityscapesDataset(Dataset_Class):
+class GTA_CityscapesDataset(Dataset_Class):
     """Abstract class to define the structure of a dataset.
 
     Args:
@@ -77,7 +79,7 @@ class CityscapesDataset(Dataset_Class):
         self.file_names = [f.split(".")[0] for f in os.listdir(self.uq_map_path) if f.endswith(".tif" )]
         
         #"/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout/test_results/fold0_seed123/id/pred_entropy/"
-        # "<basefolder>/values/<uq-method>/test_results/<ckpt>/<task>/<deomposition>/"
+        # "<basefolder>/values/<uq-method>/test_results/<ckpt>/<task>/<decomposition>/"
         str_idx = self.uq_map_path.find("GTA_CityScapes_UQ")
         uq_info = self.uq_map_path[str_idx+len("GTA_CityScapes_UQ/"):].split("/")
         self.uq_method = uq_info[0].lower().split("-")[0]
