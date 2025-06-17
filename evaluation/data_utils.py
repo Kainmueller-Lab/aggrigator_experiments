@@ -78,44 +78,6 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
         metrics=metrics_path,
         output=output_dir
     )
-    
-def setup_paths_abstract_class(args: argparse.Namespace) -> DataPaths:
-    """Create and validate all necessary paths."""
-    base_path = Path(args.uq_path)
-    
-    main_folder_name = "UQ_maps" if not args.spatial else "UQ_spatial"
-    uq_maps_path = base_path.joinpath(main_folder_name)
-    
-    metadata_path = base_path.joinpath("UQ_metadata")
-    preds_path = base_path.joinpath("UQ_predictions")
-    metrics_path = base_path.joinpath("Performance_metrics")
-        
-    if args.variation and args.dataset_name.startswith('arctique'):
-        data_path = Path(args.label_path).joinpath(args.variation) 
-    elif args.variation and args.dataset_name.startswith('lidc'):
-        cycle = 'FirstCycle'
-        folder = f'{args.variation}_fold0_seed123'
-        placehold = 'Softmax'
-        data_path = Path(args.label_path).joinpath(f'{cycle}/{placehold}/test_results/{folder}/') 
-    elif args.dataset_name.startswith('lizard'): 
-        data_path = Path(args.label_path)
-        
-    output_dir = Path.cwd().joinpath('output')
-    output_dir.mkdir(exist_ok=True)
-
-    for path in [uq_maps_path, metadata_path, data_path, preds_path]: # Validate paths - we exclude for now preds_path
-        if not path.exists():
-            raise FileNotFoundError(f"Path does not exist: {path}")
-        
-    metrics_path=metrics_path if metrics_path.exists() else None 
-    return DataPaths(
-        uq_maps=uq_maps_path,
-        metadata=metadata_path,
-        predictions=preds_path,
-        data=data_path,
-        metrics=metrics_path,
-        output=output_dir
-    )
 
 # ---- Sanity Check ----
 
@@ -763,120 +725,63 @@ def load_dataset_abstract_class(
     task: str = 'semantic',
     return_id_only: bool = False,
     uq_methods: Optional[List[str]] = None,
-    ): # -> Tuple[Dict[str, DataLoader], np.ndarray]:
+) -> Tuple[Dict[str, DataLoader]]:
     """Load uq data loader and gt"""
     
-    if dataset_name.startswith("arctique"):
-        # Initialize shared mask cache
-        mask_cache = SharedMaskCache()
-        
-        # Load masks once using reference noise level
-        ref_mask_path = paths.data.joinpath('0_00', 'masks')  # Use 0_00 as reference
-        ref_image_path = paths.data.joinpath('0_00', 'images')
-        sample_names = [int(digits) for filename in os.listdir(ref_image_path) 
-                       if (digits := ''.join(filter(str.isdigit, filename)))]
-        
-        # Cache masks once
-        shared_masks = mask_cache.get_masks(ref_mask_path, sample_names, task)
-        
-        # Determine which noise levels to process
-        noise_levels_to_process = ['0_00'] if return_id_only else image_noises
-        
-        datasets = {}
-        
-        # Process each UQ method
-        for uq_method in uq_methods:
-            datasets[uq_method] = {}
-            
-            # Update extra_info for current UQ method
-            current_extra_info = extra_info.copy()
-            current_extra_info['uq_method'] = uq_method
-            
-            # Process each noise level for current UQ method
-            for noise in noise_levels_to_process:
-                current_extra_info['data_noise'] = noise
-                
-                # Create lightweight dataset
-                data_loader = OptimizedArctiqueDataset(
-                    image_path=ref_image_path,
-                    mask_path=ref_mask_path,  # All noise levels use same masks
-                    uq_map_path=paths.uq_maps,
-                    prediction_path=paths.predictions,
-                    semantic_mapping_path='abc',
-                    shared_masks=shared_masks,
-                    **current_extra_info
-                )
-                
-                # Create DataLoader
-                loader = DataLoader(
-                    data_loader,
-                    batch_size=1,
-                    shuffle=False,
-                    prefetch_factor=2,
-                    num_workers=num_workers,
-                    pin_memory=True
-                )
-                                
-                datasets[uq_method][noise] = loader
-                                                
-                # Handle early return for id-only case (for selective classification)
-                if return_id_only:
-                    break
+    # Common setup
+    noise_levels_to_process = ['0_00'] if return_id_only else image_noises
+    datasets = {}
     
-    elif dataset_name.startswith("lidc"):   
-        # Determine which noise levels to process
-        noise_levels_to_process = ['0_00'] if return_id_only else image_noises
-        
-        datasets = {}
-        
-        # Process each UQ method
-        for uq_method in uq_methods:
-            datasets[uq_method] = {}
-            
-            # Update extra_info for current UQ method
-            current_extra_info = extra_info.copy()
-            current_extra_info['uq_method'] = uq_method
-            
-            # Process each noise level for current UQ method
-            for noise in noise_levels_to_process:
-                current_extra_info['data_noise'] = noise
-                
-                if current_extra_info['data_noise'] == "0_00":
-                    data_dir = paths.data / "id"
-                else:
-                    data_dir = paths.data / "ood"
-                    
-                ref_image_path = data_dir / "input"
-                ref_mask_path = data_dir / "gt_seg"
-                
-                # Create lightweight dataset
-                data_loader = OptimizedLIDCDataset(
-                    image_path=ref_image_path,
-                    mask_path=ref_mask_path,  # All noise levels use same masks
-                    uq_map_path=paths.uq_maps,
-                    prediction_path=paths.predictions,
-                    semantic_mapping_path='abc',
-                    **current_extra_info
-                )
-                
-                # Create DataLoader
-                loader = DataLoader(
-                    data_loader,
-                    batch_size=1,
-                    shuffle=False,
-                    prefetch_factor=2,
-                    num_workers=num_workers,
-                    pin_memory=True
-                )
-                                
-                datasets[uq_method][noise] = loader
-                                                
-                # Handle early return for id-only case (for selective classification)
-                if return_id_only:
-                    break
+    # Dataset-specific configuration
+    if dataset_name.startswith("arctique"):
+        dataset_config = _get_arctique_config(paths, task)
+    elif dataset_name.startswith("lidc"):
+        dataset_config = _get_lidc_config(paths)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} not implemented in optimized version")
-
+    
+    # Common processing loop for all datasets
+    for uq_method in uq_methods:
+        datasets[uq_method] = {}
+        
+        # Update extra_info for current UQ method
+        current_extra_info = extra_info.copy()
+        current_extra_info['uq_method'] = uq_method
+        
+        # Process each noise level for current UQ method
+        for noise in noise_levels_to_process:
+            current_extra_info['data_noise'] = noise
+            
+            # Get dataset-specific paths and configuration
+            dataset_paths = dataset_config['get_paths'](noise, current_extra_info)
+            
+            # Create dataset using factory function
+            data_loader = dataset_config['dataset_class'](
+                **dataset_paths,
+                uq_map_path=paths.uq_maps,
+                prediction_path=paths.predictions,
+                semantic_mapping_path='abc',
+                **dataset_config.get('extra_kwargs', {}),
+                **current_extra_info
+            )
+            
+            # Create DataLoader with common configuration
+            loader = DataLoader(
+                data_loader,
+                batch_size=1,
+                shuffle=False,
+                prefetch_factor=2,
+                num_workers=num_workers,
+                pin_memory=True
+            )
+            
+            datasets[uq_method][noise] = loader
+            
+            # Handle early return for id-only case
+            if return_id_only:
+                break
+    
+    # Final processing
     if datasets is not None:
         concatenated_data = process_concatenated_datasets(datasets, image_noises, task, dataset_name)
         return concatenated_data
@@ -893,3 +798,54 @@ def load_dataset_abstract_class(
     # print(f"GT masks shape: {context_gt.shape}")
     # print(f"✓ Loaded {dataset_name} test set and ground truth")
     # return dataset, context_gt, gt_labels
+
+
+def _get_arctique_config(paths: DataPaths, task: str) -> dict:
+    """Get configuration for Arctique dataset"""
+    # Initialize shared mask cache
+    mask_cache = SharedMaskCache()
+    
+    # Load masks once using reference noise level
+    ref_mask_path = paths.data.joinpath('0_00', 'masks')
+    ref_image_path = paths.data.joinpath('0_00', 'images')
+    
+    sample_names = [int(digits) for filename in os.listdir(ref_image_path)
+                   if (digits := ''.join(filter(str.isdigit, filename)))]
+    
+    # Cache masks once
+    shared_masks = mask_cache.get_masks(ref_mask_path, sample_names, task)
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for Arctique dataset - uses reference paths for all noise levels"""
+        return {
+            'image_path': ref_image_path,
+            'mask_path': ref_mask_path,
+        }
+    
+    return {
+        'dataset_class': OptimizedArctiqueDataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {'shared_masks': shared_masks}
+    }
+
+
+def _get_lidc_config(paths: DataPaths) -> dict:
+    """Get configuration for LIDC dataset"""
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for LIDC dataset - different paths based on noise level"""
+        if extra_info['data_noise'] == "0_00":
+            data_dir = paths.data / "id"
+        else:
+            data_dir = paths.data / "ood"
+        
+        return {
+            'image_path': data_dir / "input",
+            'mask_path': data_dir / "gt_seg",
+        }
+    
+    return {
+        'dataset_class': OptimizedLIDCDataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {}
+    }

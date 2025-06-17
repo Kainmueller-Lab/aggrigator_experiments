@@ -10,50 +10,51 @@ import matplotlib.pyplot as plt
 #sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
 from .datasets.dataset import Dataset_Class
 
-semantic_mapping =  {0: 'unlabeled',
-                             1: 'ego vehicle',
-                             2: 'rectification border',
-                             3: 'out of roi',
-                             4: 'static',
-                             5: 'dynamic',
-                             6: 'ground',
-                             7: 'road',
-                             8: 'sidewalk',
-                             9: 'parking',
-                             10: 'rail track',
-                             11: 'building',
-                             12: 'wall',
-                             13: 'fence',
-                             14: 'guard rail',
-                             15: 'bridge',
-                             16: 'tunnel',
-                             17: 'pole',
-                             18: 'polegroup',
-                             19: 'traffic light',
-                             20: 'traffic sign',
-                             21: 'vegetation',
-                             22: 'terrain',
-                             23: 'sky',
-                             24: 'person',
-                             25: 'rider',
-                             26: 'car',
-                             27: 'truck',
-                             28: 'bus',
-                             29: 'caravan',
-                             30: 'trailer',
-                             31: 'train',
-                             32: 'motorcycle',
-                             33: 'bicycle',
-                             -1: 'license plate',
-                             -2: 'gta',
-                             34: 'sidewalk_2',
-                             35: 'person_2',
-                             36: 'car_2',
-                             37: 'vegetation_2',
-                             38: 'road_2'}
+semantic_mapping =  {
+    0: 'unlabeled',
+    1: 'ego vehicle',
+    2: 'rectification border',
+    3: 'out of roi',
+    4: 'static',
+    5: 'dynamic',
+    6: 'ground',
+    7: 'road',
+    8: 'sidewalk',
+    9: 'parking',
+    10: 'rail track',
+    11: 'building',
+    12: 'wall',
+    13: 'fence',
+    14: 'guard rail',
+    15: 'bridge',
+    16: 'tunnel',
+    17: 'pole',
+    18: 'polegroup',
+    19: 'traffic light',
+    20: 'traffic sign',
+    21: 'vegetation',
+    22: 'terrain',
+    23: 'sky',
+    24: 'person',
+    25: 'rider',
+    26: 'car',
+    27: 'truck',
+    28: 'bus',
+    29: 'caravan',
+    30: 'trailer',
+    31: 'train',
+    32: 'motorcycle',
+    33: 'bicycle',
+    -1: 'license plate',
+    -2: 'gta',
+    34: 'sidewalk_2',
+    35: 'person_2',
+    36: 'car_2',
+    37: 'vegetation_2',
+    38: 'road_2'
+}
 
-
-class cityscapes_dataset(Dataset_Class):
+class CityscapesDataset(Dataset_Class):
     """Abstract class to define the structure of a dataset.
 
     Args:
@@ -89,8 +90,6 @@ class cityscapes_dataset(Dataset_Class):
 
         if self.task == "id" and "CityScapes" in self.image_path: 
             raise FileNotFoundError("You are currently using the CityScapes dataset, the iD task requires the GTA dataset. Please adjust paths for images and masks")
-
-    
     
     def __len__(self):
         """Return the length / number of samples of the dataset."""

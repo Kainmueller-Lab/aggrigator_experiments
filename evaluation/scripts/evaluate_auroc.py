@@ -10,7 +10,6 @@ from evaluation.data_utils import (
     load_dataset, 
     preload_uncertainty_maps, 
     setup_paths, 
-    setup_paths_abstract_class, 
     load_dataset_abstract_class, 
     generate_combo_keys, 
     create_cached_maps_from_concatenated
@@ -221,7 +220,7 @@ def main():
     }
         
     # Set paths and make sure output directory exists
-    paths = setup_paths_abstract_class(args)
+    paths = setup_paths(args)
     
     # Load whole input, ground truth masks, uq maps, predictions, and AUROC target labels
     concatenated_data = load_dataset_abstract_class(
