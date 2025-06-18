@@ -175,3 +175,4 @@ class GTA_CityscapesDataset(Dataset_Class):
 
             'metadata': {"model_checkpoint": self.model_ckpt}
         }
+        return info_dictionary
