@@ -1,8 +1,6 @@
 import sys 
 import os 
 import numpy as np
-import json
-import torch
 
 from PIL import Image
 from pathlib import Path
@@ -14,48 +12,65 @@ import matplotlib.pyplot as plt
 # print(sys.path)
 from datasets.dataset import Dataset_Class
 
+# Import from the cityscapes_labels script
+# Adjust the import path according to your project structure
+try:
+    from cityscapes_labels import labels, trainId2label
+except ImportError:
+    # If import fails, you may need to adjust the path or add the directory to sys.path
+    # sys.path.append('path/to/directory/containing/cityscapes_labels.py')
+    from cityscapes_labels import labels, trainId2label
+
+# Extract mappings from the labels
+color2trainId = {}
+trainId2color = {}
+semantic_mapping = {}
+
+for label in labels:
+    # Build color to trainId mapping
+    color2trainId[label.color] = label.trainId
+    
+    # Build trainId to color mapping (skip ignore class 255 duplicates)
+    if label.trainId not in trainId2color or label.trainId != 255:
+        trainId2color[label.trainId] = label.color
+    
+    # Build semantic mapping (trainId -> name)
+    # Only include valid trainIds (not 255 which is ignore)
+    if label.trainId != 255:
+        semantic_mapping[label.trainId] = label.name
+
+# Add ignore class to semantic mapping
+semantic_mapping[255] = 'ignore'
+
+print(f"Loaded {len([l for l in labels if l.trainId != 255])} semantic classes")
+print(f"Color mapping contains {len(color2trainId)} colors")
+print(f"Valid trainIDs: {sorted([tid for tid in semantic_mapping.keys() if tid != 255])}")
+
 semantic_mapping =  {
-    0: 'unlabeled',
-    1: 'ego vehicle',
-    2: 'rectification border',
-    3: 'out of roi',
-    4: 'static',
-    5: 'dynamic',
-    6: 'ground',
-    7: 'road',
-    8: 'sidewalk',
-    9: 'parking',
-    10: 'rail track',
-    11: 'building',
-    12: 'wall',
-    13: 'fence',
-    14: 'guard rail',
-    15: 'bridge',
-    16: 'tunnel',
-    17: 'pole',
-    18: 'polegroup',
-    19: 'traffic light',
-    20: 'traffic sign',
-    21: 'vegetation',
-    22: 'terrain',
-    23: 'sky',
-    24: 'person',
-    25: 'rider',
-    26: 'car',
-    27: 'truck',
-    28: 'bus',
-    29: 'caravan',
-    30: 'trailer',
-    31: 'train',
-    32: 'motorcycle',
-    33: 'bicycle',
-    -1: 'license plate',
-    -2: 'gta',
-    34: 'sidewalk_2',
-    35: 'person_2',
-    36: 'car_2',
-    37: 'vegetation_2',
-    38: 'road_2'
+    0: ['road', (128, 64, 128)],
+    1: ['sidewalk', (244, 35, 232)],
+    2: ['building', (70, 70, 70)],
+    3: ['wall', (102, 102, 156)],
+    4: ['fence', (190, 153, 153)],
+    5: ['pole', (153, 153, 153)],
+    6: ['traffic light', (250, 170, 30)],
+    7: ['traffic sign', (220, 220, 0)],
+    8: ['vegetation', (107, 142, 35)],
+    9: ['terrain', (152, 251, 152)],
+    10: ['sky', (70, 130, 180)],
+    11: ['person', (220, 20, 60)],
+    12: ['rider', (255, 0, 0)],
+    13: ['car', (0, 0, 142)],
+    14: ['truck', (0, 0, 70)],
+    15: ['bus',  (0, 60, 100)],
+    16: ['train', (0, 80, 100)],
+    17: ['motorcycle', (0, 0, 230)],
+    18: ['bicycle', (119, 11, 32)],
+    19: ['sidewalk_2', (46, 247, 180)],
+    20: ['person_2', (167, 242, 242)],
+    21: ['car_2', (30, 193, 252)],
+    22: ['vegetation_2', (242, 160, 19)],
+    23: ['road_2', (84, 86, 22)]
 }
 
 class GTA_CityscapesDataset(Dataset_Class):
@@ -132,15 +147,44 @@ class GTA_CityscapesDataset(Dataset_Class):
     def __getitem__(self, idx):
         """Return a dictionary with sample at given index. """
 
+        # Get prediction as RGB colors first
+        pred_colors = self.get_prediction_colors(idx)
+                
         sample = {
             'image': self.get_image(idx),
             'mask': self.get_mask(idx),
             'uq_map': self.get_uq_map(idx),
-            'prediction': self.get_prediction(idx),
+            'prediction': self.rgb_to_trainid(pred_colors),  # Convert RGB prediction to trainID
+            'pred_colors': self.get_prediction_colors(idx),  # RGB colors for visualization [H, W, 3]
             'sample_name': self.get_sample_name(idx)
-            }
+        }
 
         return sample
+    
+    def rgb_to_trainid(self, rgb_image):
+        """Convert RGB prediction image to trainID semantic segmentation mask."""
+        h, w = rgb_image.shape[:2]
+        trainid_mask = np.full((h, w), 255, dtype=np.uint8)  # Default to ignore class
+        
+        # Convert RGB to trainID using color mapping from cityscapes labels
+        for color, trainid in color2trainId.items():
+            # Find pixels matching this color (exact match)
+            mask = np.all(rgb_image == color, axis=-1)
+            if np.any(mask):  # Only update if pixels found
+                trainid_mask[mask] = trainid
+        
+        # Report unknown colors for debugging
+        unique_colors = np.unique(rgb_image.reshape(-1, 3), axis=0)
+        unknown_colors = []
+        for color in unique_colors:
+            color_tuple = tuple(color)
+            if color_tuple not in color2trainId:
+                unknown_colors.append(color_tuple)
+        
+        if unknown_colors:
+            print(f"Warning: Found {len(unknown_colors)} unknown colors in prediction: {unknown_colors[:5]}...")
+            
+        return trainid_mask
     
     def get_image(self, idx):
         """Return the image at the given index."""
@@ -161,6 +205,12 @@ class GTA_CityscapesDataset(Dataset_Class):
         uq_map = np.array(Image.open(self.uq_map_path.joinpath(filename)))
         return uq_map
     
+    def get_prediction_colors(self, idx):
+        """Return the prediction colors (RGB) at the given index."""
+        filename = self.sample_names[idx] + "_mean" + ".png"
+        pred_colors = np.array(Image.open(self.prediction_path.joinpath(filename)))
+        return pred_colors
+    
     def get_prediction(self, idx):
         """Return the prediction at the given index."""
         filename = self.sample_names[idx] + "_mean" + ".png"
@@ -176,18 +226,19 @@ class GTA_CityscapesDataset(Dataset_Class):
         return self.sample_names
     
     def get_semantic_mapping(self):
-        """Return the semantic mapping dictionary.
-        
-        Should look like this: 
-
-        semantic_mapping = {0: 'background', 1: 'class1', 2: 'class2', ...}
+        """Return the semantic mapping dictionary (trainID -> [class name, color])."""
         return semantic_mapping
-        """
-        return semantic_mapping
+    
+    def get_trainid_to_color_mapping(self):
+        """Return the trainID to color mapping for visualization."""
+        return trainId2color
+    
+    def get_color_to_trainid_mapping(self):
+        """Return the color to trainID mapping for conversion."""
+        return color2trainId
     
     def get_info(self):
         """Return a dictionary with information about the dataset."""
-
         info_dictionary =  {
             'image_path': self.image_path,
             'mask_path': self.mask_path,
@@ -196,28 +247,29 @@ class GTA_CityscapesDataset(Dataset_Class):
             'semantic_mapping': None, #self.get_semantic_mapping(),
             'datset_size': len(self),
             'task': self.task,
-            'num_classes': None,
-            'semantic_mapping': None, 
+            'num_classes': len([tid for tid in trainId2color.keys() if tid != 255]),
+            'semantic_mapping': self.get_semantic_mapping(),
             'uq_method': self.uq_method, 
             'decomposition': self.decomp, 
             'metadata': {"model_checkpoint": self.model_ckpt}
         }
+        return info_dictionary
         
 # ---- Main Function to to test GTA_CityscapesDataset ----   
     
 def main():
     extra_info = {
         'task' : 'semantic',
-        'variation' : 'GTA',
+        'variation' : 'cityscape',
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '1_00',
         'uq_method' : None,
         'decomp' : 'pu',
         'spatial' : None,
     }
 
-    image_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/images/"
-    mask_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/labels/"
+    image_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/images/"
+    mask_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/labels/"
     
     uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout-Final/test_results/fold0_seed123/"
     #ood/pred_entropy/"
@@ -235,6 +287,7 @@ def main():
                                   prediction_path, 
                                   'abc',
                                   **extra_info)
+    sem_maps_colors = data_loader.get_semantic_mapping()
     
     loader = DataLoader(data_loader, 
                         batch_size=1, 
@@ -250,31 +303,14 @@ def main():
           data['prediction'].shape, 
           data['sample_name'])
     
-    # # Overleay colours 
-    # label_colors_sem = {
-    #     0: [0, 0, 0],             # Background - black or transparent
-    #     1: [102, 0, 153],         # Epithelial - deep purple
-    #     2: [0, 0, 255],           # Plasma Cells - blue
-    #     3: [255, 255, 0],         # Lymphocytes - yellow
-    #     4: [255, 105, 180],       # Eosinophils - reddish pink
-    #     5: [0, 255, 0],           # Fibroblasts - green
-    # }
-    
-    # # Overleay colours 
-    # label_colors_inst = {
-    #     0: [0, 0, 0],             # Background - black or transparent
-    #     1: [255, 105, 180],       # Border - reddish pink
-    #     2: [0, 0, 0],             # Nucleus - black or transparent
-    # }
-    
-    # def label_to_rgb(label_map, label_colors):
-    #     """Converts a (H, W) label map to an (H, W, 3) RGB overlay."""
-    #     h, w = label_map.shape
-    #     rgb = np.zeros((h, w, 3), dtype=np.uint8)
-    #     for label, color in label_colors.items():
-    #         mask = (label_map == label)
-    #         rgb[mask] = color
-    #     return rgb
+    def label_to_rgb(label_map, label_colors):
+        """Converts a (H, W) label map to an (H, W, 3) RGB overlay."""
+        h, w = label_map.shape
+        rgb = np.zeros((h, w, 3), dtype=np.uint8)
+        for label, color in label_colors.items():
+            mask = (label_map == label)
+            rgb[mask] = color[1]
+        return rgb
 
     # Main visualization
     data = next(iter(loader))
@@ -285,18 +321,18 @@ def main():
     # label_colors = label_colors_sem                
     uq_map = data['uq_map'].squeeze(0).cpu().numpy()
     sample_name = data['sample_name'][0]
+    
+    print(np.unique(mask), np.unique(prediction))
 
-    # # Generate colored overlays
-    # mask_rgb = label_to_rgb(mask, label_colors)
-    # pred_rgb = label_to_rgb(prediction, label_colors)
-
-    print(prediction[0,0,:])
+    # Generate colored overlays
+    mask_rgb = label_to_rgb(mask, sem_maps_colors)
+    pred_rgb = label_to_rgb(prediction, sem_maps_colors)
     
     # Create subplots
     fig, axs = plt.subplots(1, 4, figsize=(16, 5))
     titles = ['Input Image', 'Ground Truth', 'Prediction', 'UQ Map']
-    overlays = [None, mask, prediction, uq_map]
-    alphas = [1.0, 1.0, 1.0, 0.8]
+    overlays = [None, mask_rgb, pred_rgb, uq_map]
+    alphas = [1.0, 0.6, 0.6, 0.8]
 
     for ax, title, overlay, alpha in zip(axs, titles, overlays, alphas):
         if title == 'Input Image':

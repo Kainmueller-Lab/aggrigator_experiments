@@ -20,6 +20,7 @@ from datasets.Arctique.arctique_dataset_creation import (
     SharedMaskCache
 )
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
+from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_CityscapesDataset
 from evaluation.constants import BACKGROUND_FREE_STRATEGIES, AUROC_STRATEGIES
 
 # ---- Data Structures ----
@@ -45,27 +46,35 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     """Create and validate all necessary paths."""
     base_path = Path(args.uq_path)
     
-    main_folder_name = "UQ_maps" if not args.spatial else "UQ_spatial"
-    uq_maps_path = base_path.joinpath(main_folder_name)
-    
-    metadata_path = base_path.joinpath("UQ_metadata")
-    preds_path = base_path.joinpath("UQ_predictions")
-    metrics_path = base_path.joinpath("Performance_metrics")
+    if args.dataset_name.startswith(('arctique','lidc', 'lizard')):
+        main_folder_name = "UQ_maps" if not args.spatial else "UQ_spatial"
+        uq_maps_path = base_path.joinpath(main_folder_name)
         
-    if args.variation and args.dataset_name.startswith('arctique'):
-        data_path = Path(args.label_path).joinpath(args.variation) 
-    elif args.variation and args.dataset_name.startswith('lidc'):
-        cycle = 'FirstCycle'
-        folder = f'{args.variation}_fold0_seed123'
-        placehold = 'Softmax'
-        data_path = Path(args.label_path).joinpath(f'{cycle}/{placehold}/test_results/{folder}/') 
-    elif args.dataset_name.startswith('lizard'): 
-        data_path = Path(args.label_path)
-        
+        metadata_path = base_path.joinpath("UQ_metadata") if args.metadata else None
+        preds_path = base_path.joinpath("UQ_predictions")
+        metrics_path = base_path.joinpath("Performance_metrics")
+            
+        if args.variation and args.dataset_name.startswith('arctique'):
+            data_path = Path(args.label_path).joinpath(args.variation) 
+        elif args.variation and args.dataset_name.startswith('lidc'):
+            cycle = 'FirstCycle'
+            folder = f'{args.variation}_fold0_seed123'
+            placehold = 'Softmax'
+            data_path = Path(args.label_path).joinpath(f'{cycle}/{placehold}/test_results/{folder}/') 
+        elif args.dataset_name.startswith('lizard'): 
+            data_path = Path(args.label_path)
+            
+    elif args.dataset_name.startswith('gta'): 
+        if args.variation:
+            data_path = Path(args.label_path).joinpath('CityScapesOriginalData', 'preprocessed')
+        else:
+            data_path = Path(args.label_path).joinpath('OriginalData', 'preprocessed')
+            preds_path = base_path
+            
     output_dir = Path.cwd().joinpath('output')
     output_dir.mkdir(exist_ok=True)
 
-    for path in [uq_maps_path, metadata_path, data_path, preds_path]: # Validate paths - we exclude for now preds_path
+    for path in [uq_maps_path, data_path, preds_path]: # Validate paths - we exclude for now preds_path
         if not path.exists():
             raise FileNotFoundError(f"Path does not exist: {path}")
         
@@ -737,6 +746,8 @@ def load_dataset_abstract_class(
         dataset_config = _get_arctique_config(paths, task)
     elif dataset_name.startswith("lidc"):
         dataset_config = _get_lidc_config(paths)
+    elif dataset_name.startswith("gta"):
+        dataset_config = _get_gta_config(paths)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} not implemented in optimized version")
     
@@ -846,6 +857,22 @@ def _get_lidc_config(paths: DataPaths) -> dict:
     
     return {
         'dataset_class': OptimizedLIDCDataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {}
+    }
+    
+def _get_gta_config(paths: DataPaths) -> dict:
+    """Get configuration for GTA/Cityscapes dataset"""
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for Arctique dataset - uses reference paths for all noise levels"""
+        return {
+            'image_path': paths.data.joinpath('images'),
+            'mask_path': paths.data.joinpath('labels')
+        }
+    
+    return {
+        'dataset_class': GTA_CityscapesDataset,
         'get_paths': get_paths,
         'extra_kwargs': {}
     }

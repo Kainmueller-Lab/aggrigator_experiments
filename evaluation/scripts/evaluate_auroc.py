@@ -187,6 +187,10 @@ def parse_arguments() -> argparse.Namespace:
         '--uq_methods', type=str, default='softmax,ensemble,dropout,tta', 
         help='Comma-separated list of image noise levels'
     )
+    parser.add_argument(
+        '--metadata', type=str, default=True, 
+        help='Read the metadata file if it is stored in the old UQ_metadata format'
+    )
     return parser.parse_args()
 
 def main():
@@ -216,7 +220,7 @@ def main():
         'model_noise' : args.model_noise,
         'decomp' : args.decomp,
         'spatial' : args.spatial,
-        'metadata' : True,
+        'metadata' : args.metadata,
     }
         
     # Set paths and make sure output directory exists
