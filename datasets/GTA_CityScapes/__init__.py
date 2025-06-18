@@ -1,1 +1,2 @@
-from .gta_cityscapes_dataset_creation import CityscapesDataset
+from .gta_cityscapes_dataset_creation import GTA_CityscapesDataset, OptimizedGTA_CityscapesDataset
+from .cityscapes_labels import labels, trainId2color

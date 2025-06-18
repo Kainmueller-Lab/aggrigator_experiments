@@ -20,7 +20,7 @@ from datasets.Arctique.arctique_dataset_creation import (
     SharedMaskCache
 )
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
-from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_CityscapesDataset
+from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import OptimizedGTA_CityscapesDataset
 from evaluation.constants import BACKGROUND_FREE_STRATEGIES, AUROC_STRATEGIES
 
 # ---- Data Structures ----
@@ -45,6 +45,8 @@ class AnalysisResults(NamedTuple):
 def setup_paths(args: argparse.Namespace) -> DataPaths:
     """Create and validate all necessary paths."""
     base_path = Path(args.uq_path)
+    metadata_path = None
+    metrics_path = None
     
     if args.dataset_name.startswith(('arctique','lidc', 'lizard')):
         main_folder_name = "UQ_maps" if not args.spatial else "UQ_spatial"
@@ -65,11 +67,9 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
             data_path = Path(args.label_path)
             
     elif args.dataset_name.startswith('gta'): 
-        if args.variation:
-            data_path = Path(args.label_path).joinpath('CityScapesOriginalData', 'preprocessed')
-        else:
-            data_path = Path(args.label_path).joinpath('OriginalData', 'preprocessed')
-            preds_path = base_path
+        data_path = Path(args.label_path)
+        uq_maps_path = base_path
+        preds_path = base_path
             
     output_dir = Path.cwd().joinpath('output')
     output_dir.mkdir(exist_ok=True)
@@ -77,8 +77,8 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     for path in [uq_maps_path, data_path, preds_path]: # Validate paths - we exclude for now preds_path
         if not path.exists():
             raise FileNotFoundError(f"Path does not exist: {path}")
-        
-    metrics_path=metrics_path if metrics_path.exists() else None 
+    metadata_path=metadata_path if metadata_path and metadata_path.exists() else None  
+    metrics_path=metrics_path if metadata_path and metadata_path.exists() else None
     return DataPaths(
         uq_maps=uq_maps_path,
         metadata=metadata_path,
@@ -235,6 +235,8 @@ def rescale_maps(unc_maps, uq_method, task, dataset_name):
         rescale_fact = np.log(6)
     elif task == 'semantic' and dataset_name.startswith('lizard'):
         rescale_fact = np.log(7) 
+    elif task == 'semantic' and dataset_name.startswith('gta'):
+        rescale_fact = np.log(24) 
     elif task == 'fgbg' and dataset_name.startswith('lidc'):
         rescale_fact = np.log(2) #TODO: define how to normalize ValUES maps
     return unc_maps / rescale_fact 
@@ -866,13 +868,18 @@ def _get_gta_config(paths: DataPaths) -> dict:
     
     def get_paths(noise: str, extra_info: dict) -> dict:
         """Get paths for Arctique dataset - uses reference paths for all noise levels"""
+        if extra_info['data_noise'] == "0_00":
+            ref_data_path = paths.data.joinpath('OriginalData', 'preprocessed')
+        else:
+            ref_data_path =  paths.data.joinpath('CityScapesOriginalData', 'preprocessed')
+    
         return {
-            'image_path': paths.data.joinpath('images'),
-            'mask_path': paths.data.joinpath('labels')
+            'image_path': ref_data_path.joinpath('images'),
+            'mask_path': ref_data_path.joinpath('labels')
         }
     
     return {
-        'dataset_class': GTA_CityscapesDataset,
+        'dataset_class': OptimizedGTA_CityscapesDataset,
         'get_paths': get_paths,
         'extra_kwargs': {}
     }

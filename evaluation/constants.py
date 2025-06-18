@@ -1,8 +1,55 @@
 import sys
+import numpy as np
 import seaborn as sns
 import matplotlib.cm as cm 
 from pathlib import Path
 from aggrigator.methods import AggregationMethods as am
+
+def class_mean(unc_map, param):
+    assert unc_map.mask_provided, f"Mask not provided for uncertainty map {unc_map.name}"
+    assert param in unc_map.class_indices, f"Invalid class label {param} for uncertainty map {unc_map.name}"
+    return np.sum(unc_map.array[unc_map.mask == param], dtype=np.float64) / unc_map.class_volumes[param]
+    
+def get_id_mask(mask, id):
+    return np.where(mask==id, 1, 0)
+
+def class_mean_w_custom_weights(unc_map, param): # param = weights: A dict of weights for each class you want to include.
+    """
+    Compute the weighted average of class means, allowing for custom weights.
+    Parameters:
+    - unc_map: An object containing class indices and a method to compute class means.
+    - param (dict, optional): A dictionary specifying custom weights for each class.
+    Returns:
+    - Weighted average of class means.
+    """
+    assert unc_map.mask_provided, f"Mask not provided for uncertainty map {unc_map.name}"
+    weights = param
+    class_ids = list(weights.keys())
+    # Compute class means
+    class_means = {class_id: class_mean(unc_map, class_id)
+                    for class_id in class_ids}
+    # Ensure provided weights sum to 1
+    weight_sum = sum(weights.values())
+    assert abs(weight_sum - 1.0) < 1e-6, "Weights must sum to 1."
+    return sum(class_means[id] * weights[id] for id in class_ids)
+
+def class_mean_w_equal_weights(unc_map, param=False, ignore_index=255):
+    # NOTE: We exclude BG class 0 if include_background is False
+    classes = [class_id for class_id in unc_map.class_indices if not (class_id == ignore_index and param)]
+    # Use equal weights for all classes
+    weights = {id: 1 / len(classes) for id in classes}
+    return class_mean_w_custom_weights(unc_map, weights)
+
+def class_mean_weighted_by_occurrence(unc_map, param=False, ignore_index=255):
+    # NOTE: We exclude BG class 0 if include_background is False
+    classes = [class_id for class_id in unc_map.class_indices if not (class_id == ignore_index and param)]
+    # Count class pixels 
+    class_pixel_counts = {class_id: get_id_mask(unc_map.mask, class_id).sum()
+                            for class_id in classes}
+    fg_pixel_count = np.sum(list(class_pixel_counts.values()))
+    # Use weights proportional to the number of pixels in each class
+    weights = {id: class_pixel_counts[id] / fg_pixel_count for id in classes}
+    return class_mean_w_custom_weights(unc_map, weights)
 
 AURC_DISPLAY_SCALE = 1000
 
@@ -28,8 +75,8 @@ NOISE_LEVELS = ["1_00"]
 
 AUROC_STRATEGIES = {
         'Context-aware': {
-                'Equally-w. class avg.' : (am.class_mean_w_equal_weights, None),
-                'Imbalance-w. class avg.': (am.class_mean_weighted_by_occurrence, None),
+                'Equally-w. class avg.' : (class_mean_w_equal_weights, True),
+                'Imbalance-w. class avg.': (class_mean_weighted_by_occurrence, True),
                         },
         'Baseline': {
                 'Mean': (am.mean, None), 

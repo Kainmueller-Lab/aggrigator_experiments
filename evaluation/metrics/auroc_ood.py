@@ -12,7 +12,8 @@ def compute_auroc_from_maps(
     gt_labels: np.ndarray,
     aggregation_method: Callable,
     params: Any,
-    category: str
+    category: str,
+    ignore_index: int
     ) -> float:
     """
     Compute AUROC to assess an aggregator's ability to detect OoD images, by defining:
@@ -39,10 +40,16 @@ def compute_auroc_from_maps(
     float
         AUROC value by computing TPRs and FPRs at differet thresholds via sklearn library
     """
-    # Apply aggregation method
-    uncertainty_values = np.array([
-        aggregation_method(umap, params) for umap in uncertainty_maps
-    ])
+    
+    # Apply aggregation method based on category
+    if category == 'Context-aware':
+        uncertainty_values = np.array([
+            aggregation_method(umap, params, ignore_index) for umap in uncertainty_maps
+        ])
+    else:
+        uncertainty_values = np.array([
+            aggregation_method(umap, params) for umap in uncertainty_maps
+        ])
     
     # Handle threshold methods
     if category == 'Threshold': 
@@ -58,11 +65,12 @@ def compute_auroc_from_maps(
 
 def evaluate_aggregation_strategy(
     cached_maps: Dict,
-    uq_methods: List[str],
+    # uq_methods: List[str],
     aggr_name: str,
     aggr_method: Callable,
     param: Any,
-    category: str
+    category: str,
+    ignore_index: int
     ) -> Dict:
     """
     Evaluate an aggregation strategy across multiple UQ methods.
@@ -88,13 +96,13 @@ def evaluate_aggregation_strategy(
         Results with AUROC mean and standard deviation
     """
     # Compute AUROC for each UQ method using preloaded maps
-    auroc_values = np.zeros(len(uq_methods))
+    auroc_values = np.zeros(len(list(cached_maps.keys())))
     
-    for idx, uq_method in enumerate(uq_methods):
+    for idx, uq_method in enumerate(list(cached_maps.keys())):
         uncertainty_maps = cached_maps[uq_method]['maps']
         gt_labels = cached_maps[uq_method]['gt_labels']
         auroc_values[idx] = compute_auroc_from_maps(
-            uncertainty_maps, gt_labels, aggr_method, param, category
+            uncertainty_maps, gt_labels, aggr_method, param, category, ignore_index
         )
     
     # Return results
@@ -109,7 +117,7 @@ def evaluate_all_strategies(
     cached_maps: Dict,
     strategies: Dict,
     noise_level: str,
-    decomp: str
+    ignore_index: int 
     ) -> pd.DataFrame:
     """
     Evaluate all aggregation strategies for a given noise level.
@@ -128,7 +136,6 @@ def evaluate_all_strategies(
     pd.DataFrame
         DataFrame with AUROC results for all strategies
     """
-    uq_methods = ['softmax', 'ensemble', 'dropout', 'tta'] if decomp == 'pu' else ['ensemble', 'dropout', 'tta']
     auroc_data = []
     
     # Process each aggregation strategy
@@ -138,7 +145,7 @@ def evaluate_all_strategies(
                 print(f"----Processing aggregator function: {aggr_name}, in {category} category----")
                 # Evaluate the strategy
                 result = evaluate_aggregation_strategy(
-                    cached_maps, uq_methods, aggr_name, aggr_method, param, category
+                    cached_maps, aggr_name, aggr_method, param, category, ignore_index
                 )
                 # Add noise level
                 result['Noise_Level'] = noise_level

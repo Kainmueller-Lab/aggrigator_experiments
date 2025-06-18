@@ -11,15 +11,7 @@ import matplotlib.pyplot as plt
 # sys.path.append('/fast/AG_Kainmueller/vguarin/aggrigator_experiments/')
 # print(sys.path)
 from datasets.dataset import Dataset_Class
-
-# Import from the cityscapes_labels script
-# Adjust the import path according to your project structure
-try:
-    from cityscapes_labels import labels, trainId2label
-except ImportError:
-    # If import fails, you may need to adjust the path or add the directory to sys.path
-    # sys.path.append('path/to/directory/containing/cityscapes_labels.py')
-    from cityscapes_labels import labels, trainId2label
+from .cityscapes_labels import labels, trainId2label #from cityscapes_labels if you directly run this script !
 
 # Extract mappings from the labels
 color2trainId = {}
@@ -46,7 +38,7 @@ print(f"Loaded {len([l for l in labels if l.trainId != 255])} semantic classes")
 print(f"Color mapping contains {len(color2trainId)} colors")
 print(f"Valid trainIDs: {sorted([tid for tid in semantic_mapping.keys() if tid != 255])}")
 
-semantic_mapping =  {
+new_semantic_mapping =  {
     0: ['road', (128, 64, 128)],
     1: ['sidewalk', (244, 35, 232)],
     2: ['building', (70, 70, 70)],
@@ -89,11 +81,12 @@ class GTA_CityscapesDataset(Dataset_Class):
         self.image_path = Path(image_path)
         self.mask_path = Path(mask_path)
         self.uq_map_path = Path(uq_map_path)
-        self.prediction_path = Path(prediction_path).joinpath('pred_seg')
         self.semantic_mapping_path = semantic_mapping_path
+        self.prediction_path = Path(prediction_path)
         
         # Extract kwargs with defaults if not provided
         self.task = kwargs.get('task', None)
+        self.uq_method = kwargs.get('uq_method', None)
         self.model_noise = kwargs.get('model_noise', None)
         self.decomp = kwargs.get('decomp', None)
         self.spatial = kwargs.get('spatial', None)
@@ -101,42 +94,55 @@ class GTA_CityscapesDataset(Dataset_Class):
         self.data_noise = kwargs.get('data_noise', None)
         self.metadata = kwargs.get('metadata', False)
         
+        if not self.uq_method and not self.data_noise:
+            raise ValueError('Select a uq_method and data_noise to add to the **kwargs dictionary.')
+        
+        # Define folder following base path for uq_maps and uq_predictions
+        uq_map_path = self.uq_map_path.joinpath(self.__convert_to_values_uq_name__()[self.uq_method], 'test_results', 'fold0_seed123')
+        
         # Uq_map_path and prediction_path parameters must end with the checkpoint folder when passed to the class 
-        if not self.uq_map_path.parent.name.startswith('fold0'):
-            raise ValueError('Please check the directory for uq_map again.')
+        if not uq_map_path.name.startswith('fold0'):
+            raise ValueError('Check the directory for uq_map again.')
         
         if self.data_noise == "1_00":
-            self.variation = 'CityScapes'
+            self.variation = 'cityscapes'
             if "CityScapes" not in str(self.image_path): 
-                raise FileNotFoundError("You are currently using the GTA dataset, the OoD task requires the CityScape dataset. Please adjust paths for images and masks.")
+                raise FileNotFoundError("You are currently using the GTA dataset, the OoD task requires the CityScape dataset. Adjust paths for images and masks.")
 
         if self.data_noise == "0_00":
-             self.variation = 'GTA'
+             self.variation = 'cityscapes'
              if "CityScapes" in str(self.image_path): 
-                raise FileNotFoundError("You are currently using the CityScapes dataset, the iD task requires the GTA dataset. Please adjust paths for images and masks.")
+                raise FileNotFoundError("You are currently using the CityScapes dataset, the iD task requires the GTA dataset. Adjust paths for images and masks.")
         
-        self.uq_method = self.__convert_values_uq_name__()[self.uq_map_path.parents[2].name] 
+        if self.data_noise == "0_00":
+            self.uq_map_path = uq_map_path / 'id'
+        else:
+            self.uq_map_path = uq_map_path / 'ood'
+        
+        self.prediction_path = self.uq_map_path.joinpath('pred_seg')
+        
+        # Previously: self.uq_method = self.__convert_to_values_uq_name__()[self.uq_map_path.parents[2].name] 
         self.model_ckpt = self.uq_map_path.parent.name
         
         # Complete uq_map directory with either aleaotirc, epistemic or pred_entr folder
-        self.uq_map_path = self.uq_map_path.joinpath(self.__convert_values_decomp_name__()[self.decomp])
+        self.uq_map_path = self.uq_map_path.joinpath(self.__convert_to_values_decomp_name__()[self.decomp])
         
         # Extract the integer indices from filenames
         self.sample_names = [f.split(".")[0] for f in os.listdir(self.uq_map_path) if f.endswith(".tif" )]
     
-    def __convert_values_decomp_name__(self):
+    def __convert_to_values_decomp_name__(self):
         return {
             'pu': 'pred_entropy',
             'au': 'aleatoric_uncertainty',
             'eu': 'epistemic_uncertainty',
         }
     
-    def __convert_values_uq_name__(self):
+    def __convert_to_values_uq_name__(self):
         return {
-            'Dropout-Final': 'dropout',
-            'TTA': 'tta',
-            'Ensemble': 'ensemble',
-            'Softmax': 'softmax'
+            'dropout': 'Dropout-Final',
+            'tta': 'TTA',
+            'ensemble': 'Ensemble',
+            'softmax': 'Softmax'
         }
         
     def __len__(self):
@@ -227,7 +233,7 @@ class GTA_CityscapesDataset(Dataset_Class):
     
     def get_semantic_mapping(self):
         """Return the semantic mapping dictionary (trainID -> [class name, color])."""
-        return semantic_mapping
+        return new_semantic_mapping
     
     def get_trainid_to_color_mapping(self):
         """Return the trainID to color mapping for visualization."""
@@ -254,31 +260,56 @@ class GTA_CityscapesDataset(Dataset_Class):
             'metadata': {"model_checkpoint": self.model_ckpt}
         }
         return info_dictionary
+
+class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
+    """Memory-efficient version that can skip loading images"""
+    
+    def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
+                 semantic_mapping_path, load_images=False, load_preds=False, 
+                 max_samples=500, **kwargs):
+        super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
+                        semantic_mapping_path, **kwargs)
+        self.load_images = load_images
+        self.load_preds = load_preds
+        # Limit the number of samples if specified
+        if max_samples is not None and max_samples < len(self.sample_names):
+            self.sample_names = self.sample_names[:max_samples]
+        
+    def __getitem__(self, idx):
+        if idx >= self.__len__():
+            raise IndexError("Index out of bounds.")
+                        
+        data = {
+            'mask': self.get_mask(idx), 
+            'uq_map': self.get_uq_map(idx),
+            'sample_name': self.get_sample_name(idx),
+        }
+    
+        # Only load images if requested
+        if self.load_images:
+            data['image'] = self.get_image(idx)
+        
+        # Only load predictions if requested
+        if self.load_preds:
+            data['prediction'] = self.get_prediction(idx)
+        return data
         
 # ---- Main Function to to test GTA_CityscapesDataset ----   
     
 def main():
     extra_info = {
         'task' : 'semantic',
-        'variation' : 'cityscape',
+        'variation' : 'cityscapes',
         'model_noise' : 0,
-        'data_noise': '1_00',
-        'uq_method' : None,
+        'data_noise': '0_00',
+        'uq_method': 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
     }
 
-    image_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/images/"
-    mask_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/labels/"
-    
-    uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout-Final/test_results/fold0_seed123/"
-    #ood/pred_entropy/"
-    
-    if extra_info['data_noise'] == "0_00":
-        uq_map_path = f"{uq_map_path}/id/"
-    else:
-        uq_map_path = f"{uq_map_path}/ood/"
-        
+    image_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/images/"
+    mask_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/labels/"
+    uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/"
     prediction_path = uq_map_path
     
     data_loader = GTA_CityscapesDataset(image_path, 
@@ -288,6 +319,7 @@ def main():
                                   'abc',
                                   **extra_info)
     sem_maps_colors = data_loader.get_semantic_mapping()
+    print(data_loader.__len__())
     
     loader = DataLoader(data_loader, 
                         batch_size=1, 
