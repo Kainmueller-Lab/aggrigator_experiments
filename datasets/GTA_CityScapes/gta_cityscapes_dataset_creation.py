@@ -319,7 +319,6 @@ def main():
                                   'abc',
                                   **extra_info)
     sem_maps_colors = data_loader.get_semantic_mapping()
-    print(data_loader.__len__())
     
     loader = DataLoader(data_loader, 
                         batch_size=1, 
