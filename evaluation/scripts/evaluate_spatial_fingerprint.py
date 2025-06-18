@@ -51,7 +51,6 @@ def evaluate_spatial_fingerprint(dataset, sample_size, num_workers):
     else:
         print(f"NOTE: Could not normalize UQ maps because dataset_info['num_classes'] is not defined.")
     print("____________________")
-    print("____________________")
 
 
     def get_measure_mass_ratios(sample):
@@ -113,9 +112,9 @@ from datasets.ADE20K.ade20k_loader import ADE20K
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
-    parser.add_argument('--dataset_config', type=str, default='configs/ade20k_deeplabv3.yaml', help='Path to config file')
+    parser.add_argument('--dataset_config', type=str, default='evaluation/configs/ade20k_deeplabv3.yaml', help='Path to config file')
     parser.add_argument('--sample_size', type=int, default='0', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
-    parser.add_argument('--num_workers', type=int, default='0', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
+    parser.add_argument('--num_workers', type=int, default='16', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
     
     config = load_dataset_config(args.dataset_config)

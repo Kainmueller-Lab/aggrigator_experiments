@@ -14,7 +14,7 @@ from aggrigator.spatial_decomposition import spatial_decomposition # NOTE: This 
 
 class TestCorrelation(unittest.TestCase):
     def test_ade20k_fingerprint(self):
-        with open(os.path.join(os.path.dirname(__file__), '..', 'configs', 'ade20k_deeplabv3.yaml'), 'r') as f:
+        with open(os.path.join(os.path.dirname(__file__), '..', 'evaluation', 'configs', 'ade20k_deeplabv3.yaml'), 'r') as f:
             config = yaml.safe_load(f)
 
         dataset = ADE20K(config['image_dir'],

@@ -122,7 +122,7 @@ def evaluate_correlation(dataset, sample_size, num_workers):
 
         # Slice if 3D
         if uq_array.ndim == 3:
-            print(f"Warning: 3D UQ map detected. Only 2D slices are used for correlation matrix.")
+            print(f"Warning: 3D UQ map detected. Only middle 2D slice are used for correlation matrix.")
             mid_slice = uq_array.shape[0] // 2
             uq_array = uq_array[mid_slice, :, :]
             mask = mask[mid_slice, :, :]
@@ -130,7 +130,7 @@ def evaluate_correlation(dataset, sample_size, num_workers):
         # Ignore too small images bc of patch aggregation with patch size 200
         h, w = uq_array.shape
         if h < 200 or w < 200:
-            print(f"Warning: UQ map {sample['sample_name']} is too small for patch aggregation with patch size 200.")
+            print(f"Warning: Ignoring UQ map {sample['sample_name']} because it is too small for patch aggregation with patch size 200.")
             return None
         
         # Replace negative values with zero
@@ -185,9 +185,9 @@ from datasets.ADE20K.ade20k_loader import ADE20K
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
-    parser.add_argument('--dataset_config', type=str, default='configs/ade20k_deeplabv3.yaml', help='Path to config file')
+    parser.add_argument('--dataset_config', type=str, default='evaluation/configs/ade20k_deeplabv3.yaml', help='Path to config file')
     parser.add_argument('--sample_size', type=int, default='0', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
-    parser.add_argument('--num_workers', type=int, default='8', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
+    parser.add_argument('--num_workers', type=int, default='0', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
     
     config = load_dataset_config(args.dataset_config)
