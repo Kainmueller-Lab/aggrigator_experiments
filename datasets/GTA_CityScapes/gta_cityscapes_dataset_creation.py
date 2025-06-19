@@ -330,6 +330,7 @@ class GTA_CityscapesDataset(Dataset_Class):
             'decomposition': self.decomp, 
             'metadata': {"model_checkpoint": self.model_ckpt}
         }
+<<<<<<< HEAD
         return info_dictionary
 
 class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
@@ -520,3 +521,6 @@ if __name__ == "__main__":
     
     
     
+=======
+        return info_dictionary
+>>>>>>> origin/main

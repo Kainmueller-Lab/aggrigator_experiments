@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
 
 
-from .datasets.dataset import Dataset_Class
+from datasets.dataset import Dataset_Class
 
 
 
