@@ -93,42 +93,20 @@ class GTA_CityscapesDataset(Dataset_Class):
         self.variation = kwargs.get('variation', None)
         self.data_noise = kwargs.get('data_noise', None)
         self.metadata = kwargs.get('metadata', False)
+        self.split_path = kwargs.get('split_path', None)
+        self.split = kwargs.get('split', ['test'])
         
-        if not self.uq_method and not self.data_noise:
-            raise ValueError('Select a uq_method and data_noise to add to the **kwargs dictionary.')
-        
-        # Define folder following base path for uq_maps and uq_predictions
-        uq_map_path = self.uq_map_path.joinpath(self.__convert_to_values_uq_name__()[self.uq_method], 'test_results', 'fold0_seed123')
-        
-        # Uq_map_path and prediction_path parameters must end with the checkpoint folder when passed to the class 
-        if not uq_map_path.name.startswith('fold0'):
-            raise ValueError('Check the directory for uq_map again.')
-        
-        if self.data_noise == "1_00":
-            self.variation = 'cityscapes'
-            if "CityScapes" not in str(self.image_path): 
-                raise FileNotFoundError("You are currently using the GTA dataset, the OoD task requires the CityScape dataset. Adjust paths for images and masks.")
-
-        if self.data_noise == "0_00":
-             self.variation = 'cityscapes'
-             if "CityScapes" in str(self.image_path): 
-                raise FileNotFoundError("You are currently using the CityScapes dataset, the iD task requires the GTA dataset. Adjust paths for images and masks.")
-        
-        if self.data_noise == "0_00":
-            self.uq_map_path = uq_map_path / 'id'
-        else:
-            self.uq_map_path = uq_map_path / 'ood'
-        
-        self.prediction_path = self.uq_map_path.joinpath('pred_seg')
-        
-        # Previously: self.uq_method = self.__convert_to_values_uq_name__()[self.uq_map_path.parents[2].name] 
-        self.model_ckpt = self.uq_map_path.parent.name
-        
-        # Complete uq_map directory with either aleaotirc, epistemic or pred_entr folder
-        self.uq_map_path = self.uq_map_path.joinpath(self.__convert_to_values_decomp_name__()[self.decomp])
+        # Validate required parameters
+        self.__validate_required_params__()
+              
+        # Set up dataset-specific paths and configurations
+        self.__setup_dataset_paths__()
         
         # Extract the integer indices from filenames
-        self.sample_names = [f.split(".")[0] for f in os.listdir(self.uq_map_path) if f.endswith(".tif" )]
+        if self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_uq_directory()
     
     def __convert_to_values_decomp_name__(self):
         return {
@@ -145,9 +123,82 @@ class GTA_CityscapesDataset(Dataset_Class):
             'softmax': 'Softmax'
         }
         
+    def __setup_dataset_paths__(self):
+        """Set up dataset-specific paths and validate dataset consistency."""
+        # Set variation based on data_noise
+        if self.data_noise in ["0_00", "1_00"] and not self.variation:
+            self.variation = 'cityscapes'
+        
+        # Validate dataset consistency
+        self. __validate_dataset_consistency__()
+        
+        # Build folder following base path for uq_maps and uq_predictions
+        uq_map_base = self.uq_map_path.joinpath(
+            self.__convert_to_values_uq_name__()[self.uq_method], 
+            'test_results', 
+            'fold0_seed123'
+        )
+        
+        # Uq_map_path and prediction_path parameters must end with the checkpoint folder when passed to the class 
+        if not uq_map_base.name.startswith('fold0'):
+            raise ValueError(f"Invalid directory structure. Expected folder starting with 'fold0', got: {uq_map_base.name}")
+        
+        # Set task-specific paths
+        if self.data_noise == "0_00":
+            self.uq_map_path = uq_map_base / 'id'
+        else:
+            self.uq_map_path = uq_map_base / 'ood'
+        
+        # Set prediction path
+        self.prediction_path = self.uq_map_path.joinpath('pred_seg')
+        
+        # Extract model checkpoint name; previously: self.uq_method = self.__convert_to_values_uq_name__()[self.uq_map_path.parents[2].name] 
+        self.model_ckpt = self.uq_map_path.parent.name
+        
+        # Complete uq_map directory with either decomposition type: aleatoric, epistemic or pred_entr
+        self.uq_map_path = self.uq_map_path.joinpath(self.__convert_to_values_decomp_name__()[self.decomp])
+        
+        # Final validation that paths exist
+        if not self.uq_map_path.exists():
+            raise FileNotFoundError(f"Uncertainty map path does not exist: {self.uq_map_path}")
+    
+    def __validate_required_params__(self):
+        """Validate that required parameters are provided."""
+        if not self.uq_method:
+            raise ValueError("uq_method is required in kwargs")
+        
+        if not self.data_noise:
+            raise ValueError("data_noise is required in kwargs")
+        
+        if not self.decomp:
+            raise ValueError("decomp is required in kwargs")
+        
+        # Validate data_noise values
+        valid_data_noise = ["0_00", "1_00"]
+        if self.data_noise not in valid_data_noise:
+            raise ValueError(f"data_noise must be one of {valid_data_noise}, got: {self.data_noise}")
+ 
+    def __validate_dataset_consistency__(self):
+        """Validate that the correct dataset is being used for the task."""
+        is_cityscapes = "CityScapes" in str(self.image_path)
+        
+        if self.data_noise == "1_00":  # OoD task
+            if not is_cityscapes:
+                raise FileNotFoundError(
+                    "OoD task (data_noise='1_00') requires CityScapes dataset. "
+                    f"Current image path: {self.image_path}"
+                )
+        
+        elif self.data_noise == "0_00":  # iD task
+            if is_cityscapes:
+                raise FileNotFoundError(
+                    "iD task (data_noise='0_00') requires GTA dataset. "
+                    f"Current image path: {self.image_path}"
+                )
+                
     def __len__(self):
         """Return the length / number of samples of the dataset."""
-        return len(self.sample_names)
+        return len(self.sample_names) 
     
 
     def __getitem__(self, idx):
@@ -231,6 +282,25 @@ class GTA_CityscapesDataset(Dataset_Class):
         """Return the list of sample names."""
         return self.sample_names
     
+    def get_sample_names_from_split_file(self):
+        """Load sample names from split file."""
+        split_path = Path(self.split_path)
+        
+        with open(split_path, "r") as f:
+            self.sample_names = [
+                line.strip().split(".")[0] 
+                for line in f 
+                if line.strip().endswith(".tif")
+            ]
+    
+    def get_sample_names_from_uq_directory(self):
+        """Load sample names from directory listing."""
+        self.sample_names = [
+            f.split(".")[0] 
+            for f in os.listdir(self.uq_map_path) 
+            if f.endswith(".tif")
+        ]
+    
     def get_semantic_mapping(self):
         """Return the semantic mapping dictionary (trainID -> [class name, color])."""
         return new_semantic_mapping
@@ -301,16 +371,30 @@ def main():
         'task' : 'semantic',
         'variation' : 'cityscapes',
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '1_00',
         'uq_method': 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
+        'split_path' : None,
+        'split' : None
     }
 
-    image_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/images/"
-    mask_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/labels/"
-    uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/"
+    base_path = "/fast/AG_Kainmueller/data"
+    data_folder_name = "/GTA/CityScapesOriginalData" # /GTA/CityScapesOriginalData
+    
+    if data_folder_name.startswith('/GTA/City'):
+        splits_folder = 'Cityscapes_ood'
+        
+    else:
+        splits_folder = 'GTA_id_test'
+    
+    image_path = f"{base_path}/{data_folder_name}/preprocessed/images/"
+    mask_path = f"{base_path}/{data_folder_name}/preprocessed/labels/"
+    uq_map_path = f"{base_path}/GTA_CityScapes_UQ/"
     prediction_path = uq_map_path
+    
+    text_path = f"{base_path}/GTA_ValUES_splits/{splits_folder}"
+    extra_info['split_path'] = text_path
     
     data_loader = GTA_CityscapesDataset(image_path, 
                                   mask_path, 
@@ -353,8 +437,6 @@ def main():
     uq_map = data['uq_map'].squeeze(0).cpu().numpy()
     sample_name = data['sample_name'][0]
     
-    print(np.unique(mask), np.unique(prediction))
-
     # Generate colored overlays
     mask_rgb = label_to_rgb(mask, sem_maps_colors)
     pred_rgb = label_to_rgb(prediction, sem_maps_colors)
