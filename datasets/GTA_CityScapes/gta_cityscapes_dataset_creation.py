@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 # sys.path.append('/fast/AG_Kainmueller/vguarin/aggrigator_experiments/')
 # print(sys.path)
 from datasets.dataset import Dataset_Class
-from .cityscapes_labels import labels, trainId2label #from cityscapes_labels if you directly run this script !
+from .cityscapes_labels import labels, trainId2label #from cityscapes_labels import (without dot) if you directly run this script or the tutorial !
 
 # Extract mappings from the labels
 color2trainId = {}
@@ -330,7 +330,6 @@ class GTA_CityscapesDataset(Dataset_Class):
             'decomposition': self.decomp, 
             'metadata': {"model_checkpoint": self.model_ckpt}
         }
-<<<<<<< HEAD
         return info_dictionary
 
 class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
@@ -521,6 +520,3 @@ if __name__ == "__main__":
     
     
     
-=======
-        return info_dictionary
->>>>>>> origin/main
