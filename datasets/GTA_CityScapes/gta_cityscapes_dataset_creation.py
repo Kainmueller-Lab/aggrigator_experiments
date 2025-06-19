@@ -1,5 +1,6 @@
 import sys 
 import os 
+import random
 import numpy as np
 
 from PIL import Image
@@ -180,17 +181,17 @@ class GTA_CityscapesDataset(Dataset_Class):
  
     def __validate_dataset_consistency__(self):
         """Validate that the correct dataset is being used for the task."""
-        is_cityscapes = "CityScapes" in str(self.image_path)
+        self.is_cityscapes = "CityScapes" in str(self.image_path)
         
         if self.data_noise == "1_00":  # OoD task
-            if not is_cityscapes:
+            if not self.is_cityscapes:
                 raise FileNotFoundError(
                     "OoD task (data_noise='1_00') requires CityScapes dataset. "
                     f"Current image path: {self.image_path}"
                 )
         
         elif self.data_noise == "0_00":  # iD task
-            if is_cityscapes:
+            if self.is_cityscapes:
                 raise FileNotFoundError(
                     "iD task (data_noise='0_00') requires GTA dataset. "
                     f"Current image path: {self.image_path}"
@@ -336,14 +337,58 @@ class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
                  semantic_mapping_path, load_images=False, load_preds=False, 
-                 max_samples=500, **kwargs):
+                 max_samples=2000, random_sampling=True, seed=42, **kwargs):
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images
         self.load_preds = load_preds
+        self.random_sampling = random_sampling
+        self.seed = seed
+        
         # Limit the number of samples if specified
-        if max_samples is not None and max_samples < len(self.sample_names):
-            self.sample_names = self.sample_names[:max_samples]
+        if max_samples is not None and max_samples < len(self.sample_names) and not self.is_cityscapes:
+            if random_sampling:
+                self._random_sample_selection(max_samples)
+            else:
+                self.sample_names = self.sample_names[:max_samples]
+    
+    def _random_sample_selection(self, max_samples):
+        """Randomly select max_samples from sample_names with reproducible seed."""
+        # Set seeds for reproducibility
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+
+        original_count = len(self.sample_names)
+        
+        # Randomly sample without replacement
+        self.sample_names = random.sample(self.sample_names, max_samples)
+        
+        print(f"Randomly selected {max_samples} samples from {original_count} total samples (seed={self.seed})")
+    
+    def resample(self, max_samples=500, new_seed=None):
+        """Re-sample the dataset with a different number of samples or seed."""
+        if new_seed is not None:
+            self.seed = new_seed
+        
+        # Get all available samples again (need to reload from directory)
+        if hasattr(self, 'split_path') and self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_uq_directory()
+        
+        # Apply random sampling with new parameters
+        if max_samples < len(self.sample_names):
+            self._random_sample_selection(max_samples)
+        return self
+    
+    def get_sampling_info(self):
+        """Return information about the current sampling configuration."""
+        return {
+            'total_samples': len(self.sample_names),
+            'random_sampling': self.random_sampling,
+            'seed': self.seed if self.random_sampling else None,
+            'sample_names_preview': self.sample_names[:5] if len(self.sample_names) > 5 else self.sample_names
+        }
         
     def __getitem__(self, idx):
         if idx >= self.__len__():

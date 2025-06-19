@@ -870,8 +870,10 @@ def _get_gta_config(paths: DataPaths) -> dict:
         """Get paths for Arctique dataset - uses reference paths for all noise levels"""
         if extra_info['data_noise'] == "0_00":
             ref_data_path = paths.data.joinpath('OriginalData', 'preprocessed')
+            extra_info['splits_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test"
         else:
             ref_data_path =  paths.data.joinpath('CityScapesOriginalData', 'preprocessed')
+            extra_info['splits_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/Cityscapes_ood"
     
         return {
             'image_path': ref_data_path.joinpath('images'),

@@ -197,7 +197,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--ignore_index', type=int, default=0, 
-        help='Backgorund idnex to ignore in context-aware aggregators'
+        help='Background index to ignore in context-aware aggregators'
     )
     return parser.parse_args()
 
@@ -231,6 +231,8 @@ def main():
         'decomp' : args.decomp,
         'spatial' : args.spatial,
         'metadata' : args.metadata,
+        'split_path' : None,
+        'split' : None
     }
         
     # Set paths and make sure output directory exists
