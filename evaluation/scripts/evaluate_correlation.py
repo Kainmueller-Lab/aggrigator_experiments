@@ -27,7 +27,7 @@ focus_strategy_list = [
     (am.above_quantile_mean, 0.7),
     (am.above_quantile_mean, 0.9),
     #(am.above_quantile_mean, 0.95),
-    #(am.above_quantile_mean_fg_ratio, None),
+    (am.above_quantile_mean_fg_ratio, None),
     (am.patch_aggregation, 10), 
     (am.patch_aggregation, 20),
     (am.patch_aggregation, 40),
@@ -113,10 +113,13 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
     for key, value in dataset_info.items():
         print(f"{key}: {value}")
     print(f"Number of samples used for correlation matrix: {sample_size} of {len(dataset)}")
-    if dataset_info['num_classes'] is not None:
-        print(f"NOTE: Normalizing UQ maps by ln(K) where K={dataset_info['num_classes']} is the number of classes.")
+    # This is an ugly hack. In future, make sure that dataset.num_classes is defined.
+    if dataset.num_classes is None:
+        print(f"WARNING: Could not normalize UQ maps because dataset_info['num_classes'] or dataset.num_classes is not defined.")
     else:
-        print(f"NOTE: Could not normalize UQ maps because dataset_info['num_classes'] is not defined.")
+        print(f"NOTE: Normalizing UQ maps by ln(K) where K={dataset.num_classes} is the number of classes.")
+        if dataset.num_classes != 2: # Only apply AQA with FG-BG ratio if there are 2 classes
+            focus_strategy_list.pop(focus_strategy_list.index((am.above_quantile_mean_fg_ratio, None)))
     print("____________________")
 
 
@@ -206,7 +209,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_workers', type=int, default='16', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
 
-    DATASET = "lidc"
+    DATASET = "arctique"
     
     if DATASET == "ade20k":
         config = load_dataset_config(args.dataset_config)
