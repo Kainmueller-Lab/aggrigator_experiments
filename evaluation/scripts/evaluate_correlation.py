@@ -26,13 +26,16 @@ focus_strategy_list = [
     (am.above_quantile_mean, 0.5),
     (am.above_quantile_mean, 0.7),
     (am.above_quantile_mean, 0.9),
-    (am.above_quantile_mean, 0.95),
+    #(am.above_quantile_mean, 0.95),
+    #(am.above_quantile_mean_fg_ratio, None),
     (am.patch_aggregation, 10), 
     (am.patch_aggregation, 20),
     (am.patch_aggregation, 40),
     (am.patch_aggregation, 80),
     (am.patch_aggregation, 100),
     (am.patch_aggregation, 200),
+    # (am.class_mean_w_equal_weights, None),
+    # (am.class_mean_weighted_by_occurrence, None),
 ]
 
 
@@ -128,12 +131,6 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
             mid_slice = uq_array.shape[0] // 2
             uq_array = uq_array[mid_slice, :, :]
             prediction = prediction[mid_slice, :, :]
-
-        # Ignore too small images bc of patch aggregation with patch size 200
-        h, w = uq_array.shape
-        if h < 200 or w < 200:
-            print(f"Warning: Ignoring UQ map {sample['sample_name']} because it is too small for patch aggregation with patch size 200.")
-            return None
         
         # Replace negative values with zero
         # NOTE: Such values (close to zero) sometimes occur and need to be dealt with.
@@ -209,7 +206,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_workers', type=int, default='16', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
 
-    DATASET = "arctique"
+    DATASET = "lidc"
     
     if DATASET == "ade20k":
         config = load_dataset_config(args.dataset_config)
@@ -314,6 +311,8 @@ if __name__ == "__main__":
                                 **extra_info)
         dataset_name = f"lidc_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
         dataset.num_classes = 2
+        print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
+        focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
