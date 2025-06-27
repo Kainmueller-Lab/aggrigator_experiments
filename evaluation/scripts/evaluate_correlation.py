@@ -34,8 +34,8 @@ focus_strategy_list = [
     (am.patch_aggregation, 80),
     (am.patch_aggregation, 100),
     (am.patch_aggregation, 200),
-    # (am.class_mean_w_equal_weights, None),
-    # (am.class_mean_weighted_by_occurrence, None),
+    (am.class_mean_w_equal_weights, None),
+    (am.class_mean_weighted_by_occurrence, None),
 ]
 
 
@@ -65,7 +65,8 @@ def save_correlation_matrix_plot(df, filename, save_dir):
     color_code = {
         "threshold": "red",
         "quantile": "green",
-        "patch": "blue"
+        "patch": "blue",
+        "class_mean": "orange",
     }
     for tick in ax.get_xticklabels():
         strategy_name = tick.get_text()
@@ -204,15 +205,15 @@ from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_Cityscap
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
-    parser.add_argument('--dataset_config', type=str, default='evaluation/configs/ade20k_deeplabv3.yaml', help='Path to config file')
+    parser.add_argument('--dataset', type=str, default='arctique', help='Name of dataset to evaluate correlations. Options: ade20k, arctique, lidc, lizard, cityscapes, weedsgalore')
     parser.add_argument('--sample_size', type=int, default='0', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
     parser.add_argument('--num_workers', type=int, default='16', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
 
-    DATASET = "arctique"
+    DATASET = args.dataset
     
     if DATASET == "ade20k":
-        config = load_dataset_config(args.dataset_config)
+        config = 'evaluation/configs/ade20k_deeplabv3.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
         dataset = ADE20K(config['image_dir'],
                         config['label_dir'],
                         config['uq_map_dir'],
