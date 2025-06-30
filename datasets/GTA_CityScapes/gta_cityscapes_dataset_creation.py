@@ -35,9 +35,9 @@ for label in labels:
 # Add ignore class to semantic mapping
 semantic_mapping[255] = 'ignore'
 
-print(f"Loaded {len([l for l in labels if l.trainId != 255])} semantic classes")
-print(f"Color mapping contains {len(color2trainId)} colors")
-print(f"Valid trainIDs: {sorted([tid for tid in semantic_mapping.keys() if tid != 255])}")
+# print(f"Loaded {len([l for l in labels if l.trainId != 255])} semantic classes")
+# print(f"Color mapping contains {len(color2trainId)} colors")
+# print(f"Valid trainIDs: {sorted([tid for tid in semantic_mapping.keys() if tid != 255])}")
 
 new_semantic_mapping =  {
     0: ['road', (128, 64, 128)],
@@ -336,7 +336,7 @@ class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
     """Memory-efficient version that can skip loading images"""
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
-                 semantic_mapping_path, load_images=False, load_preds=False, 
+                 semantic_mapping_path, load_images=False, load_preds=True, 
                  max_samples=2000, random_sampling=True, seed=42, **kwargs):
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
@@ -406,7 +406,8 @@ class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
         
         # Only load predictions if requested
         if self.load_preds:
-            data['prediction'] = self.get_prediction(idx)
+            pred_colors = self.get_prediction_colors(idx)
+            data['prediction'] = self.rgb_to_trainid(pred_colors)
         return data
         
 # ---- Main Function to to test GTA_CityscapesDataset ----   

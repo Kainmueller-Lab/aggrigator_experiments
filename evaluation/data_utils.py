@@ -615,15 +615,15 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
         {
             uq_method: {
                 'noise_combo_key': {
-                    'masks': concatenated_masks,
+                    'masks': concatenated_masks, > currently substituted by predictions !
                     'uq_maps': concatenated_uq_maps, 
-                    'gt_labels': ground_truth_labels
+                    'gt_labels': ground_truth_labels,
                 }
             }
         }
     """
     concatenated_results = {}
-    idx_task = 1 if task in {'instance', 'semantic'} else 2 #for panoptic masks
+    idx_task = 1 if task == 'instance' else 2 #in {'instance', 'semantic'} else 2 #for panoptic masks
 
     for uq_method, noise_loaders in datasets.items():
         print(f"Processing UQ Method: {uq_method}")
@@ -636,6 +636,7 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
             
             all_masks = []
             all_uq_maps = []
+            all_preds = []
             all_gt_labels = []
             
             for noise_level in noise_combo:
@@ -648,10 +649,12 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                 # Extract all samples from this loader
                 for batch in loader:
                     # Extract masks and uq_maps from batch
-                    if 'mask' in batch:
-                        masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
-                        masks = masks[..., idx_task] if masks.ndim > 3 else masks #panoptic masks vs non-panoptic case
-                        all_masks.append(masks)
+                    if 'prediction' in batch: #previously 'mask'
+                        # masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
+                        # masks = masks[..., idx_task] if masks.ndim > 3 else masks #panoptic masks vs non-panoptic case
+                        preds = batch['prediction'].numpy() if isinstance(batch['prediction'], torch.Tensor) else batch['prediction']
+                        preds = preds[..., idx_task] if preds.ndim > 3 else preds #panoptic preds vs non-panoptic case
+                        all_masks.append(preds)
                     
                     if 'uq_map' in batch:
                         uq_maps = batch['uq_map'].numpy() if isinstance(batch['uq_map'], torch.Tensor) else batch['uq_map']
@@ -659,7 +662,7 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                         all_uq_maps.append(uq_maps)
                     
                     # Create gt_labels: 1 for noisy data, 0 for clean (0_00)
-                    batch_size = masks.shape[0] if 'mask' in batch else uq_maps.shape[0]
+                    batch_size = uq_maps.shape[0] #masks.shape[0] if 'mask' in batch else uq_maps.shape[0]
                     if noise_level == '0_00':
                         gt_labels = np.zeros(batch_size, dtype=int)
                     else:
@@ -720,7 +723,7 @@ def process_concatenated_datasets(datasets, image_noises, task, dataset_name):
             gt_labels_shape = data['gt_label'].shape
             
             print(f"  Combination {combo_key}:")
-            print(f"    Masks shape: {masks_shape}")
+            print(f"    Predictions shape: {masks_shape}") # Masks
             print(f"    UQ maps shape: {uq_maps_shape}")
             print(f"    GT labels shape: {gt_labels_shape}")
             print(f"    GT labels distribution: {np.bincount(data['gt_label'])}")

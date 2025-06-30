@@ -1,9 +1,9 @@
 Aggregator,AUROC,AUROC_std,Noise_Level
-Imbalance-w. class avg.,0.8664179999999999,0.0,1_00
+Equally-w. class avg.,0.839024,0.0,1_00
 Mean,0.750591,0.0,1_00
-Quantile fg. ratio,0.654606,0.0,1_00
+Imbalance-w. class avg.,0.699978,0.0,1_00
+Quantile fg. ratio,0.638766,0.0,1_00
 Quantile 0.6,0.630536,0.0,1_00
-Equally-w. class avg.,0.627362,0.0,1_00
 Quantile 0.75,0.578438,0.0,1_00
 Patch 50,0.479074,0.0,1_00
 Quantile 0.9,0.46151200000000003,0.0,1_00
