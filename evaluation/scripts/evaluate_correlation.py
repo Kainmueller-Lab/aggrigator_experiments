@@ -128,6 +128,9 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
         # Load uncertainty maps and predictions from dataset
         prediction = sample['prediction']
         uq_array = sample['uq_map']
+        # NOTE: Weedsgalore has a single channel for the prediction
+        if prediction.ndim == 3 and prediction.shape[0] == 1:
+            prediction = prediction.squeeze(0)
 
         # Slice if 3D
         if uq_array.ndim == 3:
@@ -139,6 +142,13 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
         # Replace negative values with zero
         # NOTE: Such values (close to zero) sometimes occur and need to be dealt with.
         uq_array = np.where(uq_array < 0, 0, uq_array)
+
+        # Ignore too small images bc of patch aggregation with patch size 200
+        h, w = uq_array.shape
+        patch_200_in_agg_list = (am.patch_aggregation, 200) in focus_strategy_list
+        if patch_200_in_agg_list and (h < 200 or w < 200):
+            print(f"Warning: Ignoring UQ map {sample['sample_name']} because it is too small for patch aggregation with patch size 200.")
+            return None
         
         # Normalize arrays by ln(K) where K is number of classes if UQ maps are not normalized in dataloader
         if dataset_info['num_classes'] is not None:
@@ -213,7 +223,8 @@ if __name__ == "__main__":
     DATASET = args.dataset
     
     if DATASET == "ade20k":
-        config = 'evaluation/configs/ade20k_deeplabv3.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
+        config_file = 'evaluation/configs/ade20k_deeplabv3.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
+        config = load_dataset_config(config_file) 
         dataset = ADE20K(config['image_dir'],
                         config['label_dir'],
                         config['uq_map_dir'],
@@ -349,20 +360,47 @@ if __name__ == "__main__":
                                     **extra_info)
         dataset_name = f"lizard_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
         dataset.num_classes = 7
+        print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
+        focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "cityscapes":
-        image_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/images/"
-        mask_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/labels/"
-        uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout-Final/test_results/fold0_seed123/ood/pred_entropy/"
-        prediction_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout-Final/test_results/fold0_seed123/ood/pred_seg/"
+        extra_info = {
+            'task' : 'semantic',
+            'variation' : 'cityscapes',
+            'model_noise' : 0,
+            'data_noise': '1_00',
+            'uq_method': 'dropout',
+            'decomp' : 'pu',
+            'spatial' : None,
+            'split_path' : None,
+            'split' : None
+        }
 
-        dataset = GTA_CityscapesDataset(image_path=image_path, 
-                             mask_path= mask_path, 
-                             uq_map_path=uq_map_path, 
-                             prediction_path=prediction_path, 
-                             semantic_mapping_path="")
+        base_path = "/fast/AG_Kainmueller/data"
+        data_folder_name = "/GTA/CityScapesOriginalData" # /GTA/CityScapesOriginalData
+        
+        if data_folder_name.startswith('/GTA/City'):
+            splits_folder = 'Cityscapes_ood'
+            
+        else:
+            splits_folder = 'GTA_id_test'
+        
+        image_path = f"{base_path}/{data_folder_name}/preprocessed/images/"
+        mask_path = f"{base_path}/{data_folder_name}/preprocessed/labels/"
+        uq_map_path = f"{base_path}/GTA_CityScapes_UQ/"
+        prediction_path = uq_map_path
+        
+        text_path = f"{base_path}/GTA_ValUES_splits/{splits_folder}"
+        extra_info['split_path'] = text_path
+        
+        dataset = GTA_CityscapesDataset(image_path, 
+                                    mask_path, 
+                                    uq_map_path, 
+                                    prediction_path, 
+                                    'abc',
+                                    **extra_info)
         dataset_name = "cityscapes_dropout_pu"
         dataset.num_classes = None
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
