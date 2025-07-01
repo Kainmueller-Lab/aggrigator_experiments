@@ -337,16 +337,16 @@ class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
                  semantic_mapping_path, load_images=False, load_preds=True, 
-                 max_samples=2000, random_sampling=True, seed=42, **kwargs):
+                 max_samples=500, random_sampling=True, seed=42, **kwargs):
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images
         self.load_preds = load_preds
         self.random_sampling = random_sampling
         self.seed = seed
-        
+                
         # Limit the number of samples if specified
-        if max_samples is not None and max_samples < len(self.sample_names) and not self.is_cityscapes:
+        if max_samples is not None and max_samples < len(self.sample_names): #and not self.is_cityscapes:
             if random_sampling:
                 self._random_sample_selection(max_samples)
             else:
@@ -417,7 +417,7 @@ def main():
         'task' : 'semantic',
         'variation' : 'cityscapes',
         'model_noise' : 0,
-        'data_noise': '1_00',
+        'data_noise': '0_00',
         'uq_method': 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
@@ -426,7 +426,7 @@ def main():
     }
 
     base_path = "/fast/AG_Kainmueller/data"
-    data_folder_name = "/GTA/CityScapesOriginalData" # /GTA/CityScapesOriginalData or /GTA/OriginalData
+    data_folder_name = "/GTA/OriginalData" # /GTA/CityScapesOriginalData or /GTA/OriginalData
     
     if data_folder_name.startswith('/GTA/City'):
         splits_folder = 'Cityscapes_ood'

@@ -6,7 +6,7 @@ import pandas as pd
 
 
 from evaluation.scripts.evaluate_correlation import compute_correlations
-from datasets.ADE20K.ade20k_loader import ADE20K
+from datasets.ADE20K.ade20k_dataset_creation import ADE20K
 from aggrigator.uncertainty_maps import UncertaintyMap
 from aggrigator.methods import AggregationMethods as am
 from aggrigator.summary import AggregationSummary

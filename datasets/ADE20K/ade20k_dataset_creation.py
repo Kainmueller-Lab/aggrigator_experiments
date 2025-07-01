@@ -1,11 +1,12 @@
 import os
-import numpy as np
 import json
+import random
+import numpy as np
+import matplotlib.pyplot as plt
 
 from PIL import Image
 from pathlib import Path
 from torch.utils.data import DataLoader 
-import matplotlib.pyplot as plt
 
 from datasets.dataset import Dataset_Class
 
@@ -164,7 +165,6 @@ ade20k_semantic_mapping = {
     149: ['flag', [255, 0, 245]]
 }
 
-
 class ADE20K_CityscapesDataset(Dataset_Class):
     """Class to define the structure of ADE20k vs CityScapes dataset.
 
@@ -197,7 +197,7 @@ class ADE20K_CityscapesDataset(Dataset_Class):
         self.mask_path = Path(mask_path)
         self.uq_map_path =  Path(uq_map_path)
         self.semantic_mapping_path = semantic_mapping_path
-        self.prediction_path = Path(prediction_path).parent.parent
+        self.prediction_path = Path(prediction_path).parent
         
         # Extract kwargs with defaults if not provided
         self.task = kwargs.get('task', None)
@@ -207,15 +207,16 @@ class ADE20K_CityscapesDataset(Dataset_Class):
         self.spatial = kwargs.get('spatial', None)
         self.variation = kwargs.get('variation', None)
         self.data_noise = kwargs.get('data_noise', None)
-        self.metadata = kwargs.get('metadata', None)
-        self.split_path = kwargs.get('split_path', None)
+        self.metadata = kwargs.get('metadata', False)
+        self.model_checkpoint = kwargs.get('metadata', False)
+        self.model_ckpt = kwargs.get('model_checkpoint', None)
         self.split = kwargs.get('split', ['test'])
+        self.split_path = kwargs.get('split_path', None)
         
         # Validate required parameters
         self.__validate_required_params__()
         
         # Define the pre-trained model selected in the opnemmlab zoo during evaluation
-        self.model_ckpt = self.metadata['model_checkpoint']
         self.model_name = self.model_ckpt.split('_')[0]
         
         # Set up dataset-specific paths and configurations
@@ -246,13 +247,9 @@ class ADE20K_CityscapesDataset(Dataset_Class):
         # Set task-specific paths
         if self.data_noise == "0_00":
             self.uq_map_path = self.uq_map_path / f'validation_{self.model_name}'
-            self.image_path = self.image_path / "validation"
-            self.mask_path = self.mask_path / "validation"
             self.prediction_path = self.prediction_path / "ADEChallengeData2016" / "predictions"
         else:
             self.uq_map_path = self.uq_map_path / f'ood_{self.model_name}' 
-            self.image_path = self.image_path / "test_cityscapes" 
-            self.mask_path = self.mask_path / "test_cityscapes"
             self.prediction_path = self.prediction_path / "GTA_copy" / "predictions"
         
         # Validate dataset consistency
@@ -270,7 +267,7 @@ class ADE20K_CityscapesDataset(Dataset_Class):
     
     def __validate_required_params__(self):
         """Validate that required parameters are provided."""
-        if not self.metadata['model_checkpoint']:
+        if not self.model_ckpt:
             raise ValueError("model_checkpoint is required in kwargs")
         
         if not self.uq_method:
@@ -368,7 +365,7 @@ class ADE20K_CityscapesDataset(Dataset_Class):
             self.image_filenames = [
                 line.strip().split(".")[0] 
                 for line in f 
-                if line.strip().endswith(".tif")
+                if line.strip().endswith(".png")
             ]
     
     def get_sample_names_from_img_directory(self):
@@ -428,10 +425,9 @@ class ADE20K_CityscapesDataset(Dataset_Class):
             'task': self.task,
             'uq_method': self.uq_method, 
             'decomposition': self.decomp, 
-            'metadata': {
-                "model_checkpoint": self.model_ckpt,
-                "metadata_path": '/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/deeplabv3_r50-d8_4xb4-160k_ade20k-512x512/metadata/',
-            },
+            'metadata': self.metadata, 
+            "model_checkpoint": self.model_ckpt,
+            "metadata_path": '/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/deeplabv3_r50-d8_4xb4-160k_ade20k-512x512/metadata/',
             'dataset_name': self.normalized_dataset_path(self.uq_map_path, 'ADE20K'),
         }
         return info_dictionary
@@ -450,31 +446,114 @@ class ADE20K_CityscapesDataset(Dataset_Class):
         if img_count != uq_map_count:
             print(f"Warning: Number of images ({img_count}) does not match number of uncertainty maps ({uq_map_count}).")
             
+class OptimizedADE20K_CityscapesDataset(ADE20K_CityscapesDataset):
+    """Memory-efficient version that can skip loading images"""
+    
+    def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
+                 semantic_mapping_path, load_images=False, load_preds=True, 
+                 max_samples=28, random_sampling=True, seed=42, **kwargs):
+        super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
+                        semantic_mapping_path, **kwargs)
+        self.load_images = load_images
+        self.load_preds = load_preds
+        self.random_sampling = random_sampling
+        self.seed = seed
+                
+        # Limit the number of samples if specified
+        if max_samples is not None and max_samples < len(self.image_filenames): #and not self.is_cityscapes:
+            if random_sampling:
+                self._random_sample_selection(max_samples)
+            else:
+                self.image_filenames = self.image_filenames[:max_samples]
+    
+    def _random_sample_selection(self, max_samples):
+        """Randomly select max_samples from sample_names with reproducible seed."""
+        # Set seeds for reproducibility
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+
+        original_count = len(self.image_filenames)
+        print("original_count", original_count)
+        
+        # Randomly sample without replacement
+        self.image_filenames = random.sample(self.image_filenames, max_samples)
+        
+        print(f"Randomly selected {max_samples} samples from {original_count} total samples (seed={self.seed})")
+    
+    def resample(self, max_samples=500, new_seed=None):
+        """Re-sample the dataset with a different number of samples or seed."""
+        if new_seed is not None:
+            self.seed = new_seed
+        
+        # Get all available samples again (need to reload from directory)
+        if hasattr(self, 'split_path') and self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_img_directory()
+        
+        # Apply random sampling with new parameters
+        if max_samples < len(self.image_filenames):
+            self._random_sample_selection(max_samples)
+        return self
+    
+    def get_sampling_info(self):
+        """Return information about the current sampling configuration."""
+        return {
+            'total_samples': len(self.image_filenames),
+            'random_sampling': self.random_sampling,
+            'seed': self.seed if self.random_sampling else None,
+            'sample_names_preview': self.image_filenames[:5] if len(self.image_filenames) > 5 else self.image_filenames
+        }
+        
+    def __getitem__(self, idx):
+        if idx >= self.__len__():
+            raise IndexError("Index out of bounds.")
+                        
+        data = {
+            'mask': self.get_mask(idx), 
+            'uq_map': self.get_uq_map(idx),
+            'sample_name': self.get_sample_name(idx),
+        }
+    
+        # Only load images if requested
+        if self.load_images:
+            data['image'] = self.get_image(idx)
+        
+        # Only load predictions if requested
+        if self.load_preds:
+            data['prediction'] = self.get_prediction(idx)
+        return data
+            
             
 # ---- Main Function to to test GTA_CityscapesDataset ----   
     
 def main():
+    base_path = "/fast/AG_Kainmueller/data/ADEChallengeData2016/"
+    text_path = f"{os.path.dirname(base_path.rstrip('/'))}/GTA_ValUES_splits/ADE20k_id_test"
+    
     extra_info = {
         'task' : 'semantic',
         'variation' : 'cityscapes',
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '1_00',
         'uq_method': 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
-        'split_path' : None,
+        'split_path' : None, #text_path,
         'split' : None,
-        'metadata' : {
-            'model_checkpoint': 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512'
-            }
+        'metadata' : False,
+        'model_checkpoint': 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512',
     }
-
-    base_path = "/fast/AG_Kainmueller/data/ADEChallengeData2016/"
     
-    image_path = f"{base_path}/images/"
-    mask_path = f"{base_path}/annotations"
+    if extra_info['data_noise'] == '0_00':
+        data_fold = 'validation'
+    else:
+        data_fold = 'test_cityscapes'
+    
+    image_path = f"{base_path}/images/{data_fold}"
+    mask_path = f"{base_path}/annotations/{data_fold}"
     uq_map_path = f"{os.path.dirname(base_path.rstrip('/'))}/UQ_maps/ADE20K/"
-    prediction_path = image_path
+    prediction_path = base_path
         
     data_loader = ADE20K_CityscapesDataset(image_path, 
                                             mask_path, 
@@ -482,6 +561,7 @@ def main():
                                             prediction_path, 
                                             '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json',
                                             **extra_info)
+        
     loader = DataLoader(data_loader, 
                         batch_size=1, 
                         shuffle=False,

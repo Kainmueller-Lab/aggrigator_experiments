@@ -164,11 +164,13 @@ def parse_arguments() -> argparse.Namespace:
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
+    # ade20k: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
     )
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
+    # ade20k: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )
@@ -177,7 +179,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=['pu', 'au', 'eu'], help='Information theoretic decomposition component'
     )
     parser.add_argument(
-        '--dataset_name', type=str, default='arctique', choices=['arctique', 'lidc', 'lizard', 'gta'], help='Dataset name'
+        '--dataset_name', type=str, default='arctique', choices=['arctique', 'lidc', 'lizard', 'gta', 'ade20k'], help='Dataset name'
     )
     parser.add_argument(
         '--spatial', type=str, choices=['high_eds', 'low_eds', 'high_moran', 'low_moran'], 
@@ -199,6 +201,11 @@ def parse_arguments() -> argparse.Namespace:
         '--ignore_index', type=int, default=0, 
         help='Background index to ignore in context-aware aggregators'
     )
+    parser.add_argument(
+        '--model_checkpoint', type=str, default=None,
+        help='Pretrained model to pass to extra_info[metadata][model_checkpoint]'
+    )
+    # ade20k: 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512'
     return parser.parse_args()
 
 def main():
@@ -232,9 +239,10 @@ def main():
         'spatial' : args.spatial,
         'metadata' : args.metadata,
         'split_path' : None,
-        'split' : None
+        'split' : None,
+        'model_checkpoint' : args.model_checkpoint, 
     }
-        
+            
     # Set paths and make sure output directory exists
     paths = setup_paths(args)
     

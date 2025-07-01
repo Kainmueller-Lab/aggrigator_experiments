@@ -3,6 +3,7 @@ import torch
 import argparse
 import mahotas as mh
 import os
+import cv2
 
 from dataclasses import dataclass
 from torch.utils.data import Dataset, DataLoader
@@ -21,6 +22,8 @@ from datasets.Arctique.arctique_dataset_creation import (
 )
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
 from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import OptimizedGTA_CityscapesDataset
+from datasets.ADE20K.ade20k_dataset_creation import OptimizedADE20K_CityscapesDataset
+
 from evaluation.constants import BACKGROUND_FREE_STRATEGIES, AUROC_STRATEGIES
 
 # ---- Data Structures ----
@@ -66,10 +69,14 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
         elif args.dataset_name.startswith('lizard'): 
             data_path = Path(args.label_path)
             
-    elif args.dataset_name.startswith('gta'): 
+    elif args.dataset_name.startswith(('gta', 'ade20k')): 
         data_path = Path(args.label_path)
         uq_maps_path = base_path
-        preds_path = base_path
+        
+        if args.dataset_name.startswith('gta'):
+            preds_path = base_path
+        else:
+            preds_path = data_path
             
     output_dir = Path.cwd().joinpath('output')
     output_dir.mkdir(exist_ok=True)
@@ -237,6 +244,8 @@ def rescale_maps(unc_maps, uq_method, task, dataset_name):
         rescale_fact = np.log(7) 
     elif task == 'semantic' and dataset_name.startswith('gta'):
         rescale_fact = np.log(24) 
+    elif task == 'semantic' and dataset_name.startswith('ade20k'):
+        rescale_fact = np.log(150) 
     elif task == 'fgbg' and dataset_name.startswith('lidc'):
         rescale_fact = np.log(2) #TODO: define how to normalize ValUES maps
     return unc_maps / rescale_fact 
@@ -598,6 +607,35 @@ def load_dataset(
     print(f"✓ Loaded {dataset_name} test set and ground truth")
     return dataset, context_gt, gt_labels
 
+def resize_array(arr: np.ndarray, target_size: Tuple[int, int]) -> np.ndarray:
+    """
+    Resize array to target size. Handles both 3D (H, W, C) and 4D (B, H, W, C) arrays.
+    For masks (no channels), handles 2D (H, W) and 3D (B, H, W) arrays.
+    """
+    if arr.ndim == 4:  # Batch of images with channels (B, H, W, C)
+        resized = []
+        for i in range(arr.shape[0]):
+            if arr.shape[-1] == 1:  # Single channel
+                img_resized = cv2.resize(arr[i, :, :, 0], target_size, interpolation=cv2.INTER_NEAREST)
+                resized.append(img_resized[..., np.newaxis])
+            else:  # Multi-channel
+                img_resized = cv2.resize(arr[i], target_size, interpolation=cv2.INTER_LINEAR)
+                resized.append(img_resized)
+        return np.stack(resized, axis=0)
+    
+    elif arr.ndim == 3:
+        if arr.shape[0] == 1:  # Single batch item (1, H, W) - likely a mask
+            img_resized = cv2.resize(arr[0], target_size, interpolation=cv2.INTER_NEAREST)
+            return img_resized[np.newaxis, ...]
+        else:  # Multi-channel image (H, W, C)
+            return cv2.resize(arr, target_size, interpolation=cv2.INTER_LINEAR)
+    
+    elif arr.ndim == 2:  # Single mask (H, W)
+        return cv2.resize(arr, target_size, interpolation=cv2.INTER_NEAREST)
+    
+    else:
+        raise ValueError(f"Unsupported array dimensions: {arr.shape}")
+
 def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]], 
                                noise_combinations: List[List[str]], 
                                task: str,
@@ -624,6 +662,8 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
     """
     concatenated_results = {}
     idx_task = 1 if task == 'instance' else 2 #in {'instance', 'semantic'} else 2 #for panoptic masks
+    
+    common_size = (256,256)
 
     for uq_method, noise_loaders in datasets.items():
         print(f"Processing UQ Method: {uq_method}")
@@ -636,7 +676,6 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
             
             all_masks = []
             all_uq_maps = []
-            all_preds = []
             all_gt_labels = []
             
             for noise_level in noise_combo:
@@ -654,12 +693,19 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                         # masks = masks[..., idx_task] if masks.ndim > 3 else masks #panoptic masks vs non-panoptic case
                         preds = batch['prediction'].numpy() if isinstance(batch['prediction'], torch.Tensor) else batch['prediction']
                         preds = preds[..., idx_task] if preds.ndim > 3 else preds #panoptic preds vs non-panoptic case
-                        all_masks.append(preds)
+                        # if dataset_name.startswith('ade20k'): preds = resize_array(preds, common_size)
+                        # all_masks.append(preds)
+                        # Store each sample separately
+                        for i in range(preds.shape[0]):
+                            all_masks.append(preds[i])
                     
                     if 'uq_map' in batch:
                         uq_maps = batch['uq_map'].numpy() if isinstance(batch['uq_map'], torch.Tensor) else batch['uq_map']
                         uq_maps = rescale_maps(uq_maps, uq_method, task, dataset_name)
-                        all_uq_maps.append(uq_maps)
+                        # if dataset_name.startswith('ade20k'): uq_maps = resize_array(preds, common_size)
+                        # all_uq_maps.append(uq_maps)
+                        for i in range(uq_maps.shape[0]):
+                            all_uq_maps.append(uq_maps[i])
                     
                     # Create gt_labels: 1 for noisy data, 0 for clean (0_00)
                     batch_size = uq_maps.shape[0] #masks.shape[0] if 'mask' in batch else uq_maps.shape[0]
@@ -673,8 +719,8 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
             # Concatenate all arrays for this combination
             if all_masks:
                 concatenated_results[uq_method][combo_key] = {
-                    'mask': np.concatenate(all_masks, axis=0),
-                    'uq_map': np.concatenate(all_uq_maps, axis=0) if all_uq_maps else None,
+                    'mask': all_masks, #np.concatenate(all_masks, axis=0),
+                    'uq_map':all_uq_maps, #np.concatenate(all_uq_maps, axis=0) if all_uq_maps else None,
                     'gt_label': np.concatenate(all_gt_labels, axis=0)
                 }
             else:
@@ -718,8 +764,10 @@ def process_concatenated_datasets(datasets, image_noises, task, dataset_name):
     for uq_method, combos in concatenated_data.items():
         print(f"\nUQ Method: {uq_method}")
         for combo_key, data in combos.items():
-            masks_shape = data['mask'].shape if data['mask'] is not None else "None"
-            uq_maps_shape = data['uq_map'].shape if data['uq_map'] is not None else "None"
+            # masks_shape = data['mask'].shape if data['mask'] is not None else "None"
+            # uq_maps_shape = data['uq_map'].shape if data['uq_map'] is not None else "None"
+            masks_shape = f"{len(data['mask'])} x {data['mask'][0].shape}" if data['mask'] else "None"
+            uq_maps_shape = f"{len(data['uq_map'])} x {data['uq_map'][0].shape}" if data['uq_map']  else "None"
             gt_labels_shape = data['gt_label'].shape
             
             print(f"  Combination {combo_key}:")
@@ -753,6 +801,8 @@ def load_dataset_abstract_class(
         dataset_config = _get_lidc_config(paths)
     elif dataset_name.startswith("gta"):
         dataset_config = _get_gta_config(paths)
+    elif dataset_name.startswith("ade20k"):
+        dataset_config = _get_ade20k_config(paths)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} not implemented in optimized version")
     
@@ -870,13 +920,14 @@ def _get_gta_config(paths: DataPaths) -> dict:
     """Get configuration for GTA/Cityscapes dataset"""
     
     def get_paths(noise: str, extra_info: dict) -> dict:
-        """Get paths for Arctique dataset - uses reference paths for all noise levels"""
+        """Get paths for GTA dataset - uses reference paths for all noise levels"""
         if extra_info['data_noise'] == "0_00":
             ref_data_path = paths.data.joinpath('OriginalData', 'preprocessed')
-            extra_info['splits_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test"
+            extra_info['split_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test"
         else:
-            ref_data_path =  paths.data.joinpath('CityScapesOriginalData', 'preprocessed')
-            extra_info['splits_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/Cityscapes_ood"
+            ref_data_path = paths.data.joinpath('CityScapesOriginalData', 'preprocessed')
+            extra_info['split_path'] = None
+            # extra_info['split_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/Cityscapes_ood"
     
         return {
             'image_path': ref_data_path.joinpath('images'),
@@ -888,3 +939,32 @@ def _get_gta_config(paths: DataPaths) -> dict:
         'get_paths': get_paths,
         'extra_kwargs': {}
     }
+
+def _get_ade20k_config(paths: DataPaths) -> dict:
+    """Get configuration for ADE20K/Cityscapes dataset"""
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for ADE20K dataset - uses reference paths for all noise levels"""        
+        if extra_info['data_noise'] == "0_00":
+            ref_img_path = paths.data.joinpath('images', 'validation')
+            ref_msk_path = paths.data.joinpath('annotations', 'validation')
+            # extra_info['split_path'] = None
+            extra_info['split_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test"
+        else:
+            ref_img_path = paths.data.joinpath('images', 'test_cityscapes')
+            ref_msk_path = paths.data.joinpath('annotations', 'test_cityscapes')
+            extra_info['split_path'] = None
+            # extra_info['split_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/Cityscapes_ood"
+    
+        return {
+            'image_path': ref_img_path,
+            'mask_path': ref_msk_path
+        }
+    
+    return {
+        'dataset_class': OptimizedADE20K_CityscapesDataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {}
+    }
+    
+    

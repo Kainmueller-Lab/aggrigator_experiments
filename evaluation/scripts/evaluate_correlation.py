@@ -205,7 +205,7 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
 
 import argparse
 
-from datasets.ADE20K.ade20k_loader import ADE20K
+from datasets.ADE20K.ade20k_dataset_creation import ADE20K
 from datasets.Arctique.arctique_dataset_creation import ArctiqueDataset
 from datasets.LIDC.lidc_dataset_creation import LIDCDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 
-from datasets.ADE20K.ade20k_loader import ADE20K
+from datasets.ADE20K.ade20k_dataset_creation import ADE20K
 from aggrigator.uncertainty_maps import UncertaintyMap
 from aggrigator.spatial_decomposition import spatial_decomposition # NOTE: This is only available on the develop branch of the aggrigator repo. Use "pip install -e ." to install the package.
 

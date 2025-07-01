@@ -2,7 +2,7 @@ import os
 import yaml
 import unittest
 
-from datasets.ADE20K.ade20k_loader import ADE20K
+from datasets.ADE20K.ade20k_dataset_creation import ADE20K
 
 
 class TestADE20KDataset(unittest.TestCase):
