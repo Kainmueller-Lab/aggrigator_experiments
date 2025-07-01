@@ -67,7 +67,7 @@ new_semantic_mapping =  {
 }
 
 class GTA_CityscapesDataset(Dataset_Class):
-    """Abstract class to define the structure of a dataset.
+    """Class to define the structure of GTA vs CityScapes dataset.
 
     Args:
         image_path (str): Path to the local directory where the images are stored.
@@ -322,7 +322,7 @@ class GTA_CityscapesDataset(Dataset_Class):
             'uq_map_path': self.uq_map_path,
             'prediction_path': self.prediction_path,
             'semantic_mapping': None, #self.get_semantic_mapping(),
-            'datset_size': len(self),
+            'dataset_size': len(self),
             'task': self.task,
             'num_classes': len([tid for tid in trainId2color.keys() if tid != 255]),
             'semantic_mapping': self.get_semantic_mapping(),
@@ -426,7 +426,7 @@ def main():
     }
 
     base_path = "/fast/AG_Kainmueller/data"
-    data_folder_name = "/GTA/CityScapesOriginalData" # /GTA/CityScapesOriginalData
+    data_folder_name = "/GTA/CityScapesOriginalData" # /GTA/CityScapesOriginalData or /GTA/OriginalData
     
     if data_folder_name.startswith('/GTA/City'):
         splits_folder = 'Cityscapes_ood'
