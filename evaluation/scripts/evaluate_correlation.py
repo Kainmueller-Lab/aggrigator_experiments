@@ -33,7 +33,7 @@ focus_strategy_list = [
     (am.patch_aggregation, 40),
     (am.patch_aggregation, 80),
     (am.patch_aggregation, 100),
-    (am.patch_aggregation, 200),
+    #(am.patch_aggregation, 200),
     (am.class_mean_w_equal_weights, None),
     (am.class_mean_weighted_by_occurrence, None),
 ]
@@ -119,7 +119,7 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
         print(f"WARNING: Could not normalize UQ maps because dataset_info['num_classes'] or dataset.num_classes is not defined.")
     else:
         print(f"NOTE: Normalizing UQ maps by ln(K) where K={dataset.num_classes} is the number of classes.")
-        if dataset.num_classes != 2: # Only apply AQA with FG-BG ratio if there are 2 classes
+        if dataset.num_classes != 2 and (am.above_quantile_mean_fg_ratio, None) in focus_strategy_list: # Only apply AQA with FG-BG ratio if there are 2 classes
             focus_strategy_list.pop(focus_strategy_list.index((am.above_quantile_mean_fg_ratio, None)))
     print("____________________")
 
@@ -128,9 +128,14 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
         # Load uncertainty maps and predictions from dataset
         prediction = sample['prediction']
         uq_array = sample['uq_map']
-        # NOTE: Weedsgalore has a single channel for the prediction
+
+        # NOTE: Weedsgalore prdictions are 3D arrays with a single channel
         if prediction.ndim == 3 and prediction.shape[0] == 1:
             prediction = prediction.squeeze(0)
+
+        # NOTE: Arctique and Lizard predictions are 3D arrays with two channels. 0: instance, 1: 3-class segmentation
+        if prediction.ndim == 3 and prediction.shape[2] == 2:
+            prediction = prediction[:, :, -1]
 
         # Slice if 3D
         if uq_array.ndim == 3:
@@ -215,7 +220,8 @@ from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_Cityscap
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
-    parser.add_argument('--dataset', type=str, default='arctique', help='Name of dataset to evaluate correlations. Options: ade20k, arctique, lidc, lizard, cityscapes, weedsgalore')
+    parser.add_argument('--dataset', type=str, help='Name of dataset to evaluate correlations. Options: ade20k, arctique, lidc, lizard, cityscapes, weedsgalore')
+    parser.add_argument('--uq_method', type=str, help='Name of UQ method used. Options: dropout, softmax')
     parser.add_argument('--sample_size', type=int, default='0', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
     parser.add_argument('--num_workers', type=int, default='16', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
@@ -223,47 +229,59 @@ if __name__ == "__main__":
     DATASET = args.dataset
     
     if DATASET == "ade20k":
-        config_file = 'evaluation/configs/ade20k_deeplabv3.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
-        config = load_dataset_config(config_file) 
-        dataset = ADE20K(config['image_dir'],
-                        config['label_dir'],
-                        config['uq_map_dir'],
-                        config['prediction_dir'],
-                        config['metadata_dir'])
-        dataset.num_classes = 150
-        evaluate_correlation(dataset, args.sample_size, args.num_workers)
+        for model_name in ['deeplabv3', 'resnest']:
+            model_id = "resnest_s101-d8_fcn_4xb4-160k_ade20k-512x512" if model_name == "resnest" else "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
+
+            image_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/images/validation'
+            label_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/validation'
+            prediction_dir = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/{model_id}/predictions/'
+            uq_map_dir = f'/fast/AG_Kainmueller/data/UQ_maps/ADE20K/validation_{model_name}/semantic/{args.uq_method}/pu/'
+            metadata_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json'
+            config_file = f'evaluation/configs/ade20k_{model_name}.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
+            config = load_dataset_config(config_file) 
+            dataset = ADE20K(config['image_dir'],
+                            config['label_dir'],
+                            config['uq_map_dir'],
+                            config['prediction_dir'],
+                            config['metadata_dir'])
+            dataset.num_classes = 150
+            evaluate_correlation(dataset, args.sample_size, args.num_workers)
     
 
     if DATASET == "arctique":
-        extra_info = {
-            'task' : 'semantic',
-            'variation' : 'blood_cells',
-            'model_noise' : 0,
-            'data_noise': '0_00',
-            'uq_method' : 'dropout',
-            'decomp' : 'pu',
-            'spatial' : 'high_moran',
-            'metadata' : True,
-        }
-        
-        main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
-        map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
-        base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
-        
-        image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
-        mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
-        prediction_path = map_path.joinpath('UQ_predictions')
-        uq_map_path = map_path.joinpath(main_folder_name)
-        
-        dataset = ArctiqueDataset(image_path, 
-                                    mask_path, 
-                                    uq_map_path, 
-                                    prediction_path, 
-                                    'abc',
-                                    **extra_info)
-        dataset_name = f"arctique_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
-        dataset.num_classes = 6
-        evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
+        for task in ['semantic', 'instance', 'fgbg']:
+            noise_levels = ['0_00', '1_00'] if task == 'semantic' else ['0_00', '0_70']
+            for noise_level in noise_levels:
+                variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
+                extra_info = {
+                    'task' : task,
+                    'variation' : variation,
+                    'model_noise' : 0,
+                    'data_noise': noise_level,
+                    'uq_method' : args.uq_method,
+                    'decomp' : 'pu',
+                    'spatial' : False,
+                    'metadata' : True,
+                }
+                
+                main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
+                map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
+                base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
+                
+                image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
+                mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
+                prediction_path = map_path.joinpath('UQ_predictions')
+                uq_map_path = map_path.joinpath(main_folder_name)
+                
+                dataset = ArctiqueDataset(image_path, 
+                                            mask_path, 
+                                            uq_map_path, 
+                                            prediction_path, 
+                                            'abc',
+                                            **extra_info)
+                dataset_name = f"arctique_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                dataset.num_classes = 6
+                evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "weedsgalore":
@@ -283,55 +301,63 @@ if __name__ == "__main__":
 
 
     if DATASET == "lidc":
-        spatial = False
-        main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-        base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
-        map_path = base_path
-        
-        extra_info = {
-            'task' : 'fgbg',
-            'variation' : 'malignancy', # 'malignancy' or 'texture'
-            'model_noise' : 0,
-            'data_noise': '0_00', # '0_00' or '1_00'
-            'uq_method' : 'dropout',
-            'decomp' : 'pu',
-            'spatial' : None,
-            'cons_thresh' : 2,
-            'metadata' : True,
-            'render_2d' : True,
-            'render_ind_masks': False,
-        }
-        
-        # Set up paths based on folder structure
-        cycle = 'FirstCycle'
-        folder = f"{extra_info['variation']}_fold0_seed123"
-        placeholder = "Softmax"
-        data_path = base_path.joinpath(f"{cycle}/{placeholder}/test_results/{folder}/") 
-        
-        if extra_info['data_noise'] == "0_00":
-            data_dir = data_path / "id"
-        else:
-            data_dir = data_path / "ood"
-            
-        image_path = data_dir / "input"
-        mask_path = data_dir / "gt_seg"
-        prediction_path = map_path.joinpath('UQ_predictions')
-        uq_map_path = map_path.joinpath(main_folder_name)
-        
-        dataset = LIDCDataset(image_path, 
-                                mask_path, 
-                                uq_map_path, 
-                                prediction_path, 
-                                'abc',
-                                **extra_info)
-        dataset_name = f"lidc_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
-        dataset.num_classes = 2
-        print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
-        focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
-        evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
+        if (am.patch_aggregation, 200) in focus_strategy_list:
+            print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
+            focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
+
+        for variation in ['malignancy', 'texture']:
+            for noise_level in ['0_00', '1_00']:
+                spatial = False
+                main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
+                base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
+                map_path = base_path
+                
+                extra_info = {
+                    'task' : 'fgbg',
+                    'variation' : variation,
+                    'model_noise' : 0,
+                    'data_noise': noise_level,
+                    'uq_method' : args.uq_method,
+                    'decomp' : 'pu',
+                    'spatial' : None,
+                    'cons_thresh' : 2,
+                    'metadata' : True,
+                    'render_2d' : True,
+                    'render_ind_masks': False,
+                }
+                
+                # Set up paths based on folder structure
+                cycle = 'FirstCycle'
+                folder = f"{extra_info['variation']}_fold0_seed123"
+                placeholder = "Softmax"
+                data_path = base_path.joinpath(f"{cycle}/{placeholder}/test_results/{folder}/") 
+                
+                if extra_info['data_noise'] == "0_00":
+                    data_dir = data_path / "id"
+                else:
+                    data_dir = data_path / "ood"
+                    
+                image_path = data_dir / "input"
+                mask_path = data_dir / "gt_seg"
+                prediction_path = map_path.joinpath('UQ_predictions')
+                uq_map_path = map_path.joinpath(main_folder_name)
+                
+                dataset = LIDCDataset(image_path, 
+                                        mask_path, 
+                                        uq_map_path, 
+                                        prediction_path, 
+                                        'abc',
+                                        **extra_info)
+                dataset_name = f"lidc_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                dataset.num_classes = 2
+                evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "lizard":
+        if (am.patch_aggregation, 200) in focus_strategy_list:
+            print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
+            focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
+
         spatial = False
         main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
         lmdb_path = '/fast/AG_Kainmueller/data/Lizard/lizard_lmdb/'
@@ -341,7 +367,7 @@ if __name__ == "__main__":
             'variation' : 'glas',
             'model_noise' : 0,
             'data_noise': '0_00',
-            'uq_method' : 'dropout',
+            'uq_method' : args.uq_method,
             'decomp' : 'pu',
             'spatial' : None,
             'metadata' : True,
@@ -360,8 +386,6 @@ if __name__ == "__main__":
                                     **extra_info)
         dataset_name = f"lizard_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
         dataset.num_classes = 7
-        print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
-        focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
@@ -371,7 +395,7 @@ if __name__ == "__main__":
             'variation' : 'cityscapes',
             'model_noise' : 0,
             'data_noise': '1_00',
-            'uq_method': 'dropout',
+            'uq_method': args.uq_method,
             'decomp' : 'pu',
             'spatial' : None,
             'split_path' : None,
@@ -401,6 +425,6 @@ if __name__ == "__main__":
                                     prediction_path, 
                                     'abc',
                                     **extra_info)
-        dataset_name = "cityscapes_dropout_pu"
+        dataset_name = f"cityscapes_{args.uq_method}_pu"
         dataset.num_classes = None
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
