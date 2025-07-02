@@ -4,8 +4,16 @@ import argparse
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from typing import Dict, List
 
-from evaluation.data_utils import load_dataset, preload_uncertainty_maps, setup_paths
+from evaluation.data_utils import (
+    load_dataset, 
+    preload_uncertainty_maps, 
+    setup_paths, 
+    load_dataset_abstract_class, 
+    generate_combo_keys, 
+    create_cached_maps_from_concatenated
+)
 from evaluation.metrics.auroc_ood import evaluate_all_strategies
 from evaluation.visualization.plot_functions import setup_plot_style_auroc, create_auroc_barplot, create_single_auroc_barplot
 from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, NOISE_LEVELS_ARCTIQUE, BARPLOTS_COLORS
@@ -28,18 +36,19 @@ def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: s
     else:
         print(f"{csv_file} does not exist yet.")
 
-def process_noise_level(dataset: dict, uq_path: Path, metadata_path: Path, gt_list: list, gt_labels: list, task: str, model_noise: int, 
-                        variation: str, noise_level: str, output_path: Path, dataset_name: str, decomp: str, spatial: str = None) -> pd.DataFrame:
-    """Process all strategies for a single noise level."""
-    print(f"Processing noise level: {noise_level}")
+def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variation: str, dataset_name: str, 
+                      decomp: str, output_path: Path, spatial: str = None, ignore_index: int = 0) -> pd.DataFrame:
+    """Process all strategies for a single combo key."""
+    print(f"Processing combo key: {combo_key}")
     
-    # Preload all uncertainty maps for this noise level
-    cached_maps = preload_uncertainty_maps(
-        uq_path, metadata_path, gt_list, gt_labels, dataset, task, model_noise, variation, noise_level, dataset_name, decomp, spatial
-    )
+    # Convert concatenated data to cached maps format
+    cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key)
+    
+    # Extract noise level from combo key (e.g., '0_00_0_25' -> '0_25')
+    noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
     
     # Evaluate all strategies
-    df = evaluate_all_strategies(cached_maps, AUROC_STRATEGIES, noise_level, decomp)
+    df = evaluate_all_strategies(cached_maps, AUROC_STRATEGIES, noise_level, ignore_index)
     print(df)
     
     # Save results to CSV
@@ -57,56 +66,59 @@ def process_noise_level(dataset: dict, uq_path: Path, metadata_path: Path, gt_li
     
     return df
 
-def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path: Path, data_path: Path, dataset_name: str, 
-                         output_path: Path, model_noise: int = 0, decomp: str = "pu", spatial: str = None) -> None:
+def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dataset_name: str, output_path: Path, decomp: str = "pu", 
+                         spatial: str = None, noise_levels: List[str] = None, ignore_index: int = 0) -> None:
     """
-    Create comparative bar plots of image-level AUROC values for different noise levels and UQ methods.
+    Create comparative bar plots of image-level AUROC values for different combo keys and UQ methods.
     
     Parameters
     ----------
+    concatenated_data : Dict
+        The concatenated data from load_dataset_abstract_class
     task : str
         Task type ('instance' or 'semantic')
     variation : str
         Variation type
-    uq_path : Path
-        Path to uncertainty maps
-    metadata_path : Path
-        Path to metadata files
-    data_path : Path
-        Path to dataset
     dataset_name : str
     output_path : Path
         Path to save output
-    model_noise : int, optional
-        Model noise level, by default 0
     decomp : str, optional
         Decomposition component, by default "pu"
     spatial : str, optional
         Spatial measure to weigh the uncertainty maps, by default None
+    noise_levels : List[str], optional
+        List of noise levels to generate combo keys
+    ignore_index : int, optional
+        Index to ignore in context-aware aggregation strategies
     """
     # Clear previous results
     clear_csv_file(output_path, task, dataset_name, variation, decomp, spatial)
     
-    # Define noise levels
-    nls = NOISE_LEVELS_ARCTIQUE if dataset_name.startswith('arctique') else NOISE_LEVELS
+    # Generate combo keys from noise levels or extract from concatenated_data
+    if noise_levels:
+        combo_keys = generate_combo_keys(noise_levels)
+    else:
+        # Extract combo keys from concatenated_data
+        # Assuming all uq_methods have the same combo keys
+        first_uq_method = next(iter(concatenated_data.keys()))
+        combo_keys = list(concatenated_data[first_uq_method].keys())
     
-    # Load whole dataset, ground truth masks and AUROC target labels
-    dataset, gt_list, gt_labels = load_dataset(
-        data_path, 
-        '0_00',
-        num_workers=2,
-        dataset_name=dataset_name,
-        task=task
-    )
+    print(f"Processing combo keys: {combo_keys}")
     
-    # Process each noise level
+    # Process each combo key
     results = []
-    for noise_level in nls:
-        df = process_noise_level(
-            dataset, uq_path, metadata_path, gt_list, gt_labels, task, model_noise, 
-            variation, noise_level, output_path, dataset_name, decomp, spatial
+    processed_noise_levels = []
+    
+    for combo_key in combo_keys:
+        df = process_combo_key(
+            concatenated_data, combo_key, task, variation, dataset_name, 
+            decomp, output_path, spatial, ignore_index
         )
         results.append(df)
+        
+        # Extract noise level for plotting
+        noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
+        processed_noise_levels.append(noise_level)
     
     # Create plots
     if len(results) == 1:
@@ -124,7 +136,7 @@ def run_auroc_evaluation(task: str, variation: str, uq_path: Path, metadata_path
     else:
         create_auroc_barplot(
             results,
-            nls,
+            processed_noise_levels,
             BARPLOTS_COLORS,
             AUROC_STRATEGIES,
             task,
@@ -143,7 +155,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--variation', type=str, default='nuclei_intensity', 
-        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy'], help='OoD variation type'
+        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes'], help='OoD variation type'
     )
     parser.add_argument(
         '--uq_path', type=str, 
@@ -151,10 +163,12 @@ def parse_arguments() -> argparse.Namespace:
     )
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
+    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
     )
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
+    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )
@@ -163,11 +177,27 @@ def parse_arguments() -> argparse.Namespace:
         choices=['pu', 'au', 'eu'], help='Information theoretic decomposition component'
     )
     parser.add_argument(
-        '--dataset_name', type=str, default='arctique', choices=['arctique', 'lidc', 'lizard'], help='Dataset name'
+        '--dataset_name', type=str, default='arctique', choices=['arctique', 'lidc', 'lizard', 'gta'], help='Dataset name'
     )
     parser.add_argument(
         '--spatial', type=str, choices=['high_eds', 'low_eds', 'high_moran', 'low_moran'], 
         help='if not none indicate which type of spatially weighted uncertainty maps to use'
+    )
+    parser.add_argument(
+        '--image_noise', type=str, default='0_00,0_25,0_50,0_75,1_00', 
+        help='Comma-separated list of image noise levels'
+    )
+    parser.add_argument(
+        '--uq_methods', type=str, default='softmax,ensemble,dropout,tta', 
+        help='Comma-separated list of image noise levels'
+    )
+    parser.add_argument(
+        '--metadata', type=str, default=True, 
+        help='Read the metadata file if it is stored in the old UQ_metadata format'
+    )
+    parser.add_argument(
+        '--ignore_index', type=int, default=0, 
+        help='Background index to ignore in context-aware aggregators'
     )
     return parser.parse_args()
 
@@ -177,6 +207,8 @@ def main():
     
     # Parse arguments 
     args = parse_arguments()
+    
+    ignore_index = args.ignore_index 
         
     if args.label_path is None:
         args.label_path = args.uq_path 
@@ -184,21 +216,50 @@ def main():
     if args.spatial and args.decomp != 'pu':
         raise ValueError('Spatially weighted uncertainty maps calculated only for total predictive uncertainty')
     
-    #Set paths and make sure output directory exists
+    # define parameters along which to loop
+    noise_levels = [noise.strip() for noise in args.image_noise.split(',')]
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
+    
+    if 'softmax' in args.uq_methods and args.decomp != 'pu':
+        raise ValueError('Softmax uncertainty maps cannot be decomposed')
+    
+    # Define **kwargs dictionary for dataloaders
+    extra_info = {
+        'task' : args.task,
+        'variation' : args.variation,
+        'model_noise' : args.model_noise,
+        'decomp' : args.decomp,
+        'spatial' : args.spatial,
+        'metadata' : args.metadata,
+        'split_path' : None,
+        'split' : None
+    }
+        
+    # Set paths and make sure output directory exists
     paths = setup_paths(args)
     
-    # Run evaluation
+    # Load whole input, ground truth masks, uq maps, predictions, and AUROC target labels
+    concatenated_data = load_dataset_abstract_class(
+        paths=paths, 
+        image_noises=noise_levels,
+        num_workers=2,
+        extra_info=extra_info,
+        dataset_name=args.dataset_name,
+        task=args.task,
+        uq_methods=uq_methods
+    )
+    
+    # Run evaluation with new function
     run_auroc_evaluation(
+        concatenated_data=concatenated_data,
         task=args.task,
         variation=args.variation,
-        uq_path=paths.uq_maps,
-        metadata_path=paths.metadata,
-        data_path=paths.data,
-        dataset_name = args.dataset_name, 
+        dataset_name=args.dataset_name,
         output_path=paths.output,
-        model_noise=args.model_noise,
         decomp=args.decomp,
         spatial=args.spatial,
+        noise_levels=noise_levels,
+        ignore_index=ignore_index
     )
 
 if __name__ == "__main__":
