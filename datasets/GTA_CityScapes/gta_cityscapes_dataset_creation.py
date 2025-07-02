@@ -53,7 +53,7 @@ semantic_mapping =  {0: 'unlabeled',
                              38: 'road_2'}
 
 
-class cityscapes_dataset(Dataset_Class):
+class gta_cityscapes_dataset(Dataset_Class):
     """Abstract class to define the structure of a dataset.
 
     Args:
