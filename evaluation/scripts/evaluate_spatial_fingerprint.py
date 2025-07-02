@@ -119,54 +119,67 @@ from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_Cityscap
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix for aggregation strategies evaluated on a dataset')
-    parser.add_argument('--dataset_config', type=str, default='evaluation/configs/ade20k_deeplabv3.yaml', help='Path to config file')
+    parser.add_argument('--dataset', type=str, help='Name of dataset to evaluate correlations. Options: ade20k, arctique, lidc, lizard, cityscapes, weedsgalore')
+    parser.add_argument('--uq_method', type=str, help='Name of UQ method used. Options: dropout, softmax')
     parser.add_argument('--sample_size', type=int, default='0', help='Number of samples from dataset used to evaluate correlation matrix. If 0, all samples are used.')
     parser.add_argument('--num_workers', type=int, default='16', help='Number of workers for parallel processing. If 0, all available CPUs are used.')
     args = parser.parse_args()
 
-    DATASET = "arctique"
+    DATASET = args.dataset
     
     if DATASET == "ade20k":
-        config = load_dataset_config(args.dataset_config)
-        dataset = ADE20K(config['image_dir'],
-                        config['label_dir'],
-                        config['uq_map_dir'],
-                        config['prediction_dir'],
-                        config['metadata_dir'])
-        dataset.num_classes = 150
-        evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers)
+        for model_name in ['deeplabv3', 'resnest']:
+            model_id = "resnest_s101-d8_fcn_4xb4-160k_ade20k-512x512" if model_name == "resnest" else "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
+
+            image_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/images/validation'
+            label_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/validation'
+            prediction_dir = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/{model_id}/predictions/'
+            uq_map_dir = f'/fast/AG_Kainmueller/data/UQ_maps/ADE20K/validation_{model_name}/semantic/{args.uq_method}/pu/'
+            metadata_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json'
+            config_file = f'evaluation/configs/ade20k_{model_name}.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
+            config = load_dataset_config(config_file) 
+            dataset = ADE20K(config['image_dir'],
+                            config['label_dir'],
+                            config['uq_map_dir'],
+                            config['prediction_dir'],
+                            config['metadata_dir'])
+            dataset.num_classes = 150
+            evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers)
     
 
     if DATASET == "arctique":
-        extra_info = {
-            'task' : 'semantic',
-            'variation' : 'blood_cells',
-            'model_noise' : 0,
-            'data_noise': '0_00',
-            'uq_method' : 'dropout',
-            'decomp' : 'pu',
-            'spatial' : 'high_moran',
-            'metadata' : True,
-        }
-        
-        main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
-        map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
-        base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
-        
-        image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
-        mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
-        prediction_path = map_path.joinpath('UQ_predictions')
-        uq_map_path = map_path.joinpath(main_folder_name)
-        
-        dataset = ArctiqueDataset(image_path, 
-                                    mask_path, 
-                                    uq_map_path, 
-                                    prediction_path, 
-                                    'abc',
-                                    **extra_info)
-        dataset_name = f"arctique_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
-        dataset.num_classes = 6
-        evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+        for task in ['semantic', 'instance']:
+            for noise_level in ['0_00', '1_00']:
+                variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
+                extra_info = {
+                    'task' : task,
+                    'variation' : variation,
+                    'model_noise' : 0,
+                    'data_noise': noise_level,
+                    'uq_method' : args.uq_method,
+                    'decomp' : 'pu',
+                    'spatial' : False,
+                    'metadata' : True,
+                }
+                
+                main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
+                map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
+                base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
+                
+                image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
+                mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
+                prediction_path = map_path.joinpath('UQ_predictions')
+                uq_map_path = map_path.joinpath(main_folder_name)
+                
+                dataset = ArctiqueDataset(image_path, 
+                                            mask_path, 
+                                            uq_map_path, 
+                                            prediction_path, 
+                                            'abc',
+                                            **extra_info)
+                dataset_name = f"arctique_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                dataset.num_classes = 6
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "weedsgalore":
@@ -186,50 +199,52 @@ if __name__ == "__main__":
 
 
     if DATASET == "lidc":
-        spatial = False
-        main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-        base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
-        map_path = base_path
-        
-        extra_info = {
-            'task' : 'fgbg',
-            'variation' : 'malignancy', # 'malignancy' or 'texture'
-            'model_noise' : 0,
-            'data_noise': '0_00', # '0_00' or '1_00'
-            'uq_method' : 'dropout',
-            'decomp' : 'pu',
-            'spatial' : None,
-            'cons_thresh' : 2,
-            'metadata' : True,
-            'render_2d' : True,
-            'render_ind_masks': False,
-        }
-        
-        # Set up paths based on folder structure
-        cycle = 'FirstCycle'
-        folder = f"{extra_info['variation']}_fold0_seed123"
-        placeholder = "Softmax"
-        data_path = base_path.joinpath(f"{cycle}/{placeholder}/test_results/{folder}/") 
-        
-        if extra_info['data_noise'] == "0_00":
-            data_dir = data_path / "id"
-        else:
-            data_dir = data_path / "ood"
-            
-        image_path = data_dir / "input"
-        mask_path = data_dir / "gt_seg"
-        prediction_path = map_path.joinpath('UQ_predictions')
-        uq_map_path = map_path.joinpath(main_folder_name)
-        
-        dataset = LIDCDataset(image_path, 
-                                mask_path, 
-                                uq_map_path, 
-                                prediction_path, 
-                                'abc',
-                                **extra_info)
-        dataset_name = f"lidc_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
-        dataset.num_classes = 2
-        evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+        for variation in ['malignancy', 'texture']:
+            for noise_level in ['0_00', '1_00']:
+                spatial = False
+                main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
+                base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
+                map_path = base_path
+                
+                extra_info = {
+                    'task' : 'fgbg',
+                    'variation' : variation,
+                    'model_noise' : 0,
+                    'data_noise': noise_level,
+                    'uq_method' : args.uq_method,
+                    'decomp' : 'pu',
+                    'spatial' : None,
+                    'cons_thresh' : 2,
+                    'metadata' : True,
+                    'render_2d' : True,
+                    'render_ind_masks': False,
+                }
+                
+                # Set up paths based on folder structure
+                cycle = 'FirstCycle'
+                folder = f"{extra_info['variation']}_fold0_seed123"
+                placeholder = "Softmax"
+                data_path = base_path.joinpath(f"{cycle}/{placeholder}/test_results/{folder}/") 
+                
+                if extra_info['data_noise'] == "0_00":
+                    data_dir = data_path / "id"
+                else:
+                    data_dir = data_path / "ood"
+                    
+                image_path = data_dir / "input"
+                mask_path = data_dir / "gt_seg"
+                prediction_path = map_path.joinpath('UQ_predictions')
+                uq_map_path = map_path.joinpath(main_folder_name)
+                
+                dataset = LIDCDataset(image_path, 
+                                        mask_path, 
+                                        uq_map_path, 
+                                        prediction_path, 
+                                        'abc',
+                                        **extra_info)
+                dataset_name = f"lidc_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                dataset.num_classes = 2
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "lizard":
@@ -242,7 +257,7 @@ if __name__ == "__main__":
             'variation' : 'glas',
             'model_noise' : 0,
             'data_noise': '0_00',
-            'uq_method' : 'dropout',
+            'uq_method' : args.uq_method,
             'decomp' : 'pu',
             'spatial' : None,
             'metadata' : True,
@@ -265,19 +280,41 @@ if __name__ == "__main__":
 
 
     if DATASET == "cityscapes":
-        image_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/images/"
-        mask_path = "/fast/AG_Kainmueller/data/GTA/CityScapesOriginalData/preprocessed/labels/"
-        uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout-Final/test_results/fold0_seed123/ood/pred_entropy/"
-        prediction_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/Dropout-Final/test_results/fold0_seed123/ood/pred_seg/"
+        extra_info = {
+            'task' : 'semantic',
+            'variation' : 'cityscapes',
+            'model_noise' : 0,
+            'data_noise': '1_00',
+            'uq_method': args.uq_method,
+            'decomp' : 'pu',
+            'spatial' : None,
+            'split_path' : None,
+            'split' : None
+        }
 
-        dataset = GTA_CityscapesDataset(image_path=image_path, 
-                             mask_path= mask_path, 
-                             uq_map_path=uq_map_path, 
-                             prediction_path=prediction_path, 
-                             semantic_mapping_path="")
-        dataset_name = "cityscapes_dropout_pu"
+        base_path = "/fast/AG_Kainmueller/data"
+        data_folder_name = "/GTA/CityScapesOriginalData" # /GTA/CityScapesOriginalData
+        
+        if data_folder_name.startswith('/GTA/City'):
+            splits_folder = 'Cityscapes_ood'
+            
+        else:
+            splits_folder = 'GTA_id_test'
+        
+        image_path = f"{base_path}/{data_folder_name}/preprocessed/images/"
+        mask_path = f"{base_path}/{data_folder_name}/preprocessed/labels/"
+        uq_map_path = f"{base_path}/GTA_CityScapes_UQ/"
+        prediction_path = uq_map_path
+        
+        text_path = f"{base_path}/GTA_ValUES_splits/{splits_folder}"
+        extra_info['split_path'] = text_path
+        
+        dataset = GTA_CityscapesDataset(image_path, 
+                                    mask_path, 
+                                    uq_map_path, 
+                                    prediction_path, 
+                                    'abc',
+                                    **extra_info)
+        dataset_name = f"cityscapes_{args.uq_method}_pu"
         dataset.num_classes = None
         evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
-        
-
-
