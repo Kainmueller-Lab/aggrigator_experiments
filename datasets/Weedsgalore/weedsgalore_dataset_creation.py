@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 
-sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
+#sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
 
 
 from .datasets.dataset import Dataset_Class
