@@ -164,13 +164,13 @@ def parse_arguments() -> argparse.Namespace:
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
-    # ade20k: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
+    # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
     )
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
-    # ade20k: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
+    # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )

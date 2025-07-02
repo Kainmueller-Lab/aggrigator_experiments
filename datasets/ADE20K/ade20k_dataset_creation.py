@@ -259,7 +259,7 @@ class ADE20K_CityscapesDataset(Dataset_Class):
         self.uq_map_path = self.uq_map_path.joinpath('semantic', self.uq_method, self.decomp)
         
         # Set prediction path
-        self.prediction_path = self.prediction_path.joinpath(self.model_ckpt, "predictions")
+        self.prediction_path = self.prediction_path.joinpath(self.model_ckpt, self.uq_method, "predictions")
         
         # Final validation that paths exist
         if not self.uq_map_path.exists():
@@ -437,7 +437,7 @@ class ADE20K_CityscapesDataset(Dataset_Class):
         img_count = len([f for f in os.listdir(self.image_path) if (f.endswith(".jpg") if not self.is_cityscapes else f.endswith(".npy"))])
         mask_count = len([f for f in os.listdir(self.mask_path) if (f.endswith(".png") if not self.is_cityscapes else f.endswith(".npy"))])
         pred_count = len([f for f in os.listdir(self.prediction_path) if f.endswith(".npy")])
-        uq_map_count = len([f for f in os.listdir(self.uq_map_path) if f.endswith(".npy")])
+        uq_map_count = len([f for f in os.listdir(self.uq_map_path) if (f.endswith(".npy") and not f.startswith("cityscapes"))])
         
         if img_count != mask_count:
             print(f"Warning: Number of images ({img_count}) does not match number of masks ({mask_count}).")
@@ -535,8 +535,8 @@ def main():
         'task' : 'semantic',
         'variation' : 'cityscapes',
         'model_noise' : 0,
-        'data_noise': '1_00',
-        'uq_method': 'dropout',
+        'data_noise': '0_00',
+        'uq_method': 'softmax',
         'decomp' : 'pu',
         'spatial' : None,
         'split_path' : None, #text_path,
