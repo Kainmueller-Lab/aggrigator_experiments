@@ -318,3 +318,32 @@ if __name__ == "__main__":
         dataset_name = f"cityscapes_{args.uq_method}_pu"
         dataset.num_classes = None
         evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+
+    
+    if DATASET == "gta":
+        image_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/images/" #OriginalData instead of CityScapesOriginalData to evaluate the GTA iD test set
+        mask_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/labels/" #OriginalData instead of CityScapesOriginalData to evaluate on GTA iD test set
+        uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/"
+        prediction_path = mask_path
+
+        extra_info = {
+                'task' : 'semantic',
+                'variation' : 'cityscapes', 
+                'model_noise' : 0,
+                'data_noise': '0_00', #0_00 for evaluating on GTA iD test set 
+                'uq_method': 'dropout',
+                'decomp' : 'pu',
+                'spatial' : None,
+                'split_path' : "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test", # GTA_id_test is the file name for the GTA iD test set samples
+                'split' : None
+            }
+
+        dataset = GTA_CityscapesDataset(image_path, 
+                                        mask_path, 
+                                        uq_map_path, 
+                                        prediction_path, 
+                                        'abc',
+                                        **extra_info)
+        dataset_name = f"gta_{args.uq_method}_pu"
+        dataset.num_classes = 32
+        evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
