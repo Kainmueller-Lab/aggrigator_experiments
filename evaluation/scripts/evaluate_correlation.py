@@ -236,7 +236,7 @@ if __name__ == "__main__":
             
                 model_id = "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
                 # model_id = "resnest_s101-d8_fcn_4xb4-160k_ade20k-512x512" if model_name == "resnest" else "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
-                text_path = f"/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test" #
+                text_path = f"/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test" 
                 
                 extra_info = {
                     'task' : 'semantic',
