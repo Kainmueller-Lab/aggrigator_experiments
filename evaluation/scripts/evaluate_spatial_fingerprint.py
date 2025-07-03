@@ -109,7 +109,7 @@ def evaluate_spatial_fingerprint(dataset, sample_size, num_workers, dataset_name
 
 import argparse
 
-from datasets.ADE20K.ade20k_dataset_creation import ADE20K
+from datasets.ADE20K.ade20k_dataset_creation import ADE20K_CityscapesDataset
 from datasets.Arctique.arctique_dataset_creation import ArctiqueDataset
 from datasets.LIDC.lidc_dataset_creation import LIDCDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset
@@ -129,22 +129,43 @@ if __name__ == "__main__":
     
     if DATASET == "ade20k":
         for model_name in ['deeplabv3', 'resnest']:
-            model_id = "resnest_s101-d8_fcn_4xb4-160k_ade20k-512x512" if model_name == "resnest" else "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
-
-            image_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/images/validation'
-            label_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/validation'
-            prediction_dir = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/predictions/{model_id}/predictions/'
-            uq_map_dir = f'/fast/AG_Kainmueller/data/UQ_maps/ADE20K/validation_{model_name}/semantic/{args.uq_method}/pu/'
-            metadata_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json'
-            config_file = f'evaluation/configs/ade20k_{model_name}.yaml' # or also 'evaluation/configs/ade20k_resnest.yaml'
-            config = load_dataset_config(config_file) 
-            dataset = ADE20K(config['image_dir'],
-                            config['label_dir'],
-                            config['uq_map_dir'],
-                            config['prediction_dir'],
-                            config['metadata_dir'])
-            dataset.num_classes = 150
-            evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers)
+            noise_levels = ['0_00', '1_00']
+            folder  = ['validation', 'test_cityscapes']
+            for nl, fold in zip(noise_levels, folder):
+            
+                model_id = "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
+                # model_id = "resnest_s101-d8_fcn_4xb4-160k_ade20k-512x512" if model_name == "resnest" else "deeplabv3_r50-d8_4xb4-160k_ade20k-512x512"
+                text_path = f"/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test" 
+                
+                extra_info = {
+                    'task' : 'semantic',
+                    'variation' : 'cityscapes',
+                    'model_noise' : 0,
+                    'data_noise': nl,
+                    'uq_method': args.uq_method,
+                    'decomp' : 'pu',
+                    'spatial' : None,
+                    'split_path' : None, #text_path,
+                    'split' : None,
+                    'metadata' : False,
+                    'model_checkpoint': 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512',
+                }
+                
+                image_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/images/{fold}'
+                mask_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/{fold}'
+                uq_map_path = f'/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
+                prediction_path = '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
+                metadata_dir = '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json'
+                    
+                dataset = ADE20K_CityscapesDataset(image_path, 
+                                                        mask_path, 
+                                                        uq_map_path, 
+                                                        prediction_path, 
+                                                        '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json',
+                                                        **extra_info)
+                dataset.num_classes = 150
+                dataset_name = f"ade20k_{model_name}_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
     
 
     if DATASET == "arctique":
