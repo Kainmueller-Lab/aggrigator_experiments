@@ -211,7 +211,7 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
 import argparse
 
 from datasets.ADE20K.ade20k_loader import ADE20K
-from datasets.Arctique.arctique_dataset_creation import ArctiqueDataset
+from datasets.Arctique.arctique_dataset_creation import OptimizedArctiqueDataset, SharedMaskCache
 from datasets.LIDC.lidc_dataset_creation import LIDCDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
@@ -249,8 +249,8 @@ if __name__ == "__main__":
     
 
     if DATASET == "arctique":
-        for task in ['semantic', 'instance', 'fgbg']:
-            noise_levels = ['0_00', '1_00'] if task == 'semantic' else ['0_00', '0_70']
+        for task in ['instance', 'semantic']:
+            noise_levels = ['0_00', '1_00']
             for noise_level in noise_levels:
                 variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
                 extra_info = {
@@ -261,7 +261,7 @@ if __name__ == "__main__":
                     'uq_method' : args.uq_method,
                     'decomp' : 'pu',
                     'spatial' : False,
-                    'metadata' : True,
+                    'metadata' : False,
                 }
                 
                 main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
@@ -272,12 +272,22 @@ if __name__ == "__main__":
                 mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
                 prediction_path = map_path.joinpath('UQ_predictions')
                 uq_map_path = map_path.joinpath(main_folder_name)
+
+                mask_cache = SharedMaskCache()
+                ref_mask_path = base_path.joinpath(extra_info['variation'], '0_00', 'masks')
+                ref_image_path = base_path.joinpath(extra_info['variation'], '0_00', 'images')
+
+                sample_names = [int(digits) for filename in os.listdir(ref_image_path)
+                              if (digits := ''.join(filter(str.isdigit, filename)))]
                 
-                dataset = ArctiqueDataset(image_path, 
-                                            mask_path, 
+                shared_masks = mask_cache.get_masks(ref_mask_path, sample_names, extra_info['task'])
+                
+                dataset = OptimizedArctiqueDataset(ref_image_path, 
+                                            ref_mask_path, 
                                             uq_map_path, 
                                             prediction_path, 
                                             'abc',
+                                            shared_masks,
                                             **extra_info)
                 dataset_name = f"arctique_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
                 dataset.num_classes = 6
@@ -426,5 +436,33 @@ if __name__ == "__main__":
                                     'abc',
                                     **extra_info)
         dataset_name = f"cityscapes_{args.uq_method}_pu"
-        dataset.num_classes = None
+        dataset.num_classes = 32
+        evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
+
+    if DATASET == "gta":
+        image_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/images/" #OriginalData instead of CityScapesOriginalData to evaluate the GTA iD test set
+        mask_path = "/fast/AG_Kainmueller/data/GTA/OriginalData/preprocessed/labels/" #OriginalData instead of CityScapesOriginalData to evaluate on GTA iD test set
+        uq_map_path = "/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/"
+        prediction_path = mask_path
+
+        extra_info = {
+                'task' : 'semantic',
+                'variation' : 'cityscapes', 
+                'model_noise' : 0,
+                'data_noise': '0_00', #0_00 for evaluating on GTA iD test set 
+                'uq_method': 'dropout',
+                'decomp' : 'pu',
+                'spatial' : None,
+                'split_path' : "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test", # GTA_id_test is the file name for the GTA iD test set samples
+                'split' : None
+            }
+
+        dataset = GTA_CityscapesDataset(image_path, 
+                                        mask_path, 
+                                        uq_map_path, 
+                                        prediction_path, 
+                                        'abc',
+                                        **extra_info)
+        dataset_name = f"gta_{args.uq_method}_pu"
+        dataset.num_classes = 32
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
