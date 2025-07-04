@@ -452,7 +452,7 @@ if __name__ == "__main__":
                                     prediction_path, 
                                     'abc',
                                     **extra_info)
-        dataset_name = f"cityscapes_{args.uq_method}_pu"
+        dataset_name = f"gta_1_00_{args.uq_method}_pu"
         dataset.num_classes = 32
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
@@ -480,6 +480,6 @@ if __name__ == "__main__":
                                         prediction_path, 
                                         'abc',
                                         **extra_info)
-        dataset_name = f"gta_{args.uq_method}_pu"
+        dataset_name = f"gta_0_00_{args.uq_method}_pu"
         dataset.num_classes = 32
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)

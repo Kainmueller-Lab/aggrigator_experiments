@@ -110,7 +110,7 @@ def evaluate_spatial_fingerprint(dataset, sample_size, num_workers, dataset_name
 import argparse
 
 from datasets.ADE20K.ade20k_dataset_creation import ADE20K_CityscapesDataset
-from datasets.Arctique.arctique_dataset_creation import ArctiqueDataset
+from datasets.Arctique.arctique_dataset_creation import OptimizedArctiqueDataset, SharedMaskCache
 from datasets.LIDC.lidc_dataset_creation import LIDCDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
@@ -169,8 +169,9 @@ if __name__ == "__main__":
     
 
     if DATASET == "arctique":
-        for task in ['semantic', 'instance']:
-            for noise_level in ['0_00', '1_00']:
+        for task in ['instance', 'semantic']:
+            noise_levels = ['0_00', '1_00']
+            for noise_level in noise_levels:
                 variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
                 extra_info = {
                     'task' : task,
@@ -180,7 +181,7 @@ if __name__ == "__main__":
                     'uq_method' : args.uq_method,
                     'decomp' : 'pu',
                     'spatial' : False,
-                    'metadata' : True,
+                    'metadata' : False,
                 }
                 
                 main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
@@ -191,12 +192,22 @@ if __name__ == "__main__":
                 mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
                 prediction_path = map_path.joinpath('UQ_predictions')
                 uq_map_path = map_path.joinpath(main_folder_name)
+
+                mask_cache = SharedMaskCache()
+                ref_mask_path = base_path.joinpath(extra_info['variation'], '0_00', 'masks')
+                ref_image_path = base_path.joinpath(extra_info['variation'], '0_00', 'images')
+
+                sample_names = [int(digits) for filename in os.listdir(ref_image_path)
+                              if (digits := ''.join(filter(str.isdigit, filename)))]
                 
-                dataset = ArctiqueDataset(image_path, 
-                                            mask_path, 
+                shared_masks = mask_cache.get_masks(ref_mask_path, sample_names, extra_info['task'])
+                
+                dataset = OptimizedArctiqueDataset(ref_image_path, 
+                                            ref_mask_path, 
                                             uq_map_path, 
                                             prediction_path, 
                                             'abc',
+                                            shared_masks,
                                             **extra_info)
                 dataset_name = f"arctique_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
                 dataset.num_classes = 6
@@ -336,7 +347,7 @@ if __name__ == "__main__":
                                     prediction_path, 
                                     'abc',
                                     **extra_info)
-        dataset_name = f"cityscapes_{args.uq_method}_pu"
+        dataset_name = f"gta_1_00_{args.uq_method}_pu"
         dataset.num_classes = None
         evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
 
@@ -365,6 +376,6 @@ if __name__ == "__main__":
                                         prediction_path, 
                                         'abc',
                                         **extra_info)
-        dataset_name = f"gta_{args.uq_method}_pu"
+        dataset_name = f"gta_0_00_{args.uq_method}_pu"
         dataset.num_classes = 32
         evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
