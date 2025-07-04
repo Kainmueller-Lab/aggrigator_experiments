@@ -38,6 +38,7 @@ def load_spatial_fingerprints(input_dir):
     return data
 
 
+import matplotlib.lines as mlines
 
 def plot_2d_projections(data, uq_method, color_map, dataset_name):
     projections = [
@@ -45,34 +46,50 @@ def plot_2d_projections(data, uq_method, color_map, dataset_name):
         ('Noisy → Clustered (Moran)', 'Constant → Diffuse (Entropy)', [0, 1]),
         ('Constant → Diffuse (Entropy)', 'Flat → Edge (EDS)', [1, 2])
     ]
+
     fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(18, 6))
-    legend_handles = {}
+    legend_entries = {}
 
     for i, (ax, (xlabel, ylabel, axes_idx)) in enumerate(zip(axes, projections)):
         for dataset, df in data[uq_method].items():
             x = df.iloc[:, axes_idx[0] + 1]
             y = df.iloc[:, axes_idx[1] + 1]
-            sc = ax.scatter(x, y, label=dataset, s=10, color=color_map[dataset], alpha=0.5)
-            if dataset not in legend_handles:
-                legend_handles[dataset] = sc
+            ax.scatter(x, y, label=dataset, s=10, color=color_map[dataset], alpha=0.5)
+
+            # Store custom legend marker
+            if dataset not in legend_entries:
+                legend_entries[dataset] = mlines.Line2D(
+                    [], [], marker='o', linestyle='None',
+                    markersize=8,  # <-- Adjust this for legend marker size
+                    markerfacecolor=color_map[dataset],
+                    alpha=0.8,
+                    label=dataset
+                )
+
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
 
-    sorted_items = sorted(legend_handles.items())
+    # Sort legend entries
+    sorted_items = sorted(legend_entries.items())
+    legend_handles = [h for _, h in sorted_items]
+    legend_labels = [l for l, _ in sorted_items]
+
     fig.subplots_adjust(top=0.80)
     fig.legend(
-        handles=[h for _, h in sorted_items],
-        labels=[l for l, _ in sorted_items],
+        handles=legend_handles,
+        labels=legend_labels,
         loc='upper center',
         bbox_to_anchor=(0.5, 1.05),
-        ncol=min(len(sorted_items), 4),
+        ncol=min(len(legend_labels), 4),
         frameon=False
     )
+
     plt.tight_layout(rect=[0, 0, 1, 0.78])
     out_path = os.path.join(OUTPUT_DIR, f"spatial_fingerprint_2d_{dataset_name}_{uq_method}.png")
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
     print(f"2D projection plot saved to: {out_path}")
     plt.close()
+
 
 
 def plot_3d_interactive(data, uq_method, color_map, dataset_name):
