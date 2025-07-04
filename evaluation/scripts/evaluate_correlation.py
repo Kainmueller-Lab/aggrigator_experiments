@@ -129,10 +129,6 @@ def evaluate_correlation(dataset, sample_size, num_workers, dataset_name=None):
         prediction = sample['prediction']
         uq_array = sample['uq_map']
 
-        # NOTE: Weedsgalore prdictions are 3D arrays with a single channel
-        if prediction.ndim == 3 and prediction.shape[0] == 1:
-            prediction = prediction.squeeze(0)
-
         # NOTE: Arctique and Lizard predictions are 3D arrays with two channels. 0: instance, 1: 3-class segmentation
         if prediction.ndim == 3 and prediction.shape[2] == 2:
             prediction = prediction[:, :, -1]

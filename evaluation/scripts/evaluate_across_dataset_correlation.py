@@ -5,15 +5,15 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-def compute_and_save_correlation(df, method):
+def compute_and_save_correlation(df, correlation_method, uq_method):
     # Drop non-numeric identifier columns
     columns_to_exclude = ['uq_map_name', 'dataset_name']
     columns_to_use = [col for col in df.columns if col not in columns_to_exclude]
 
     # Compute correlation matrix
-    corr_matrix = df[columns_to_use].corr(method=method)
+    corr_matrix = df[columns_to_use].corr(method=correlation_method)
 
-    filename = f"correlation_matrix_{method}_all_datasets"
+    filename = f"correlation_matrix_{correlation_method}_all_datasets_{uq_method}_pu"
 
     # Save to csv
     corr_matrix.to_csv(os.path.join("output", "tables", f"{filename}.csv"))
@@ -49,20 +49,22 @@ def compute_and_save_correlation(df, method):
 
 
 def main():
-    # Read and concatenate all matching CSV files
-    all_dfs = []
-    for file_path in glob.glob(os.path.join("output", "tables", "aggregation_value_summary_*.csv")):
-        df = pd.read_csv(file_path)
-        all_dfs.append(df)
+    for uq_method in ["dropout", "softmax"]:
+        # Read and concatenate all matching CSV files
+        all_dfs = []
+        for file_path in glob.glob(os.path.join("output", "tables", "aggregation_value_summary_*.csv")):
+            if uq_method in file_path:
+                df = pd.read_csv(file_path)
+                all_dfs.append(df)
 
-    # Stack all dataframes vertically
-    combined_df = pd.concat(all_dfs, ignore_index=True)
-    
-    # Save to csv
-    combined_df.to_csv(os.path.join("output", "tables", "aggregation_value_summary_all_datasets.csv"))
+        # Stack all dataframes vertically
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        
+        # Save to csv
+        combined_df.to_csv(os.path.join("output", "tables", "aggregation_value_summary_all_datasets.csv"))
 
-    for method in ["pearson", "spearman", "kendall"]:
-        compute_and_save_correlation(combined_df, method)
+        for correlation_method in ["pearson", "spearman", "kendall"]:
+            compute_and_save_correlation(combined_df, correlation_method, uq_method)
 
 
 if __name__ == "__main__":
