@@ -7,6 +7,7 @@ import multiprocessing
 import time
 import yaml
 import argparse
+import json
 
 from pathlib import Path
 from joblib import Parallel, delayed
@@ -14,87 +15,228 @@ from joblib import Parallel, delayed
 from aggrigator.uncertainty_maps import UncertaintyMap
 from aggrigator.methods import AggregationMethods as am
 from aggrigator.summary import AggregationSummary
+from evaluation.constants import AUROC_STRATEGIES
 
+def class_mean(unc_map, param):
+    assert unc_map.mask_provided, f"Mask not provided for uncertainty map {unc_map.name}"
+    assert param in unc_map.class_indices, f"Invalid class label {param} for uncertainty map {unc_map.name}"
+    return np.sum(unc_map.array[unc_map.mask == param], dtype=np.float64) / unc_map.class_volumes[param]
+    
+def get_id_mask(mask, id):
+    return np.where(mask==id, 1, 0)
 
-focus_strategy_list = [
-    (am.mean, None),
-    (am.above_threshold_mean, 0.3),
-    (am.above_threshold_mean, 0.5),
-    (am.above_threshold_mean, 0.7),
-    (am.above_threshold_mean, 0.9),
-    (am.above_threshold_mean, 0.95),
-    (am.above_quantile_mean, 0.3),
-    (am.above_quantile_mean, 0.5),
-    (am.above_quantile_mean, 0.7),
-    (am.above_quantile_mean, 0.9),
-    #(am.above_quantile_mean, 0.95),
-    (am.above_quantile_mean_fg_ratio, None),
-    (am.patch_aggregation, 10), 
-    (am.patch_aggregation, 20),
-    (am.patch_aggregation, 40),
-    (am.patch_aggregation, 80),
-    (am.patch_aggregation, 100),
-    #(am.patch_aggregation, 200),
-    (am.class_mean_w_equal_weights, None),
-    (am.class_mean_weighted_by_occurrence, None),
-]
+def class_mean_w_custom_weights(unc_map, param): # param = weights: A dict of weights for each class you want to include.
+    """
+    Compute the weighted average of class means, allowing for custom weights.
+    Parameters:
+    - unc_map: An object containing class indices and a method to compute class means.
+    - param (dict, optional): A dictionary specifying custom weights for each class.
+    Returns:
+    - Weighted average of class means.
+    """
+    assert unc_map.mask_provided, f"Mask not provided for uncertainty map {unc_map.name}"
+    weights = param
+    class_ids = list(weights.keys())
+    # Compute class means
+    class_means = {class_id: class_mean(unc_map, class_id)
+                    for class_id in class_ids}
+    # Ensure provided weights sum to 1
+    weight_sum = sum(weights.values())
+    if not abs(weight_sum - 1.0) < 1e-6:
+        print(f"Warning: Weights do not sum to 1. Sum is {weight_sum}. Difference: {abs(weight_sum - 1.0)}. Weights: {weights}")
+    return sum(class_means[id] * weights[id] for id in class_ids)
 
+# Modified aggregation functions that accept ignore_index as parameter
+def class_mean_w_equal_weights_configurable(unc_map, param):
+    """
+    param should be a dict with keys: 'include_background' and 'ignore_index'
+    e.g., param = {'include_background': False, 'ignore_index': 0}
+    """
+    include_background = param.get('include_background', False)
+    ignore_index = param.get('ignore_index', 0)
+    
+    classes = [class_id for class_id in unc_map.class_indices if not (class_id == ignore_index and not include_background)]
+    weights = {id: 1 / len(classes) for id in classes}
+    return class_mean_w_custom_weights(unc_map, weights)
+
+def class_mean_weighted_by_occurrence_configurable(unc_map, param):
+    """
+    param should be a dict with keys: 'include_background' and 'ignore_index'
+    e.g., param = {'include_background': False, 'ignore_index': 0}
+    """
+    include_background = param.get('include_background', False)
+    ignore_index = param.get('ignore_index', 0)
+    
+    classes = [class_id for class_id in unc_map.class_indices if not (class_id == ignore_index and not include_background)]
+    class_pixel_counts = {class_id: get_id_mask(unc_map.mask, class_id).sum() for class_id in classes}
+    fg_pixel_count = np.sum(list(class_pixel_counts.values()))
+    weights = {id: class_pixel_counts[id] / fg_pixel_count for id in classes}
+    return class_mean_w_custom_weights(unc_map, weights)
+
+# Function to create dataset-specific focus strategy list
+def create_focus_strategy_list(ignore_index=0, include_background=False):
+    """Create a focus strategy list with dataset-specific ignore_index"""
+    
+    class_mean_params = {
+        'include_background': include_background,
+        'ignore_index': ignore_index
+    }
+    
+    return [
+        (am.mean, None),
+        (am.above_threshold_mean, 0.3),
+        (am.above_threshold_mean, 0.5),
+        (am.above_threshold_mean, 0.7),
+        (am.above_threshold_mean, 0.9),
+        (am.above_threshold_mean, 0.95),
+        (am.above_quantile_mean, 0.3),
+        (am.above_quantile_mean, 0.5),
+        (am.above_quantile_mean, 0.7),
+        (am.above_quantile_mean, 0.9),
+        (am.above_quantile_mean_fg_ratio, None),
+        (am.patch_aggregation, 10), 
+        (am.patch_aggregation, 20),
+        (am.patch_aggregation, 40),
+        (am.patch_aggregation, 80),
+        (am.patch_aggregation, 100),
+        (class_mean_w_equal_weights_configurable, class_mean_params),
+        (class_mean_weighted_by_occurrence_configurable, class_mean_params),
+    ]
 
 def load_dataset_config(path):
     with open(path, 'r') as f:
         config = yaml.safe_load(f)
     return config
 
-
-def save_correlation_matrix_plot(df, filename, save_dir):
+def save_correlation_matrix_plot(corr_matrix, filename, correlation_type, save_dir, save_col = False):
     """
-    Computes and plots the correlation matrix of methods across columns.
+    Computes and plots the correlation matrix of methods with clean names.
     """
-    # Compute the correlation matrix (rows as methods, columns as features)
-    corr_matrix = df[df.columns.tolist()[1:]].T.corr(min_periods=1)
+    # Create a mapping for clean method names
+    name_mapping = {
+        "class_mean_w_equal_weights_configurable_{'include_background': False, 'ignore_index': 0}": "class_mean_w_equal_weights",
+        "class_mean_w_equal_weights_configurable_{'include_background': False, 'ignore_index': 255}": "class_mean_w_equal_weights",
+        "class_mean_weighted_by_occurrence_configurable_{'include_background': False, 'ignore_index': 0}": "class_mean_weighted_by_occurrence",
+        "class_mean_weighted_by_occurrence_configurable_{'include_background': False, 'ignore_index': 255}": "class_mean_weighted_by_occurrence",
+        # Add more mappings as needed for different configurations
+    }
+    
+    # Apply name mapping to correlation matrix
+    corr_matrix_clean = corr_matrix.copy()
+    
+    # Clean column names
+    new_columns = []
+    for col in corr_matrix_clean.columns:
+        clean_name = col
+        for old_name, new_name in name_mapping.items():
+            if old_name in col:
+                clean_name = new_name
+                break
+        new_columns.append(clean_name)
+    
+    # Clean index names
+    new_index = []
+    for idx in corr_matrix_clean.index:
+        clean_name = idx
+        for old_name, new_name in name_mapping.items():
+            if old_name in idx:
+                clean_name = new_name
+                break
+        new_index.append(clean_name)
+    
+    corr_matrix_clean.columns = new_columns
+    corr_matrix_clean.index = new_index
 
+    # --- Saving colors for unique columns of 'Mean'
+    if correlation_type == "spearman" and save_col is True:
+        mean_candidates = [col for col in corr_matrix_clean.columns if col == "mean"]
+        if not mean_candidates:
+            print("No 'Mean' column found in correlation matrix.")
+            mean_correlations = {}
+        else:
+            # Use the first occurrence of 'Mean' column
+            mean_correlations = corr_matrix_clean["mean"].iloc[:].to_dict()
+
+        def get_correlation_color(correlation_value):
+            """Map correlation value to color based on RdBu_r colormap"""
+            normalized = (correlation_value + 1) / 2
+            cmap = plt.cm.RdBu_r
+            rgba = cmap(normalized)
+            return '#{:02x}{:02x}{:02x}'.format(int(rgba[0]*255), int(rgba[1]*255), int(rgba[2]*255))
+
+        method_colors = {}
+        for method_name in corr_matrix_clean.index:
+            correlation_with_mean = mean_correlations.get(method_name, 0.0)
+            if isinstance(correlation_with_mean, dict):
+                print(f"Warning: correlation for {method_name} is a dict. Skipping.")
+                correlation_with_mean = 0.0
+            color = get_correlation_color(correlation_with_mean)
+
+
+            method_colors[method_name] = {
+                'correlation_with_mean': correlation_with_mean,
+                'color': color,
+            }
+
+        # Save color mapping
+        colors_dir = os.path.join(save_dir, "colors")
+        os.makedirs(colors_dir, exist_ok=True)
+        color_mapping_file = os.path.join(colors_dir, f"{filename}_method_colors.json")
+        with open(color_mapping_file, 'w') as f:
+            json.dump(method_colors, f, indent=2)
+    
     # Plot the correlation matrix as a heatmap
-    fig, ax = plt.subplots(figsize=(10, 10))
-    strategy_names = df.index.tolist()
-    sns.heatmap(corr_matrix, ax=ax, cmap="inferno", annot=False, fmt=".2f",
-                cbar=True, vmin=-1, vmax=1, xticklabels=strategy_names, yticklabels=strategy_names)
+    fig, ax = plt.subplots(figsize=(12, 10))
+    method_names = corr_matrix_clean.index.tolist()
+    
+    sns.heatmap(corr_matrix_clean, ax=ax, cmap="RdBu_r", annot=False, fmt=".2f", #RdBu_r #inferno
+                cbar=True, vmin=-1, vmax=1, 
+                xticklabels=method_names, yticklabels=method_names,
+                square=True, linewidths=0.5)
+    
+    # Rotate labels for better readability
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
     
     # Color strategy names by category
     color_code = {
-        "threshold": (208, 247, 227),
-        "quantile": (99, 72, 97),
-        "patch": (106, 146, 184),
-        "class_mean": (197, 159, 214),
+        "threshold": "#D0F7E3",  # Light green
+        "quantile": "#634861",   # Purple
+        "patch": "#6A92B8",      # Blue
+        "class_mean": "#C59FD6", # Light purple
+        "mean": "#FFE5B4",       # Light yellow
     }
+    
     for tick in ax.get_xticklabels():
         strategy_name = tick.get_text()
-        color = next((color_code[key] for key in color_code if key in strategy_name), "black")
-        tick.set_bbox(dict(facecolor=color, edgecolor='none', alpha=0.5, boxstyle="round,pad=0.3"))
+        color = "white"
+        for key in color_code:
+            if key in strategy_name.lower():
+                color = color_code[key]
+                break
+        tick.set_bbox(dict(facecolor=color, edgecolor='none', alpha=0.7, boxstyle="round,pad=0.3"))
+    
     for tick in ax.get_yticklabels():
         strategy_name = tick.get_text()
-        color = next((color_code[key] for key in color_code if key in strategy_name), "black")
-        tick.set_bbox(dict(facecolor=color, edgecolor='none', alpha=0.5, boxstyle="round,pad=0.3"))
+        color = "white"
+        for key in color_code:
+            if key in strategy_name.lower():
+                color = color_code[key]
+                break
+        tick.set_bbox(dict(facecolor=color, edgecolor='none', alpha=0.7, boxstyle="round,pad=0.3"))
 
-    plt.title(filename)
-    plt.savefig(os.path.join(save_dir, f"{filename}.png"))
+    plt.title(f"Method Correlations: {filename}", fontsize=14, pad=20)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, f"{filename}.png"), dpi=300, bbox_inches='tight')
     plt.close()
 
-
-def compute_correlations(df):
-    method_columns = df.columns.tolist()[1:]
-    correlations = {}
-    for correlation_type in ["pearson", "spearman", "kendall"]:
-        corr_matrix = df[method_columns].T.corr(min_periods=1, method=correlation_type)
-        corr_matrix.columns = [strat for strat in df["Name"].tolist()]
-        corr_matrix.index = [strat for strat in df["Name"].tolist()]
-        correlations[correlation_type] = corr_matrix
-    return correlations
-
-
-def process_single_dataset(dataset, dataset_name, sample_size, num_workers):
+def process_single_dataset(dataset, dataset_name, sample_size, num_workers, ignore_index=0, include_background=False):
     """
     Process a single dataset and return the summary dataframe.
     """
+    # Create dataset-specific focus strategy list
+    dataset_focus_strategy_list = create_focus_strategy_list(ignore_index, include_background)
+    
     sample_size = len(dataset) if sample_size == 0 else sample_size
 
     # Print info
@@ -110,8 +252,8 @@ def process_single_dataset(dataset, dataset_name, sample_size, num_workers):
         print(f"WARNING: Could not normalize UQ maps because dataset.num_classes is not defined.")
     else:
         print(f"NOTE: Normalizing UQ maps by ln(K) where K={dataset.num_classes} is the number of classes.")
-        if dataset.num_classes != 2 and (am.above_quantile_mean_fg_ratio, None) in focus_strategy_list:
-            focus_strategy_list.remove((am.above_quantile_mean_fg_ratio, None))
+        # if dataset.num_classes != 2 and (am.above_quantile_mean_fg_ratio, None) in focus_strategy_list:
+        #     focus_strategy_list.remove((am.above_quantile_mean_fg_ratio, None))
     print("____________________")
 
     def aggregate(sample):
@@ -139,7 +281,8 @@ def process_single_dataset(dataset, dataset_name, sample_size, num_workers):
 
         # Ignore too small images for patch aggregation
         h, w = uq_array.shape
-        patch_200_in_agg_list = (am.patch_aggregation, 200) in focus_strategy_list
+        patch_200_in_agg_list = any(strategy[0] == am.patch_aggregation and strategy[1] == 200 
+                                   for strategy in dataset_focus_strategy_list)
         if patch_200_in_agg_list and (h < 200 or w < 200):
             print(f"Warning: Ignoring UQ map {sample['sample_name']} because it is too small.")
             return None
@@ -150,7 +293,7 @@ def process_single_dataset(dataset, dataset_name, sample_size, num_workers):
 
         # Apply aggregation strategies
         uq_map = UncertaintyMap(array=uq_array, mask=prediction, name=sample['sample_name'])
-        summary = AggregationSummary(focus_strategy_list, num_cpus=1)
+        summary = AggregationSummary(dataset_focus_strategy_list, num_cpus=1)
         return summary.apply_methods([uq_map], save_to_excel=False, do_plot=False, max_value=1.0)
     
     # Aggregate all UQ maps
@@ -173,8 +316,65 @@ def process_single_dataset(dataset, dataset_name, sample_size, num_workers):
     
     return summary_df
 
+def compute_individual_noise_correlations(dataset, dataset_name, sample_size, num_workers, base_dataset_name, 
+                                          noise_level, ignore_index=0, include_background=False):
+    """
+    Compute correlations for individual noise levels.
+    
+    Args:
+        dataset: Single dataset for specific noise level
+        dataset_name: Name including noise level
+        sample_size: Number of samples
+        num_workers: Number of workers
+        base_dataset_name: Base dataset name for file naming
+        noise_level: Noise level for file naming 
+        ignore_index: Index to ignore
+        include_background: Whether to include background
+    """
+    # Process single dataset
+    summary_df = process_single_dataset(dataset, dataset_name, sample_size, num_workers, ignore_index, include_background)
+    
+    # Save individual summary
+    out_name = f"aggregation_value_summary_{base_dataset_name}_{noise_level}"
+    summary_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False)
+    print(f"Individual aggregation value summary {out_name}.csv saved to output folder.")
+    
+    # Compute correlations between methods (columns)
+    method_columns = [col for col in summary_df.columns if col not in ['uq_map_name', 'dataset_name']]
+    correlation_df = summary_df[method_columns]
+    
+    start = time.time()
+    correlations = {}
+    for correlation_type in ["pearson", "spearman", "kendall"]:
+        # Compute correlation between methods (columns)
+        corr_matrix = correlation_df.corr(method=correlation_type, min_periods=1)
+        correlations[correlation_type] = corr_matrix
+    print(f"Computed individual correlation matrices for {noise_level}: {time.time() - start} s")
+    
+    # Save correlation matrices and plots for individual noise level
+    for correlation_type, corr_matrix in correlations.items():
+        out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_{noise_level}"
+        
+        # Save to csv
+        corr_matrix.to_csv(os.path.join("output", "tables", f"{out_name}.csv"))
+        print(f"Individual correlation matrix {out_name}.csv saved to output folder.")
+        
+        # Save heatmap as png
+        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures"))
+        print(f"Individual correlation heatmap {out_name}.png saved to output folder.")
+    
+    return summary_df
 
-def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_workers, base_dataset_name):
+# Dataset configuration dictionary
+DATASET_CONFIGS = {
+    'ade20k': {'ignore_index': 0, 'include_background': False},
+    'arctique': {'ignore_index': 0, 'include_background': False},
+    'lidc': {'ignore_index': 0, 'include_background': False},
+    'gta': {'ignore_index': 255, 'include_background': False},
+    # Add more datasets as needed with their specific configurations
+}
+
+def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_workers, base_dataset_name, compute_individual=False):
     """
     Evaluate correlations across different noise levels by concatenating data.
     
@@ -183,13 +383,30 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
         sample_size: Number of samples per dataset
         num_workers: Number of parallel workers
         base_dataset_name: Base name for the dataset
+        compute_individual: Whether to compute individual noise level correlations
     """
+    # Get dataset configuration
+    dataset_base_name = base_dataset_name.split('_')[2]  # Extract base name (e.g., 'ade20k' from 'joint_noise_ade20k_...')
+    config = DATASET_CONFIGS.get(dataset_base_name, {'ignore_index': 0, 'include_background': False})
+   
     all_summary_dfs = []
     
     # Process each dataset (noise level)
     for noise_level, dataset in datasets_dict.items():
         dataset_name = f"{base_dataset_name}_{noise_level}"
-        summary_df = process_single_dataset(dataset, dataset_name, sample_size, num_workers)
+        
+        if compute_individual:
+            # Compute individual noise level correlations
+            summary_df = compute_individual_noise_correlations(
+                dataset, dataset_name, sample_size, num_workers, base_dataset_name,
+                noise_level, config['ignore_index'], config['include_background']
+            )
+        else:
+            # Just process the dataset
+            summary_df = process_single_dataset(
+                dataset, dataset_name, sample_size, num_workers, 
+                config['ignore_index'], config['include_background']
+            )
         
         # Add noise level column
         summary_df.insert(loc=2, column="noise_level", value=noise_level)
@@ -203,14 +420,17 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
     combined_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False)
     print(f"Combined aggregation value summary {out_name}.csv saved to output folder.")
     
-    # Compute correlations on combined data
+    # FIXED: Compute correlations between methods (columns), not samples (rows)
     method_columns = [col for col in combined_df.columns if col not in ['uq_map_name', 'dataset_name', 'noise_level']]
-    correlation_df = combined_df[['uq_map_name'] + method_columns].set_index('uq_map_name')
+    
+    # Use only the method columns for correlation computation
+    correlation_df = combined_df[method_columns]
     
     start = time.time()
     correlations = {}
     for correlation_type in ["pearson", "spearman", "kendall"]:
-        corr_matrix = correlation_df.T.corr(min_periods=1, method=correlation_type)
+        # Compute correlation between methods (columns)
+        corr_matrix = correlation_df.corr(method=correlation_type, min_periods=1)
         correlations[correlation_type] = corr_matrix
     print(f"Computed correlation matrices: {time.time() - start} s")
     
@@ -222,19 +442,25 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
         corr_matrix.to_csv(os.path.join("output", "tables", f"{out_name}.csv"))
         print(f"Correlation matrix {out_name}.csv saved to output folder.")
         
+        # Create a temporary dataframe for plotting with method names
+        plot_df = pd.DataFrame(index=method_columns)
+        plot_df['Name'] = method_columns
+        plot_df = plot_df.set_index('Name')
+        
         # Save heatmap as png
-        save_correlation_matrix_plot(corr_matrix, out_name, os.path.join("output", "figures"))
+        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures"), True)
         print(f"Correlation heatmap {out_name}.png saved to output folder.")
 
 
 # Modified dataset creation functions
-def create_ade20k_datasets(model_name, uq_method):
+def create_ade20k_datasets(model_id, uq_method):
     """Create ADE20K datasets for both noise levels."""
     datasets = {}
     noise_levels = ['0_00', '1_00']
     folders = ['validation', 'test_cityscapes']
+    split_path =  ["/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test", None]
     
-    for nl, fold in zip(noise_levels, folders):
+    for nl, fold, split in zip(noise_levels, folders, split_path):
         extra_info = {
             'task': 'semantic',
             'variation': 'cityscapes',
@@ -244,9 +470,9 @@ def create_ade20k_datasets(model_name, uq_method):
             'decomp': 'pu',
             'spatial': None,
             'split_path': None,
-            'split': None,
+            'split': split,
             'metadata': False,
-            'model_checkpoint': model_name,
+            'model_checkpoint': model_id,
         }
         
         image_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/images/{fold}'
@@ -254,8 +480,8 @@ def create_ade20k_datasets(model_name, uq_method):
         uq_map_path = f'/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
         prediction_path = '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
         
-        from datasets.ADE20K.ade20k_dataset_creation import ADE20K_CityscapesDataset
-        dataset = ADE20K_CityscapesDataset(image_path, mask_path, uq_map_path, prediction_path, 
+        from datasets.ADE20K.ade20k_dataset_creation import OptimizedADE20K_CityscapesDataset
+        dataset = OptimizedADE20K_CityscapesDataset(image_path, mask_path, uq_map_path, prediction_path, 
                                           '/fast/AG_Kainmueller/data/ADEChallengeData2016/objectInfo150.json',
                                           **extra_info)
         dataset.num_classes = 150
@@ -267,7 +493,7 @@ def create_ade20k_datasets(model_name, uq_method):
 def create_arctique_datasets(task, uq_method):
     """Create Arctique datasets for both noise levels."""
     datasets = {}
-    noise_levels = ['0_00', '1_00']
+    noise_levels = ['0_00', '0_50'] #if task == 'semantic' else ['0_00', '0_25']
     
     for noise_level in noise_levels:
         variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
@@ -311,9 +537,9 @@ def create_lidc_datasets(variation, uq_method):
     noise_levels = ['0_00', '1_00']
     
     # Remove patch aggregation 200 for LIDC
-    global focus_strategy_list
-    if (am.patch_aggregation, 200) in focus_strategy_list:
-        focus_strategy_list.remove((am.patch_aggregation, 200))
+    # global focus_strategy_list
+    # if (am.patch_aggregation, 200) in focus_strategy_list:
+    #     focus_strategy_list.remove((am.patch_aggregation, 200))
     
     for noise_level in noise_levels:
         extra_info = {
@@ -359,9 +585,6 @@ def create_gta_datasets(uq_method):
     split_path = ["/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test", None]
     folders = ['OriginalData', 'CityScapesOriginalData']
     
-    # Remove patch aggregation 200 for LIDC
-    global focus_strategy_list
-    
     for noise_level, split, fold in zip(noise_levels, split_path, folders):
         extra_info = {
             'task': 'semantic',
@@ -392,42 +615,173 @@ def create_gta_datasets(uq_method):
         
     return datasets
 
+def evaluate_correlation_across_datasets(all_datasets_dict, sample_size, num_workers, output_name="cross_dataset"):
+    """
+    Evaluate correlations across multiple datasets by concatenating all data.
+    
+    Args:
+        all_datasets_dict: Dictionary with dataset names as keys and dataset dictionaries as values
+                          Format: {'ade20k': {'0_00': dataset1, '1_00': dataset2}, 'gta': {...}}
+        sample_size: Number of samples per dataset
+        num_workers: Number of parallel workers
+        output_name: Base name for output files
+    """
+    all_summary_dfs = []
+    
+    # Process each dataset and its noise levels
+    for dataset_name, datasets_dict in all_datasets_dict.items():
+        print(f"\n=== Processing {dataset_name} ===")
+        
+        for noise_level, dataset in datasets_dict.items():
+            full_dataset_name = f"{dataset_name}_{noise_level}"
+            summary_df = process_single_dataset(dataset, full_dataset_name, sample_size, num_workers)
+            
+            # Add dataset and noise level columns
+            summary_df.insert(loc=1, column="base_dataset", value=dataset_name)
+            summary_df.insert(loc=2, column="noise_level", value=noise_level)
+            all_summary_dfs.append(summary_df)
+    
+    # Concatenate all datasets
+    combined_df = pd.concat(all_summary_dfs, ignore_index=True)
+    
+    # Save combined summary
+    out_name = f"aggregation_value_summary_joint_noise_{output_name}"
+    combined_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False)
+    print(f"\nCombined aggregation value summary {out_name}.csv saved to output folder.")
+    
+    # Compute correlations between methods (columns), not samples (rows)
+    method_columns = [col for col in combined_df.columns if col not in ['uq_map_name', 'dataset_name', 'base_dataset', 'noise_level']]
+    
+    # Use only the method columns for correlation computation
+    correlation_df = combined_df[method_columns]
+    
+    start = time.time()
+    correlations = {}
+    for correlation_type in ["pearson", "spearman", "kendall"]:
+        # Compute correlation between methods (columns)
+        corr_matrix = correlation_df.corr(method=correlation_type, min_periods=1)
+        correlations[correlation_type] = corr_matrix
+    print(f"Computed correlation matrices: {time.time() - start} s")
+    
+    # Save correlation matrices and plots
+    for correlation_type, corr_matrix in correlations.items():
+        out_name = f"correlation_matrix_{correlation_type}_joint_noise_{output_name}"
+        
+        # Save to csv
+        corr_matrix.to_csv(os.path.join("output", "tables", f"{out_name}.csv"))
+        print(f"Correlation matrix {out_name}.csv saved to output folder.")
+        
+        # Save heatmap as png
+        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures"))
+        print(f"Correlation heatmap {out_name}.png saved to output folder.")
+    
+    return combined_df, correlations
+
+def run_cross_dataset_analysis(uq_method, sample_size=0, num_workers=16):
+    """
+    Run correlation analysis across all datasets.
+    
+    Args:
+        uq_method: UQ method to use ('dropout', 'softmax', etc.)
+        sample_size: Number of samples per dataset (0 for all)
+        num_workers: Number of parallel workers
+    """
+    # Create output directories
+    os.makedirs("output/tables", exist_ok=True)
+    os.makedirs("output/figures", exist_ok=True)
+    
+    # Initialize dictionary to store all datasets
+    all_datasets = {}
+    
+    # ADE20K
+    # print("Creating ADE20K datasets...")
+    # model_names = ['deeplabv3']
+    # model_ids = ['deeplabv3_r50-d8_4xb4-160k_ade20k-512x512']
+    # for model_name, model_id in zip(model_names, model_ids):
+    #     datasets = create_ade20k_datasets(model_id, uq_method)
+    #     all_datasets[f'ade20k_{model_name}'] = datasets
+    
+    # Arctique
+    print("Creating Arctique datasets...")
+    for task in ['semantic']: #'instance' 
+        datasets = create_arctique_datasets(task, uq_method)
+        variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
+        all_datasets[f'arctique_{task}_{variation}'] = datasets
+    
+    # LIDC
+    print("Creating LIDC datasets...")
+    for variation in ['malignancy', 'texture']: #'malignancy'
+        datasets = create_lidc_datasets(variation, uq_method)
+        all_datasets[f'lidc_{variation}'] = datasets
+    
+    # GTA
+    print("Creating GTA datasets...")
+    datasets = create_gta_datasets(uq_method)
+    all_datasets['gta'] = datasets
+    
+    # Run cross-dataset analysis
+    print(f"\n=== Running cross-dataset correlation analysis ===")
+    output_name = f"all_datasets_{uq_method}_pu"
+    combined_df, correlations = evaluate_correlation_across_datasets(
+        all_datasets, sample_size, num_workers, output_name
+    )
+    
+    # Print summary statistics
+    print(f"\n=== Summary Statistics ===")
+    print(f"Total samples across all datasets: {len(combined_df)}")
+    print(f"Datasets included: {list(all_datasets.keys())}")
+    print(f"Method columns: {len([col for col in combined_df.columns if col not in ['uq_map_name', 'dataset_name', 'base_dataset', 'noise_level']])}")
+    
+    # Print dataset breakdown
+    dataset_counts = combined_df['base_dataset'].value_counts()
+    print(f"\nSamples per dataset:")
+    for dataset, count in dataset_counts.items():
+        print(f"  {dataset}: {count}")
+    
+    return combined_df, correlations
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create correlation matrix across noise levels')
-    parser.add_argument('--dataset', type=str, help='Dataset name: ade20k, arctique, lidc, etc.')
+    parser.add_argument('--dataset', type=str, help='Dataset name: ade20k, arctique, lidc, etc. or "all" for cross-dataset analysis')
     parser.add_argument('--uq_method', type=str, help='UQ method: dropout, softmax')
     parser.add_argument('--sample_size', type=int, default=0, help='Number of samples per dataset')
     parser.add_argument('--num_workers', type=int, default=16, help='Number of parallel workers')
+    parser.add_argument('--compute_individual', type=bool, default=False, help='Compute individual noise level correlations')
     args = parser.parse_args()
 
     # Create output directories
     os.makedirs("output/tables", exist_ok=True)
     os.makedirs("output/figures", exist_ok=True)
 
+    if args.dataset == "all":
+        # Cross-dataset analysis
+        combined_df, correlations = run_cross_dataset_analysis(args.uq_method, args.sample_size, args.num_workers)
+    
     if args.dataset == "ade20k":
-        for model_name in ['deeplabv3']:
-            datasets = create_ade20k_datasets(model_name, args.uq_method)
+        model_names = ['deeplabv3']
+        model_ids = ['deeplabv3_r50-d8_4xb4-160k_ade20k-512x512']
+        for model_name, model_id in zip(model_names, model_ids):
+            datasets = create_ade20k_datasets(model_id, args.uq_method)
             base_name = f"joint_noise_ade20k_{model_name}_semantic_cityscapes_{args.uq_method}_pu"
-            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name)
+            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
 
     elif args.dataset == "arctique":
         for task in ['instance', 'semantic']:
             datasets = create_arctique_datasets(task, args.uq_method)
             variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
             base_name = f"joint_noise_arctique_{task}_{variation}_{args.uq_method}_pu"
-            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name)
+            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
 
     elif args.dataset == "lidc":
         for variation in ['malignancy', 'texture']:
             datasets = create_lidc_datasets(variation, args.uq_method)
             base_name = f"joint_noise_lidc_fgbg_{variation}_{args.uq_method}_pu"
-            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name)
+            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
     
     elif args.dataset == "gta":
         datasets = create_gta_datasets(args.uq_method)
         base_name = f"joint_noise_gta_semantic_cityscapes_{args.uq_method}_pu"
-        evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name)
+        evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
         
 
     # Add other datasets as needed (weedsgalore, lizard...)

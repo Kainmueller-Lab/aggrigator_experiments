@@ -83,27 +83,56 @@ AUROC_STRATEGIES = {
                 'Mean': (am.mean, None), 
             },
         'Threshold':{
-                # 'Threshold 0.2': (am.above_threshold_mean, 0.2),
                 'Threshold 0.3': (am.above_threshold_mean, 0.3),
-                'Threshold 0.4': (am.above_threshold_mean, 0.4),
                 'Threshold 0.5': (am.above_threshold_mean, 0.5),
-                # 'Threshold 0.6': (am.above_threshold_mean, 0.6),
-                # 'Threshold 0.7': (am.above_threshold_mean, 0.7),
-                # 'Threshold 0.8': (am.above_threshold_mean, 0.8),
-                # 'Threshold 0.9': (am.above_threshold_mean, 0.9),
+                'Threshold 0.7': (am.above_threshold_mean, 0.7),
             },
         'Quantile':{
-                'Quantile 0.6': (am.above_quantile_mean, 0.6),
-                'Quantile 0.75': (am.above_quantile_mean, 0.75),
+                'Quantile 0.6': (am.above_quantile_mean, 0.5),
+                'Quantile 0.75': (am.above_quantile_mean, 0.7),
                 'Quantile 0.9': (am.above_quantile_mean, 0.9),
                 'Quantile fg. ratio' : (am.above_quantile_mean_fg_ratio, None)
             },
         'Patch':{
                 'Patch 10': (am.patch_aggregation, 10), 
                 'Patch 20': (am.patch_aggregation, 20),
-                'Patch 50': (am.patch_aggregation, 50),
+                'Patch 50': (am.patch_aggregation, 40),
             }
     }
+
+CORR_METHODS_CORRESP = {
+        'Context-aware': {
+                    'equally-w. class avg.' : 'class_mean_w_equal_weights',
+                    'imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
+                            },
+        'Baseline': {
+                'mean': 'mean', 
+            },
+        'Threshold':{
+                'ata 0.2': 'above_threshold_mean_0.2',
+                'ata 0.3': 'above_threshold_mean_0.3',
+                'ata 0.5': 'above_threshold_mean_0.5',
+                'ata 0.7': 'above_threshold_mean_0.7',
+                'ata 0.9': 'above_threshold_mean_0.9',
+                'ata 0.95': 'above_threshold_mean_0.95',
+            },
+        'Quantile':{
+                'aqa 0.3': 'above_quantile_mean_0.3',
+                'aqa 0.5': 'above_quantile_mean_0.5',
+                'aqa 0.7': 'above_quantile_mean_0.7',
+                'aqa 0.9': 'above_quantile_mean_0.9',
+                'aqa fg. ratio' : 'above_quantile_mean_fg_ratio',
+            },
+        'Patch':{
+                'plm 10': 'patch_aggregation_10',
+                'plm 20': 'patch_aggregation_20',
+                'plm 40': 'patch_aggregation_40',
+                'plm 60': 'patch_aggregation_60',
+                'plm 80': 'patch_aggregation_80',
+                'plm 100': 'patch_aggregation_100',
+                'plm 200': 'patch_aggregation_200',
+            },
+}
 
 BACKGROUND_FREE_STRATEGIES = {
     'Context-aware': {

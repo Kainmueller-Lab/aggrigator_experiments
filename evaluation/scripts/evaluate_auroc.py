@@ -163,7 +163,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
-    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
+    # gta_cityscapes: --
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
