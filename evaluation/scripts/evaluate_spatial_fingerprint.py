@@ -170,7 +170,7 @@ if __name__ == "__main__":
 
     if DATASET == "arctique":
         for task in ['instance', 'semantic']:
-            noise_levels = ['0_00', '1_00']
+            noise_levels = ['0_00', '0_50', '1_00']
             for noise_level in noise_levels:
                 variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
                 extra_info = {
