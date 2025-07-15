@@ -1,6 +1,7 @@
 import sys
 import argparse
 import os
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -15,19 +16,13 @@ from evaluation.constants import (CLASS_NAMES_ARCTIQUE,
                        AUROC_STRATEGIES, 
                        BACKGROUND_FREE_STRATEGIES, 
                        COLORS)
-from evaluation.metrics.accuracy_metrics import per_tile_metrics
 from evaluation.metrics.selective_risk_coverage import compute_selective_risks_coverage
 from evaluation.data_utils import (DataPaths,
                                    AnalysisResults,
                                    setup_paths, 
-                                   load_predictions, 
-                                   load_dataset, 
-                                   load_unc_maps, 
-                                   validate_indices,
                                    select_strategies,
-                                   rescale_maps,
-                                   _process_gt_masks,
-                                   remove_background_only_images)
+                                   load_dataset_abstract_class, 
+                                   create_cached_maps_from_concatenated)
 from evaluation.visualization.plot_functions import setup_plot_style_aurc, create_selective_risks_coverage_plot
     
 # ---- Configuration Functions ----
@@ -40,8 +35,9 @@ def variation_name():
 
 def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
+    data_mod = 'ood' if args.data_mod == 'ood' else 'id'
     csv_file = output_path.joinpath(
-        f'tables/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{args.data_mod}.csv'
+        f'tables/aurc_{data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_id.csv'
     )
     # Ensure directory exists
     csv_file.parent.mkdir(exist_ok=True, parents=True)
@@ -51,26 +47,99 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"Cleared content of {csv_file}")
     else:
         print(f"{csv_file} does not exist yet.")
+        
+    data_mod = 'ood' if args.data_mod == 'ood' else 'id'
+    if args.variation == 'blood_cells':
+        task = 'semantic' 
+    elif args.variation == 'nuclei_intensity':
+        task = 'instance'
+    else:
+        task = args.task
+    # Save results to CSV
+    aurc_csv_name = f'{task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    if args.spatial: 
+        aurc_csv_name += f'_{args.spatial}'
+    aurc_csv_file = output_path.joinpath(f'tables/aurc_{data_mod}/{aurc_csv_name}_aurc_{data_mod}_results.csv')
+    
+    if aurc_csv_file.exists():
+        aurc_csv_file.open('w').close()  # Open in write mode to clear contents
+        print(f"Cleared content of {aurc_csv_file}")
+    else:
+        print(f"{aurc_csv_file} does not exist yet.")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Create accuracy-rejection curves for aggregators')
-    parser.add_argument('--task', type=str, default='semantic', help='Task type (e.g. fgbg, instance, semantic)')
-    parser.add_argument('--variation', type=str, help='Variation type (e.g. nuclei_intensity, blood_cells, malignancy, texture)')
-    parser.add_argument('--uq_path', type=str, default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results')
+    parser.add_argument(
+        '--task', type=str, default='instance', 
+        choices=['fgbg', 'instance', 'semantic', 'panoptic', 'crops_vs_weed'], help='Task type'
+    )
+    parser.add_argument(
+        '--variation', type=str, 
+        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes'], help='OoD variation type'
+    )
+    parser.add_argument(
+        '--uq_path', type=str, 
+        default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results'
+    )
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lizard:  '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_lizard_convnextv2_tiny_3' 
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
-    parser.add_argument('--label_path', type=str, help='Path to labels')
+    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
+    # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
+    # weedsgalore '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/'
+    parser.add_argument(
+        '--label_path', type=str, help='Path to labels'
+    )
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
     # lizard:  '/fast/AG_Kainmueller/vguarin/synthetic_uncertainty/data/LizardData/' 
-    parser.add_argument('--model_noise', type=int, default=0, help='Mask noise level with which the model was trained')
-    parser.add_argument('--image_noise', type=str, default='0_00', help='Image noise level on which the model is evaluated')
-    parser.add_argument('--uq_methods', type=str, default='tta,softmax,ensemble,dropout', help='Comma-separated list of UQ methods to evaluate')
-    parser.add_argument('--decomp', type=str, default='pu', help='Decomposition component (e.g. pu, au, eu)')
-    parser.add_argument('--data_mod', type=str, default='id', help='Data Modality (e.g. ood or id)')
-    parser.add_argument('--aggregator_type', type=str, default='non-pi', help='Aggregator Property (e.g. proportion-invariant or non-pi)' )
-    parser.add_argument('--num_workers', type=int, default=4, help='No. of workers for parallel processing' )
-    parser.add_argument('--dataset_name', type=str, default='arctique', help='Selected dataset (e.g. arctique, lizard, lidc)' )
+    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
+    # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
+    # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/'
+    parser.add_argument(
+        '--model_noise', type=int, default=0, help='Model noise level'
+    )
+    parser.add_argument(
+        '--decomp', type=str, default='pu', 
+        choices=['pu', 'au', 'eu'], help='Information theoretic decomposition component'
+    )
+    parser.add_argument(
+        '--dataset_name', type=str, default='arctique', 
+        choices=['arctique', 'lidc', 'lizard', 'gta', 'ade20k', 'weedsgalore'], help='Dataset name'
+    )
+    parser.add_argument(
+        '--spatial', type=str, choices=['high_eds', 'low_eds', 'high_moran', 'low_moran'], 
+        help='if not none indicate which type of spatially weighted uncertainty maps to use'
+    )
+    parser.add_argument(
+        '--image_noise', type=str, default='0_00,0_25,0_50,0_75,1_00', 
+        help='Comma-separated list of image noise levels'
+    )
+    parser.add_argument(
+        '--uq_methods', type=str, default='softmax,ensemble,dropout,tta', 
+        help='Comma-separated list of image noise levels'
+    )
+    parser.add_argument(
+        '--metadata', type=str, default=True, 
+        help='Read the metadata file if it is stored in the old UQ_metadata format'
+    )
+    parser.add_argument(
+        '--ignore_index', type=int, default=0, 
+        help='Background index to ignore in context-aware aggregators'
+    )
+    parser.add_argument(
+        '--model_checkpoint', type=str, default=None,
+        help='Pretrained model to pass to extra_info[metadata][model_checkpoint]'
+    )
+    # ade20k: 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512'
+    parser.add_argument(
+        '--data_mod', type=str, default='id', 
+        help='Data Modality (e.g. ood or id)'
+    )
+    parser.add_argument(
+        '--aggregator_type', type=str, default='non-pi', 
+        help='Aggregator Property (e.g. proportion-invariant or non-pi)'
+    )
+    parser.add_argument('--num_workers', type=int, default=1, help='No. of workers for parallel processing' )
     
     return parser.parse_args()
 
@@ -88,25 +157,50 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     # Extract parameters from arguments
     task = args.task
     model_noise = args.model_noise
-    image_noise = args.image_noise
     decomp = args.decomp
     aggregator_type = args.aggregator_type
     num_workers = args.num_workers
     dataset_name = args.dataset_name
     variation = args.variation #if args.variation else 'LizardData'
-    uq_methods = args.uq_methods.split(',')
-    data_mod = args.data_mod
+    ood = (args.data_mod == 'ood')
+    
+    # define parameters along which to loop
+    noise_levels = [noise.strip() for noise in args.image_noise.split(',')]
+    if len(noise_levels)>1:
+        warnings.warn(
+            "Select only one noise level for this downstream task. "
+        "Proceeding with the automatic selection based on the argument 'data_mod'..."
+        )
+        noise_levels = noise_levels[-1] if ood is True else noise_levels[0]
+        
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
     
     # Select appropriate strategies based on aggregator type and extract method names for plotting
     strategies, method_names = select_strategies(aggregator_type)
-    
-    # Load dataset and ground truth
-    dataset, gt_list_old = load_dataset(
-        data_path=paths.data, 
-        image_noise=image_noise,
-        num_workers=num_workers,
-        dataset_name=dataset_name,
-        return_id_only=(data_mod == 'id')
+        
+    # Define **kwargs dictionary for dataloaders
+    extra_info = {
+        'task' : args.task,
+        'variation' : args.variation,
+        'model_noise' : args.model_noise,
+        'decomp' : args.decomp,
+        'spatial' : args.spatial,
+        'metadata' : args.metadata,
+        'split_path' : None,
+        'split' : None,
+        'model_checkpoint' : args.model_checkpoint, 
+    }
+
+    concatenated_data = load_dataset_abstract_class(
+        paths=paths, 
+        image_noises=noise_levels,
+        num_workers=1,
+        extra_info=extra_info,
+        dataset_name=args.dataset_name,
+        task=args.task,
+        return_one_only=True,
+        uq_methods=uq_methods,
+        ood=ood,
     )
         
     # Store results for all methods
@@ -115,63 +209,133 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         "coverages": None,
         "selective_risks": []
     }
-    # Process each UQ method
-    for idx, uq_method in enumerate(uq_methods):
-        print(f"\n=== Processing UQ method: {uq_method} ===")
+    
+    # Extract combo keys from concatenated_data
+    first_uq_method = next(iter(concatenated_data.keys()))
+    combo_keys = list(concatenated_data[first_uq_method].keys())
+    
+    print(f"Processing combo keys: {combo_keys}")
+    
+    
+    for combo_key in combo_keys:
+        # Convert concatenated data to cached maps format
+        cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key, args)
+        task = args.task
+        print(f"Evaluating {task} task")
         
-        # Load prediction data for current UQ method
-        pred_list= load_predictions(
-            paths,
-            model_noise,
-            variation,
-            image_noise,
-            uq_method,
-            dataset_name,
-            # (dataset_name== 'arctique' or dataset_name== 'lizard'),
-        )
+        for idx, uq_method in enumerate(list(cached_maps.keys())):
+            print(f"\n=== Processing UQ method: {uq_method} ===")
+            masks = cached_maps[uq_method]['real_masks']
+            preds = cached_maps[uq_method]['masks']
+            uq_maps = cached_maps[uq_method]['maps']
+                        
+            if dataset_name.startswith('arctique'):
+                # Overleay colours 
+                label_colors_sem = {
+                    0: [0, 0, 0],             # Background - black or transparent
+                    1: [102, 0, 153],         # Epithelial - deep purple
+                    2: [0, 0, 255],           # Plasma Cells - blue
+                    3: [255, 255, 0],         # Lymphocytes - yellow
+                    4: [255, 105, 180],       # Eosinophils - reddish pink
+                    5: [0, 255, 0],           # Fibroblasts - green
+                }
                 
-        # Load and check metadata indices for consistency
-        gt_list = validate_indices(
-            args, paths.metadata, uq_method, dataset, gt_list_old, dataset_name
-        )
+                # Overleay colours 
+                label_colors_inst = {
+                    0: [0, 0, 0],             # Background - black or transparent
+                    1: [255, 105, 180],       # Border - reddish pink
+                    2: [0, 0, 0],             # Nucleus - black or transparent
+                }
+                
+                def label_to_rgb(label_map, label_colors):
+                    """Converts a (H, W) label map to an (H, W, 3) RGB overlay."""
+                    h, w = label_map.shape
+                    rgb = np.zeros((h, w, 3), dtype=np.uint8)
+                    for label, color in label_colors.items():
+                        mask = (label_map == label)
+                        rgb[mask] = color
+                    return rgb
 
-        # Analyze uncertainty and generate results
-        print(f"Analyzing uncertainty using {aggregator_type} aggregation strategies with {uq_method}")
-        results = compute_selective_risks_coverage(
-            gt_list,
-            pred_list,
-            paths,
-            task,
-            model_noise,
-            uq_method,
-            decomp,
-            variation,
-            image_noise,
-            strategies,
-            num_workers,
-            dataset_name
+                # Main visualization
+                
+                if task.startswith('semantic'):
+                    mask = masks[0][...,1]  # (H, W)
+                    prediction = preds[0][...,1]  # (H, W)
+                    label_colors = label_colors_sem        
+                else:
+                    mask = masks[0][...,2] # (H, W) 
+                    prediction = preds[0][...,2]  # (H, W)
+                    label_colors = label_colors_inst
+                    
+                uq_map = uq_maps[0].array
+
+                # Generate colored overlays
+                mask_rgb = label_to_rgb(mask, label_colors)
+                pred_rgb = label_to_rgb(prediction, label_colors)
+
+                # Create subplots
+                fig, axs = plt.subplots(1, 3, figsize=(16, 5))
+                titles = ['Ground Truth', 'Prediction', 'UQ Map']
+                imgs = [mask_rgb, pred_rgb, uq_map]
+
+                for ax, title, img in zip(axs, titles, imgs):
+                    if title in ['Ground Truth', 'Prediction']:
+                        ax.imshow(img)
+                    elif title == 'UQ Map':
+                        ax.imshow(img, cmap='inferno')
+                    ax.set_title(title, fontsize=10)
+                    ax.axis('off')
+
+                fig.suptitle(f"Sample", fontsize=12)
+                plt.tight_layout()
+                plt.subplots_adjust(top=0.85)
+
+                output_dir = Path(__file__).parent
+                output_file = output_dir / f'debugging_{task}_sample_plot.png'
+                plt.savefig(output_file, bbox_inches='tight')
+                plt.close()
+                print(f"Overlay plot saved to {output_file}")
+                        
+            # Analyze uncertainty and generate results
+            print(f"Analyzing uncertainty using {aggregator_type} aggregation strategies with {uq_method}")
+            results = compute_selective_risks_coverage(
+                uq_maps,
+                masks,
+                preds,
+                paths,
+                task,
+                model_noise,
+                uq_method,
+                decomp,
+                variation,
+                noise_levels,
+                strategies,
+                num_workers,
+                dataset_name
+            )
+            
+            # Store results
+            all_results["coverages"] = results["coverages"]
+            all_results["selective_risks"].append(results["selective_risks"])
+            all_results["aurc"].append(results["aurc"])
+
+        # Calculate mean and std across all UQ methods
+        mean_aurc = np.mean(np.array(all_results["aurc"]), axis=0)
+        std_aurc = np.std(np.array(all_results["aurc"]), axis=0)
+        mean_selective_risks = np.mean(np.array(all_results["selective_risks"]), axis=0)
+        std_selective_risks = np.std(np.array(all_results["selective_risks"]), axis=0)
+        
+        # Create final results structure for plotting
+        final_results = AnalysisResults(
+            mean_aurc=mean_aurc,
+            std_aurc=std_aurc,
+            coverages=all_results["coverages"],
+            mean_selective_risks=mean_selective_risks,
+            std_selective_risks=std_selective_risks
         )
         
-        # Store results
-        all_results["coverages"] = results["coverages"]
-        all_results["selective_risks"].append(results["selective_risks"])
-        all_results["aurc"].append(results["aurc"])
-
-    # Calculate mean and std across all UQ methods
-    mean_aurc = np.mean(np.array(all_results["aurc"]), axis=0)
-    mean_selective_risks = np.mean(np.array(all_results["selective_risks"]), axis=0)
-    std_selective_risks = np.std(np.array(all_results["selective_risks"]), axis=0)
-    
-    # Create final results structure for plotting
-    final_results = AnalysisResults(
-        mean_aurc=mean_aurc,
-        coverages=all_results["coverages"],
-        mean_selective_risks=mean_selective_risks,
-        std_selective_risks=std_selective_risks
-    )
-    
-    # Create plot
-    create_selective_risks_coverage_plot(method_names, final_results, paths.output, args)
+        # Create plot
+        create_selective_risks_coverage_plot(method_names, final_results, paths.output, args, ood)
 
 def main():
     # Set up plot style
@@ -179,11 +343,16 @@ def main():
     
     # Parse arguments 
     args = parse_args()
+    
     if args.label_path is None:
         args.label_path = args.uq_path 
-    if not args.variation:
-        alt_names = variation_name()
-        args.variation = alt_names[args.dataset_name]
+    
+    if 'softmax' in args.uq_methods and args.decomp != 'pu':
+        raise ValueError('Softmax uncertainty maps cannot be decomposed')
+        
+    # if not args.variation:
+    #     alt_names = variation_name()
+    #     args.variation = alt_names[args.dataset_name]
     
     #Set paths and make sure output directory exists
     paths = setup_paths(args)

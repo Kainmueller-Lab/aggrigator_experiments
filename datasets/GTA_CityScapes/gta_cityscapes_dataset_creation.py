@@ -1,6 +1,7 @@
 import sys 
 import os 
 import random
+import json 
 import numpy as np
 
 from PIL import Image
@@ -137,7 +138,7 @@ class GTA_CityscapesDataset(Dataset_Class):
         uq_map_base = self.uq_map_path.joinpath(
             self.__convert_to_values_uq_name__()[self.uq_method], 
             'test_results', 
-            'fold0_seed123'
+            'fold0_seed123' if self.uq_method == 'dropout' else 'fold0_seed124'
         )
         
         # Uq_map_path and prediction_path parameters must end with the checkpoint folder when passed to the class 
@@ -265,13 +266,19 @@ class GTA_CityscapesDataset(Dataset_Class):
     
     def get_prediction_colors(self, idx):
         """Return the prediction colors (RGB) at the given index."""
-        filename = self.sample_names[idx] + "_mean" + ".png"
+        if self.uq_method != 'softmax':
+            filename = self.sample_names[idx] + "_mean" + ".png" 
+        else:
+            filename = self.sample_names[idx] + "_01.png"
         pred_colors = np.array(Image.open(self.prediction_path.joinpath(filename)))
         return pred_colors
     
     def get_prediction(self, idx):
         """Return the prediction at the given index."""
-        filename = self.sample_names[idx] + "_mean" + ".png"
+        if self.uq_method != 'softmax':
+            filename = self.sample_names[idx] + "_mean" + ".png" 
+        else:
+            filename = self.sample_names[idx] + "_01.png"
         pred = np.array(Image.open(self.prediction_path.joinpath(filename)))
         return pred
 
@@ -287,12 +294,19 @@ class GTA_CityscapesDataset(Dataset_Class):
         """Load sample names from split file."""
         split_path = Path(self.split_path)
         
-        with open(split_path, "r") as f:
-            self.sample_names = [
-                line.strip().split(".")[0] 
-                for line in f 
-                if line.strip().endswith(".tif")
-            ]
+        if split_path.suffix == '.json':
+            print(f"Loading sample names from JSON split file: {split_path}")
+            with open(split_path, "r") as f:
+                names_from_json = json.load(f)  # Assuming the JSON file contains a flat list of filenames
+                self.sample_names = [str(name).split(".")[0] for name in names_from_json] # Ensure we strip any potential file extensions
+        
+        else:
+            with open(split_path, "r") as f:
+                self.sample_names = [
+                    line.strip().split(".")[0] 
+                    for line in f 
+                    if line.strip().endswith(".tif")
+                ]
     
     def get_sample_names_from_uq_directory(self):
         """Load sample names from directory listing."""
@@ -429,8 +443,7 @@ def main():
     data_folder_name = "/GTA/OriginalData" # /GTA/CityScapesOriginalData or /GTA/OriginalData
     
     if data_folder_name.startswith('/GTA/City'):
-        splits_folder = 'Cityscapes_ood'
-        
+        splits_folder = 'Cityscapes_ood' 
     else:
         splits_folder = 'GTA_id_test'
     

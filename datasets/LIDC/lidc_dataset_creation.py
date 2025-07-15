@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+import json
 import nibabel as nib
 import glob
 import matplotlib.pyplot as plt
@@ -71,25 +72,7 @@ class LIDC_UQ_Dataset(Dataset):
         self.gt_seg_dir = self.data_dir / "gt_seg"
         
         # Get sample names by looking for input files
-        self.sample_names = self._get_sample_names()
-        
-    def _get_sample_names(self):
-        """Extract unique sample names from input directory"""
-        if not self.input_dir.exists():
-            raise ValueError(f"Input directory does not exist: {self.input_dir}")
-            
-        input_files = list(self.input_dir.glob("*.nii.gz"))
-        if not input_files:
-            raise ValueError(f"No .nii.gz files found in {self.input_dir}")
-            
-        # Extract base sample names (e.g., "0103_00" from "0103_00.nii.gz")
-        self.sample_names = []
-        for file in input_files:
-            sample_name = file.stem.replace('.nii', '')  # Remove .nii from .nii.gz
-            self.sample_names.append(sample_name)
-            
-        return sorted(list(set(self.sample_names)))
-        # print(f"Found {len(self.sample_names)} samples: {self.sample_names[:5]}{'...' if len(self.sample_names) > 5 else ''}")
+        self.sample_names = self.get_sample_names()
         
     def _load_nifti(self, file_path):
         """Load NIfTI file and return data"""
@@ -138,11 +121,29 @@ class LIDC_UQ_Dataset(Dataset):
     def __len__(self):
         return len(self.sample_names)
         
-    def get_samplename(self, idx):
+    def get_sample_name(self, idx):
         return self.sample_names[idx]
+    
+    def get_sample_names(self):
+        """Extract unique sample names from input directory"""
+        if not self.input_dir.exists():
+            raise ValueError(f"Input directory does not exist: {self.input_dir}")
+            
+        input_files = list(self.input_dir.glob("*.nii.gz"))
+        if not input_files:
+            raise ValueError(f"No .nii.gz files found in {self.input_dir}")
+            
+        # Extract base sample names (e.g., "0103_00" from "0103_00.nii.gz")
+        self.sample_names = []
+        for file in input_files:
+            sample_name = file.stem.replace('.nii', '')  # Remove .nii from .nii.gz
+            self.sample_names.append(sample_name)
+            
+        return sorted(list(set(self.sample_names)))
+        # print(f"Found {len(self.sample_names)} samples: {self.sample_names[:5]}{'...' if len(self.sample_names) > 5 else ''}")
         
     def __getitem__(self, idx):
-        sample_name = self.get_samplename(idx)
+        sample_name = self.get_sample_name(idx)
         
         # Load input image
         input_file = self.input_dir / f"{sample_name}.nii.gz"
@@ -216,11 +217,19 @@ class LIDCDataset(Dataset_Class):
         self.norm_input =  kwargs.get('norm_input', True)
         self.cons_thresh = kwargs.get('cons_thresh', 2)
         self.render_ind_masks = kwargs.get('render_ind_masks', False)
+        self.split_path = kwargs.get('split_path', None)
+        self.split = kwargs.get('split', ['test'])
         
         # Load and cache metadata indices if metadata validation is enabled
         self._metadata_indices = None
         if self.metadata:
             self._load_metadata_indices()
+            
+        # Add conditional logic to load sample names
+        if self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_img_directory()
         
     def _load_metadata_indices(self):
         """Load metadata indices once and cache them"""
@@ -276,6 +285,41 @@ class LIDCDataset(Dataset_Class):
         
     def __len__(self):
         return len(self.get_sample_names())
+    
+    def get_sample_name(self, idx):
+        """Return the sample name at the given index."""
+        return self.get_sample_names()[idx]
+    
+    def get_sample_names(self):
+        """Return the list of sample names."""
+        return self.sample_names
+    
+    def get_sample_names_from_split_file(self):
+        """Load sample names from a JSON split file."""
+        split_path = Path(self.split_path)
+        
+        with open(split_path, "r") as f:
+            loaded_names = json.load(f) 
+            self.sample_names = [
+                str(name).split('.')[0] 
+                for name in loaded_names
+                ] # Ensure names are strings and have no file extensions, for robustness
+
+    def get_sample_names_from_img_directory(self):
+        """Extract unique sample names from input directory"""
+        if not self.image_path.exists():
+            raise ValueError(f"Input directory does not exist: {self.image_path}")
+            
+        input_files = list(self.image_path.glob("*.nii.gz"))
+        if not input_files:
+            raise ValueError(f"No .nii.gz files found in {self.image_path}")
+            
+        # Extract base sample names (e.g., "0103_00" from "0103_00.nii.gz")
+        sn = []
+        for file in input_files:
+            sample_name = file.stem.replace('.nii', '')  # Remove .nii from .nii.gz
+            sn.append(sample_name)
+        self.sample_names = sorted(list(set(sn)))
     
     def __getitem__(self, idx):
         
@@ -383,27 +427,6 @@ class LIDCDataset(Dataset_Class):
         preds_file_path = self.prediction_path.joinpath(preds_type)
         return np.load(preds_file_path)[fn]
     
-    def get_sample_name(self, idx):
-        """Return the sample name at the given index."""
-        return self.get_sample_names()[idx]
-             
-    def get_sample_names(self):
-        """Extract unique sample names from input directory"""
-        if not self.image_path.exists():
-            raise ValueError(f"Input directory does not exist: {self.image_path}")
-            
-        input_files = list(self.image_path.glob("*.nii.gz"))
-        if not input_files:
-            raise ValueError(f"No .nii.gz files found in {self.image_path}")
-            
-        # Extract base sample names (e.g., "0103_00" from "0103_00.nii.gz")
-        self.sample_names = []
-        for file in input_files:
-            sample_name = file.stem.replace('.nii', '')  # Remove .nii from .nii.gz
-            self.sample_names.append(sample_name)
-            
-        return sorted(list(set(self.sample_names)))
-    
     def get_semantic_mapping(self):
         return mapping_dict
     
@@ -464,7 +487,7 @@ def main():
         'task' : 'fgbg',
         'variation' : 'malignancy',
         'model_noise' : 0,
-        'data_noise': '1_00',
+        'data_noise': '0_00',
         'uq_method' : 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
@@ -472,6 +495,8 @@ def main():
         'metadata' : True,
         'render_2d' : True,
         'render_ind_masks': False,
+        'split_path': None, 
+        'split': None,
     }
     
     # Set up paths based on folder structure

@@ -1,0 +1,78 @@
+{
+  "mean": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_threshold_mean_0.3": {
+    "correlation_with_mean": 0.653519030138532,
+    "color": "#cc4c43"
+  },
+  "above_threshold_mean_0.5": {
+    "correlation_with_mean": 0.5907510114023135,
+    "color": "#d7624f"
+  },
+  "above_threshold_mean_0.7": {
+    "correlation_with_mean": 0.4880295883747355,
+    "color": "#e6856a"
+  },
+  "above_threshold_mean_0.9": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.95": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_quantile_mean_0.3": {
+    "correlation_with_mean": 0.9995676035676035,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.5": {
+    "correlation_with_mean": 0.9973046653046653,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.7": {
+    "correlation_with_mean": 0.9845770565770566,
+    "color": "#69001f"
+  },
+  "above_quantile_mean_0.9": {
+    "correlation_with_mean": 0.9230759270759271,
+    "color": "#810823"
+  },
+  "above_quantile_mean_fg_ratio": {
+    "correlation_with_mean": 0.8902474102474103,
+    "color": "#900d25"
+  },
+  "patch_aggregation_10": {
+    "correlation_with_mean": 0.7322224322224322,
+    "color": "#be3036"
+  },
+  "patch_aggregation_20": {
+    "correlation_with_mean": 0.7633486513486514,
+    "color": "#b82431"
+  },
+  "patch_aggregation_40": {
+    "correlation_with_mean": 0.8052514932514933,
+    "color": "#ad162a"
+  },
+  "patch_aggregation_80": {
+    "correlation_with_mean": 0.8389110589110589,
+    "color": "#a11228"
+  },
+  "patch_aggregation_100": {
+    "correlation_with_mean": 0.8561566121566122,
+    "color": "#9b1027"
+  },
+  "class_mean_w_equal_weights": {
+    "correlation_with_mean": 0.7904717864717865,
+    "color": "#b2192b"
+  },
+  "class_mean_weighted_by_occurrence": {
+    "correlation_with_mean": 0.9556339876339877,
+    "color": "#750421"
+  },
+  "gmm_normalized_score": {
+    "correlation_with_mean": -0.5404915324915325,
+    "color": "#58a0ca"
+  }
+}

@@ -205,6 +205,7 @@ def save_correlation_matrix_plot(corr_matrix, filename, correlation_type, save_d
         "patch": "#6A92B8",      # Blue
         "class_mean": "#C59FD6", # Light purple
         "mean": "#FFE5B4",       # Light yellow
+        "gmm": "#1b8565",        # Emerald
     }
     
     for tick in ax.get_xticklabels():
@@ -316,6 +317,86 @@ def process_single_dataset(dataset, dataset_name, sample_size, num_workers, igno
     
     return summary_df
 
+def load_and_merge_spatial_scores(summary_df, base_dataset_name, noise_level):
+    """
+    Loads spatial GMM scores and merges them into the summary dataframe.
+    This function specifically handles the 'gta' dataset and its unique indexing.
+    """
+    target_datasets = ['gta', 'lidc', 'arctique', 'weedsgalore', 'ade20k']
+    
+    # Check if the function should run for the current dataset
+    current_dataset_match = [name for name in target_datasets if name in base_dataset_name]
+    if not current_dataset_match:
+        return summary_df
+    
+    # Get the specific dataset name for logging and logic
+    current_dataset = current_dataset_match[0]
+    print(f"\n--- Running Spatial Score Merge for {current_dataset.upper()} (Noise Level: {noise_level}) ---")
+
+    parts = base_dataset_name.split('_')
+    if current_dataset == 'arctique':
+        task, dataset_name, variation, decomp = parts[3], parts[2], f"{parts[4]}_{parts[5]}", parts[7]
+    elif current_dataset == 'weedsgalore':
+        task, dataset_name, decomp = f"{parts[3]}_{parts[4]}_{parts[5]}", parts[2], parts[8] # Assuming 'none' variation
+        scores_filename = f"{task}_{dataset_name}_{decomp}_scores.csv"
+    elif current_dataset == 'ade20k':
+        task, dataset_name, variation, decomp = parts[4], parts[2], parts[5], parts[7] 
+    else: # Handles GTA, LIDC
+        task, dataset_name, variation, decomp = parts[3], parts[2], parts[4], parts[6]
+
+    if current_dataset != 'weedsgalore':
+        scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores.csv"
+        
+    scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
+
+    if not os.path.exists(scores_filepath):
+        print(f"Warning: Spatial scores file not found at {scores_filepath}. Skipping merge.")
+        return summary_df
+
+    scores_df = pd.read_csv(scores_filepath)
+    scores_df.rename(columns={'Unnamed: 0': 'sample_key'}, inplace=True)
+
+    if noise_level == '0_00': # In-Distribution
+        scores_to_process = scores_df[scores_df['is_ood'] == 0].copy()
+        if scores_to_process.empty:
+            return summary_df
+        
+        if 'gta' in base_dataset_name:
+            # For GTA, apply 5-digit zero-padding
+            scores_to_process['uq_map_name'] = scores_to_process['sample_key'].apply(lambda x: f"{int(x):05d}")
+        else:
+            # All other datasets (LIDC, Arctique, Weedsgalore, ADE20k) have matching string names
+            scores_to_process['uq_map_name'] = scores_to_process['sample_key'].astype(str)
+       
+    elif noise_level in ['0_25', '0_50', '0_75', '1_00']: # Out-of-Distribution
+        scores_to_process = scores_df[scores_df['is_ood'] == 1].copy()
+        if scores_to_process.empty:
+            return summary_df
+        scores_to_process.rename(columns={'sample_key': 'uq_map_name'}, inplace=True)
+    else:
+        return summary_df
+    
+    scores_to_merge = scores_to_process[['uq_map_name', 'ood_score_normalized']]
+    
+    # Convert both 'on' columns to strings to guarantee they match.
+    summary_df['uq_map_name'] = summary_df['uq_map_name'].astype(str)
+    scores_to_merge['uq_map_name'] = scores_to_merge['uq_map_name'].astype(str)
+    
+    merged_df = pd.merge(
+        summary_df,
+        scores_to_merge,
+        on='uq_map_name',
+        how='left'
+    )
+    
+    merged_df.rename(columns={'ood_score_normalized': 'gmm_normalized_score'}, inplace=True)
+    merged_df['gmm_normalized_score'] = pd.to_numeric(merged_df['gmm_normalized_score'], errors='coerce')
+    
+    num_valid_scores = merged_df['gmm_normalized_score'].notna().sum()
+    print(f"Merge complete. Found and merged {num_valid_scores} valid scores.")
+    print("--- End Spatial Score Merge ---\n")
+    return merged_df
+
 def compute_individual_noise_correlations(dataset, dataset_name, sample_size, num_workers, base_dataset_name, 
                                           noise_level, ignore_index=0, include_background=False):
     """
@@ -334,9 +415,12 @@ def compute_individual_noise_correlations(dataset, dataset_name, sample_size, nu
     # Process single dataset
     summary_df = process_single_dataset(dataset, dataset_name, sample_size, num_workers, ignore_index, include_background)
     
+    # The summary_df will now contain the 'gmm_normalized_score' if available.
+    summary_df = load_and_merge_spatial_scores(summary_df, base_dataset_name, noise_level)
+    
     # Save individual summary
     out_name = f"aggregation_value_summary_{base_dataset_name}_{noise_level}"
-    summary_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False)
+    summary_df.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"), index=False)
     print(f"Individual aggregation value summary {out_name}.csv saved to output folder.")
     
     # Compute correlations between methods (columns)
@@ -356,11 +440,11 @@ def compute_individual_noise_correlations(dataset, dataset_name, sample_size, nu
         out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_{noise_level}"
         
         # Save to csv
-        corr_matrix.to_csv(os.path.join("output", "tables", f"{out_name}.csv"))
+        corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
         print(f"Individual correlation matrix {out_name}.csv saved to output folder.")
         
         # Save heatmap as png
-        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures"))
+        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"), True)
         print(f"Individual correlation heatmap {out_name}.png saved to output folder.")
     
     return summary_df
@@ -371,6 +455,7 @@ DATASET_CONFIGS = {
     'arctique': {'ignore_index': 0, 'include_background': False},
     'lidc': {'ignore_index': 0, 'include_background': False},
     'gta': {'ignore_index': 255, 'include_background': False},
+    'weedsgalore': {'ignore_index': 0, 'include_background': False},
     # Add more datasets as needed with their specific configurations
 }
 
@@ -412,12 +497,17 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
         summary_df.insert(loc=2, column="noise_level", value=noise_level)
         all_summary_dfs.append(summary_df)
     
+    # Check if there's only one noise level - terminate early if so
+    if len(datasets_dict) == 1:
+        print(f"Only one noise level found ({list(datasets_dict.keys())[0]}). No across-noise correlation to compute.")
+        return
+    
     # Concatenate all datasets
     combined_df = pd.concat(all_summary_dfs, ignore_index=True)
     
     # Save combined summary
     out_name = f"aggregation_value_summary_{base_dataset_name}_combined"
-    combined_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False)
+    combined_df.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"), index=False)
     print(f"Combined aggregation value summary {out_name}.csv saved to output folder.")
     
     # FIXED: Compute correlations between methods (columns), not samples (rows)
@@ -439,7 +529,7 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
         out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_combined"
         
         # Save to csv
-        corr_matrix.to_csv(os.path.join("output", "tables", f"{out_name}.csv"))
+        corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
         print(f"Correlation matrix {out_name}.csv saved to output folder.")
         
         # Create a temporary dataframe for plotting with method names
@@ -448,7 +538,7 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
         plot_df = plot_df.set_index('Name')
         
         # Save heatmap as png
-        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures"), True)
+        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"), True)
         print(f"Correlation heatmap {out_name}.png saved to output folder.")
 
 
@@ -469,12 +559,25 @@ def create_ade20k_datasets(model_id, uq_method):
             'uq_method': uq_method,
             'decomp': 'pu',
             'spatial': None,
-            'split_path': None,
-            'split': split,
+            'split_path': split,
+            'split': None,
             'metadata': False,
             'model_checkpoint': model_id,
         }
         
+        # Construct the path to the potential new split file
+        dynamic_split_filename = f"{extra_info['task']}_ade20k_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        if nl == '0_00' and use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
+       
         image_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/images/{fold}'
         mask_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/{fold}'
         uq_map_path = f'/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
@@ -505,8 +608,23 @@ def create_arctique_datasets(task, uq_method):
             'uq_method': uq_method,
             'decomp': 'pu',
             'spatial': False,
-            'metadata': False,
+            'metadata': False, #Note: even if gt does not match with preds and uq_maps it doesn't matter in this context since gt is never used in this script !
+            'split_path': None, 
+            'split': None,
         }
+        
+        # Construct the path to the potential new split file
+        dynamic_split_filename = f"{extra_info['task']}_arctique_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        if noise_level == '0_00' and use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
         
         map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
         base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
@@ -551,10 +669,25 @@ def create_lidc_datasets(variation, uq_method):
             'decomp': 'pu',
             'spatial': None,
             'cons_thresh': 2,
-            'metadata': True,
+            'metadata': False,
             'render_2d': True,
             'render_ind_masks': False,
+            'split_path': None, 
+            'split': None,
         }
+        
+        # Construct the path to the potential new split file
+        dynamic_split_filename = f"{extra_info['task']}_lidc_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        if noise_level == '0_00' and use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
         
         base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
         cycle = 'FirstCycle'
@@ -580,12 +713,17 @@ def create_lidc_datasets(variation, uq_method):
     return datasets
 
 def create_gta_datasets(uq_method):
+    """Creates GTA datasets, dynamically checking for a spatial split file."""
     datasets = {}
     noise_levels = ['0_00', '1_00']
-    split_path = ["/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test", None]
+    # Define original/default paths
+    original_split_paths = ["/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test", None]
     folders = ['OriginalData', 'CityScapesOriginalData']
     
-    for noise_level, split, fold in zip(noise_levels, split_path, folders):
+    for i, noise_level in enumerate(noise_levels):
+        current_split_path = original_split_paths[i]
+        fold = folders[i]
+        
         extra_info = {
             'task': 'semantic',
             'variation': 'cityscapes',
@@ -593,10 +731,23 @@ def create_gta_datasets(uq_method):
             'data_noise': noise_level,
             'uq_method': uq_method,
             'decomp': 'pu',
-            'spatial' : None,
-            'split_path' : split, 
-            'split' : None
+            'spatial': None,
+            'split_path': current_split_path, 
+            'split': None
         }
+        
+        # Construct the path to the potential new split file
+        dynamic_split_filename = f"{extra_info['task']}_gta_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the split path
+        if noise_level == '0_00' and use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
     
         image_path = f"/fast/AG_Kainmueller/data/GTA/{fold}/preprocessed/images/" 
         mask_path = f"/fast/AG_Kainmueller/data/GTA/{fold}/preprocessed/labels/" 
@@ -610,7 +761,63 @@ def create_gta_datasets(uq_method):
                                         prediction_path, 
                                         'abc',
                                         **extra_info)
-        dataset.num_classes = 32
+        dataset.num_classes = 19 #previously 25, but strange that it doesn't result in 25
+        
+        # --- New Safeguard ---
+        # Ensure all sample names are strings. This is crucial if the split file
+        # contains numeric IDs that are parsed as integers.
+        if dataset.sample_names and not isinstance(dataset.sample_names[0], str):
+            print("Sample names are not strings. Converting to strings...")
+            dataset.sample_names = [str(name) for name in dataset.sample_names]
+        # --- End of Safeguard ---
+
+        datasets[noise_level] = dataset
+        print(f"Sample names for noise level {noise_level}:")
+        print(dataset.sample_names[:5])  # Print first 5 sample names to verify        
+    return datasets
+
+def create_weedsgalore_datasets(uq_method):
+    datasets = {}
+    noise_levels = ['0_00']
+    
+    for noise_level in noise_levels:
+        extra_info = {
+            'task' : 'crops_vs_weed',
+            'variation': None,
+            'model_noise': 0,
+            'data_noise': noise_level,
+            'uq_method': uq_method,
+            'decomp': 'pu',
+            'spatial' : None,
+            'metadata' : True,
+            'split_path': None, 
+            'split': None,
+        }
+        
+        # Construct the path to the potential new split file
+        dynamic_split_filename = f"{extra_info['task']}_weedsgalore_{extra_info['decomp']}_test_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        if noise_level == '0_00' and use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
+    
+        image_path = "/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/"
+        uq_path =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/"
+
+        from datasets.Weedsgalore.weedsgalore_dataset_creation import OptimizedWeedsGalore
+        dataset = OptimizedWeedsGalore(image_path, 
+                                        image_path, 
+                                        uq_path, 
+                                        uq_path, 
+                                        'abc',
+                                        **extra_info)
+        dataset.num_classes = 3
         datasets[noise_level] = dataset
         
     return datasets
@@ -646,7 +853,7 @@ def evaluate_correlation_across_datasets(all_datasets_dict, sample_size, num_wor
     
     # Save combined summary
     out_name = f"aggregation_value_summary_joint_noise_{output_name}"
-    combined_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False)
+    combined_df.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"), index=False)
     print(f"\nCombined aggregation value summary {out_name}.csv saved to output folder.")
     
     # Compute correlations between methods (columns), not samples (rows)
@@ -668,11 +875,11 @@ def evaluate_correlation_across_datasets(all_datasets_dict, sample_size, num_wor
         out_name = f"correlation_matrix_{correlation_type}_joint_noise_{output_name}"
         
         # Save to csv
-        corr_matrix.to_csv(os.path.join("output", "tables", f"{out_name}.csv"))
+        corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
         print(f"Correlation matrix {out_name}.csv saved to output folder.")
         
         # Save heatmap as png
-        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures"))
+        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"))
         print(f"Correlation heatmap {out_name}.png saved to output folder.")
     
     return combined_df, correlations
@@ -687,19 +894,19 @@ def run_cross_dataset_analysis(uq_method, sample_size=0, num_workers=16):
         num_workers: Number of parallel workers
     """
     # Create output directories
-    os.makedirs("output/tables", exist_ok=True)
-    os.makedirs("output/figures", exist_ok=True)
+    os.makedirs("output/tables/joint_correlation", exist_ok=True)
+    os.makedirs("output/figures/joint_correlation", exist_ok=True)
     
     # Initialize dictionary to store all datasets
     all_datasets = {}
     
     # ADE20K
-    # print("Creating ADE20K datasets...")
-    # model_names = ['deeplabv3']
-    # model_ids = ['deeplabv3_r50-d8_4xb4-160k_ade20k-512x512']
-    # for model_name, model_id in zip(model_names, model_ids):
-    #     datasets = create_ade20k_datasets(model_id, uq_method)
-    #     all_datasets[f'ade20k_{model_name}'] = datasets
+    print("Creating ADE20K datasets...")
+    model_names = ['deeplabv3']
+    model_ids = ['deeplabv3_r50-d8_4xb4-160k_ade20k-512x512']
+    for model_name, model_id in zip(model_names, model_ids):
+        datasets = create_ade20k_datasets(model_id, uq_method)
+        all_datasets[f'ade20k_{model_name}'] = datasets
     
     # Arctique
     print("Creating Arctique datasets...")
@@ -718,6 +925,11 @@ def run_cross_dataset_analysis(uq_method, sample_size=0, num_workers=16):
     print("Creating GTA datasets...")
     datasets = create_gta_datasets(uq_method)
     all_datasets['gta'] = datasets
+    
+    # Weedsgalore
+    print("Creating Weedsgalore datasets...")
+    datasets = create_weedsgalore_datasets(uq_method)
+    all_datasets['weedsgalore'] = datasets
     
     # Run cross-dataset analysis
     print(f"\n=== Running cross-dataset correlation analysis ===")
@@ -750,8 +962,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Create output directories
-    os.makedirs("output/tables", exist_ok=True)
-    os.makedirs("output/figures", exist_ok=True)
+    os.makedirs("output/tables/joint_correlation", exist_ok=True)
+    os.makedirs("output/figures/joint_correlation", exist_ok=True)
 
     if args.dataset == "all":
         # Cross-dataset analysis
@@ -770,6 +982,7 @@ if __name__ == "__main__":
             datasets = create_arctique_datasets(task, args.uq_method)
             variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
             base_name = f"joint_noise_arctique_{task}_{variation}_{args.uq_method}_pu"
+            args.num_workers = 8
             evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
 
     elif args.dataset == "lidc":
@@ -782,7 +995,11 @@ if __name__ == "__main__":
         datasets = create_gta_datasets(args.uq_method)
         base_name = f"joint_noise_gta_semantic_cityscapes_{args.uq_method}_pu"
         evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
+    
+    elif args.dataset == "weedsgalore":
+        datasets = create_weedsgalore_datasets(args.uq_method)
+        base_name = f"joint_noise_weedsgalore_crops_vs_weed_none_{args.uq_method}_pu"
+        evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
         
-
     # Add other datasets as needed (weedsgalore, lizard...)
     # following the same pattern...

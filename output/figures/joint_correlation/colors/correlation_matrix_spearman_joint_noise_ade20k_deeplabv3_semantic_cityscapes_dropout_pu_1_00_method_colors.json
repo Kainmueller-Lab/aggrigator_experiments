@@ -1,0 +1,78 @@
+{
+  "mean": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_threshold_mean_0.3": {
+    "correlation_with_mean": 0.5382814823135005,
+    "color": "#df755d"
+  },
+  "above_threshold_mean_0.5": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.7": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.9": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.95": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_quantile_mean_0.3": {
+    "correlation_with_mean": 0.9997636470545882,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.5": {
+    "correlation_with_mean": 0.9979540398161593,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.7": {
+    "correlation_with_mean": 0.9823817215268861,
+    "color": "#6c011f"
+  },
+  "above_quantile_mean_0.9": {
+    "correlation_with_mean": 0.9164320497281989,
+    "color": "#840923"
+  },
+  "above_quantile_mean_fg_ratio": {
+    "correlation_with_mean": 0.9714845259381037,
+    "color": "#6f0220"
+  },
+  "patch_aggregation_10": {
+    "correlation_with_mean": 0.693999351997408,
+    "color": "#c53e3c"
+  },
+  "patch_aggregation_20": {
+    "correlation_with_mean": 0.7189831639326557,
+    "color": "#bf3237"
+  },
+  "patch_aggregation_40": {
+    "correlation_with_mean": 0.7829412117648471,
+    "color": "#b41c2d"
+  },
+  "patch_aggregation_80": {
+    "correlation_with_mean": 0.840372385489542,
+    "color": "#a11228"
+  },
+  "patch_aggregation_100": {
+    "correlation_with_mean": 0.8652704690818763,
+    "color": "#991027"
+  },
+  "class_mean_w_equal_weights": {
+    "correlation_with_mean": 0.7196430705722823,
+    "color": "#bf3237"
+  },
+  "class_mean_weighted_by_occurrence": {
+    "correlation_with_mean": 0.9090266761067044,
+    "color": "#870a24"
+  },
+  "gmm_normalized_score": {
+    "correlation_with_mean": -0.5406914427657711,
+    "color": "#58a0ca"
+  }
+}

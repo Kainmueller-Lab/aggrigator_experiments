@@ -1,0 +1,78 @@
+{
+  "mean": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_threshold_mean_0.3": {
+    "correlation_with_mean": 0.5188657679158503,
+    "color": "#e17b61"
+  },
+  "above_threshold_mean_0.5": {
+    "correlation_with_mean": 0.5278968979950742,
+    "color": "#e0785f"
+  },
+  "above_threshold_mean_0.7": {
+    "correlation_with_mean": 0.5337066986459084,
+    "color": "#df755d"
+  },
+  "above_threshold_mean_0.9": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.95": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_quantile_mean_0.3": {
+    "correlation_with_mean": 0.9991446365785464,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.5": {
+    "correlation_with_mean": 0.9948331633326534,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.7": {
+    "correlation_with_mean": 0.9779294157176629,
+    "color": "#6c011f"
+  },
+  "above_quantile_mean_0.9": {
+    "correlation_with_mean": 0.9105842823371294,
+    "color": "#870a24"
+  },
+  "above_quantile_mean_fg_ratio": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "patch_aggregation_10": {
+    "correlation_with_mean": 0.6468287953151812,
+    "color": "#cd4f45"
+  },
+  "patch_aggregation_20": {
+    "correlation_with_mean": 0.6833314053256213,
+    "color": "#c6403e"
+  },
+  "patch_aggregation_40": {
+    "correlation_with_mean": 0.7239520478081912,
+    "color": "#bf3237"
+  },
+  "patch_aggregation_80": {
+    "correlation_with_mean": 0.7687270109080436,
+    "color": "#b6212f"
+  },
+  "patch_aggregation_100": {
+    "correlation_with_mean": 0.7926432985731943,
+    "color": "#b2192b"
+  },
+  "class_mean_w_equal_weights": {
+    "correlation_with_mean": 0.7851417325669303,
+    "color": "#b41c2d"
+  },
+  "class_mean_weighted_by_occurrence": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "gmm_normalized_score": {
+    "correlation_with_mean": -0.23169145476581907,
+    "color": "#c7dfed"
+  }
+}

@@ -1,0 +1,11 @@
+[paths]
+id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_arctique_semantic_blood_cells_0_00_dropout_pu.csv'
+ood_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_arctique_semantic_blood_cells_0_50_dropout_pu.csv' 
+
+[dataset]
+task = 'semantic' #or 'instance'
+dataset_name = 'arctique'
+variation = 'blood_cells' #or 'nuclei_intensity'
+
+[pm]
+uq_method = 'dropout'

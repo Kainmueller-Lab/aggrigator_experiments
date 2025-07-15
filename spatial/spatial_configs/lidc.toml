@@ -1,0 +1,11 @@
+[paths]
+id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_lidc_fgbg_malignancy_0_00_dropout_pu.csv'
+ood_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_lidc_fgbg_malignancy_1_00_dropout_pu.csv' 
+
+[dataset]
+task = 'fgbg'
+dataset_name = 'lidc'
+variation = 'malignancy' #or 'texture'
+
+[pm]
+uq_method = 'dropout'

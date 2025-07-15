@@ -1,0 +1,11 @@
+[paths]
+id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_dropout_pu.csv'
+ood_csv_path = ''
+
+[dataset]
+task = 'crops_vs_weed'
+dataset_name = 'weedsgalore'
+variation = '' 
+
+[pm]
+uq_method = 'dropout'

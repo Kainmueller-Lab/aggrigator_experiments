@@ -3,8 +3,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import json
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from matplotlib.patches import Patch
 
 from evaluation.data_utils import AnalysisResults
@@ -30,6 +36,256 @@ def setup_plot_style_aurc() -> None:
     plt.rcParams['axes.grid'] = True
     plt.rcParams['grid.alpha'] = 0.3
 
+# def create_auroc_barplot(
+#     results: List[pd.DataFrame],
+#     noise_levels: List[str],
+#     barplot_colors: Dict[str, str],
+#     strategies_dict: Dict,
+#     task: str,
+#     variation: str,
+#     dataset_name: str,
+#     decomp: str,
+#     output_path: Path,
+#     spatial: str = None,
+# ) -> None:
+#     """
+#     Create comparative bar plots of image-level AUROC values.
+#     Parameters
+#     ----------
+#     results : List[pd.DataFrame]
+#         List of DataFrames with AUROC results for each noise level
+#     noise_levels : List[str]
+#         List of noise levels
+#     barplot_colors : Dict[str, str]
+#         Dictionary mapping categories to colors
+#     strategies_dict : Dict
+#         Dictionary of strategies by category
+#     task : str
+#         Task type ('instance' or 'semantic')
+#     variation : str
+#         Variation type
+#     output_path : Path
+#         Path to save the output figure
+#     """
+#     # Create colors path
+#     if results['Aggregator'].str.contains('gmm_normalized').any():
+#         pre_color_path = output_path / "figures" / "joint_correlation" / "colors"
+#     else:
+#         pre_color_path = output_path / "figures" / "colors"
+    
+#     # Check if correlation-based colors file exists
+#     if dataset_name == 'ade20k': 
+#         color_file_path = pre_color_path / f"correlation_matrix_spearman_joint_noise_{dataset_name}_deeplabv3_{task}_{variation}_dropout_pu_combined_method_colors.json"
+#     else:
+#         color_file_path = pre_color_path / f"correlation_matrix_spearman_joint_noise_{dataset_name}_{task}_{variation}_dropout_pu_combined_method_colors.json"
+    
+#     correlation_colors = {}
+#     print(f"Looking for color file at: {color_file_path}")
+#     if color_file_path.exists():
+#         print("Color file found!")
+#         try:
+#             with open(color_file_path, 'r') as f:
+#                 correlation_data = json.load(f)
+#                 # print(f"Loaded correlation data keys: {list(correlation_data.keys())}")
+#                 # Filter out any non-dict entries and ensure we get the color field
+#                 correlation_colors = {}
+#                 for method, data in correlation_data.items():
+#                     if isinstance(data, dict) and 'color' in data:
+#                         color = data['color']
+#                         # Handle NaN colors by assigning gray
+#                         if color == '#000000' or color is None or (isinstance(color, float) and pd.isna(color)):
+#                             color = '#C0C0C0'  # Gray color for NaN/missing values
+#                         correlation_colors[method] = color
+#                     else:
+#                         print(f"Warning: Invalid data format for method {method}: {data}")
+#                 # print(f"Final correlation colors: {correlation_colors}")
+#             print(f"Using correlation-based colors from: {color_file_path}")
+#         except Exception as e:
+#             print(f"Error loading correlation colors: {e}")
+#             correlation_colors = {}
+#     else:
+#         print("Color file not found, using default colors")
+        
+#     # Create reverse mapping for easier lookup
+#     display_to_internal = {}
+#     for category, methods in CORR_METHODS_CORRESP.items():
+#         for display_name, internal_name in methods.items():
+#             display_to_internal[display_name] = internal_name
+    
+#     # Create figure with subplots in a single row
+#     fig, axes = plt.subplots(1, len(noise_levels), figsize=(20, 5))
+    
+#      # Create a mapping from each method to its high-level category
+#     method_to_category = {
+#         method: category
+#         for category, methods in strategies_dict.items()
+#         for method in methods.keys()
+#     }
+    
+#     # Function to get color for a method
+#     def get_method_color(method_name, category):
+#         # First try to find the method in correlation colors
+#         if correlation_colors:
+#             # Try direct match first (exact case-sensitive match)
+#             if method_name in correlation_colors:
+#                 return correlation_colors[method_name]
+            
+#             # Create a mapping from AUROC display names to internal JSON names
+#             auroc_to_json_mapping = {
+#                 # Context-aware
+#                 'Equally-w. class avg.': 'class_mean_w_equal_weights',
+#                 'Imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
+                
+#                 # Baseline
+#                 'Mean': 'mean',
+                
+#                 # Threshold
+#                 'Threshold 0.3': 'above_threshold_mean_0.3',
+#                 'Threshold 0.5': 'above_threshold_mean_0.5',
+#                 'Threshold 0.7': 'above_threshold_mean_0.7',
+                
+#                 # Quantile (note: display names don't match the actual parameters used!)
+#                 'Quantile 0.6': 'above_quantile_mean_0.5',  # Uses parameter 0.5
+#                 'Quantile 0.75': 'above_quantile_mean_0.7', # Uses parameter 0.7
+#                 'Quantile 0.9': 'above_quantile_mean_0.9',  # Uses parameter 0.9
+#                 'Quantile fg. ratio': 'above_quantile_mean_fg_ratio',
+                
+#                 # Patch
+#                 'Patch 10': 'patch_aggregation_10',
+#                 'Patch 20': 'patch_aggregation_20',
+#                 'Patch 50': 'patch_aggregation_40',  # Uses parameter 40, not 50!
+#             }
+            
+#             # Try direct mapping
+#             if method_name in auroc_to_json_mapping:
+#                 json_name = auroc_to_json_mapping[method_name]
+#                 if json_name in correlation_colors:
+#                     return correlation_colors[json_name]
+            
+#             # If no direct mapping found, try the old CORR_METHODS_CORRESP approach
+#             # but with case-insensitive matching
+#             method_lower = method_name.lower()
+#             for display_name, internal_name in display_to_internal.items():
+#                 if (display_name.lower() == method_lower or 
+#                     method_lower.replace(' ', '').replace('-', '').replace('.', '') == 
+#                     display_name.lower().replace(' ', '').replace('-', '').replace('.', '')):
+#                     if internal_name in correlation_colors:
+#                         return correlation_colors[internal_name]
+        
+#         # If we get here, something went wrong - we should have found a match
+#         print(f"Warning: Could not find color for method '{method_name}' in category '{category}'")
+#         print(f"Available correlation colors: {list(correlation_colors.keys()) if correlation_colors else 'None'}")
+        
+#         # Fallback to original category-based colors (and handle RGB tuples)
+#         fallback_color = barplot_colors.get(category, '#C0C0C0')
+        
+#         # Convert RGB tuple to hex if necessary
+#         if isinstance(fallback_color, tuple):
+#             if len(fallback_color) >= 3:
+#                 # Convert from 0-1 range to 0-255 range if necessary
+#                 if all(isinstance(x, (int, float)) and 0 <= x <= 1 for x in fallback_color[:3]):
+#                     r, g, b = [int(x * 255) for x in fallback_color[:3]]
+#                 else:
+#                     r, g, b = [int(x) for x in fallback_color[:3]]
+#                 return f'#{r:02x}{g:02x}{b:02x}'
+#             else:
+#                 return '#C0C0C0'
+        
+#         return fallback_color
+    
+#     # Create plots for each noise level
+#     for idx, (noise_level, df) in enumerate(zip(noise_levels, results)):
+#         ax = axes[idx]
+        
+#         # Get colors for each method
+#         colors = [get_method_color(method, method_to_category[method]) for method in df['Aggregator']]
+        
+#         bars = ax.bar(
+#             df['Aggregator'],
+#             df['AUROC'],
+#             yerr=df['AUROC_std'],
+#             color=colors,
+#             capsize=4,
+#             zorder=3,
+#         )
+        
+#         # Add AUROC values on top of bars
+#         for bar in bars:
+#             height = bar.get_height()
+#             ax.annotate(
+#                 f'{height:.3f}',
+#                 xy=(bar.get_x() + bar.get_width()/2, height),
+#                 xytext=(0, 3),  # 3 points vertical offset
+#                 textcoords="offset points",
+#                 ha='center', va='bottom'
+#             )
+        
+#         # Add method label inside the bar, rotated horizontally
+#         for bar, label in zip(bars, df['Aggregator']):
+#             y_offset = 0.005 * 2 * bar.get_height()  # Adjust offset as needed
+#             ax.text(
+#                 bar.get_x() + bar.get_width() / 2,
+#                 y_offset,
+#                 label,
+#                 ha="center",
+#                 va="bottom",
+#                 rotation="vertical",
+#                 fontsize=15,
+#                 zorder=4,
+#             )
+        
+#         ax.set_title(f'Noise Level: {noise_level}')
+#         ax.set_ylabel('AUROC' + r" $\uparrow$", fontsize=12)
+#         ax.set_ylim(0, 1)  # AUROC is between 0 and 1
+#         ax.spines[['right', 'top']].set_visible(False)
+#         ax.tick_params(axis='y', which='major', labelsize=13)
+#         ax.set(xticklabels=[])
+#         ax.tick_params(bottom=False)
+    
+#     # Create legend - use correlation colors if available, otherwise use original colors
+#     if correlation_colors:
+#         # Create legend based on categories but with correlation colors
+#         legend_elements = []
+#         for category in strategies_dict.keys():
+#             # Use the first method's color from this category as representative
+#             methods_in_category = [method for method in df['Aggregator'] if method_to_category[method] == category]
+#             if methods_in_category:
+#                 representative_color = get_method_color(methods_in_category[0], category)
+#                 legend_elements.append(Patch(facecolor=representative_color, label=category))
+#     else:
+#         legend_elements = [
+#             Patch(facecolor=v, label=k)
+#             for k, v in barplot_colors.items()
+#         ]
+    
+#     fig.legend(
+#         handles=legend_elements,
+#         loc='upper center',
+#         bbox_to_anchor=(0.5, 0.05),
+#         fancybox=True,
+#         shadow=True,
+#         ncol=3
+#     )
+    
+#     # Add title
+#     plt.suptitle(
+#         f'OOD correctness measured by the AUROC w.r.t. model confidence correctness.\n'
+#         f'Task: {task}, Variation: {variation}',
+#         fontsize=16
+#     )
+#     plt.tight_layout(rect=[0, 0, 1, 0.90])
+    
+#     # Ensure output directory exists
+#     file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
+#     if spatial:
+#         file_name += f'_{spatial}'
+#     output_file = output_path.joinpath(f'figures/auroc_gmm/{file_name}_barplot.png')
+#     output_file.parent.mkdir(exist_ok=True, parents=True)
+    
+#     # Save the plot
+#     plt.savefig(output_file, dpi=300, bbox_inches='tight')
+#     print(f"Plot saved to: {output_file}")
+
 def create_auroc_barplot(
     results: List[pd.DataFrame],
     noise_levels: List[str],
@@ -44,226 +300,86 @@ def create_auroc_barplot(
 ) -> None:
     """
     Create comparative bar plots of image-level AUROC values.
-    Parameters
-    ----------
-    results : List[pd.DataFrame]
-        List of DataFrames with AUROC results for each noise level
-    noise_levels : List[str]
-        List of noise levels
-    barplot_colors : Dict[str, str]
-        Dictionary mapping categories to colors
-    strategies_dict : Dict
-        Dictionary of strategies by category
-    task : str
-        Task type ('instance' or 'semantic')
-    variation : str
-        Variation type
-    output_path : Path
-        Path to save the output figure
     """
-    
-    # Check if correlation-based colors file exists
-    color_file_path = output_path / "color" / f"correlation_matrix_spearman_joint_noise_{dataset_name}_{task}_{variation}_dropout_pu_combined_methods_colors.json"
-    
-    correlation_colors = {}
-    if color_file_path.exists():
-        try:
-            with open(color_file_path, 'r') as f:
-                correlation_data = json.load(f)
-                correlation_colors = {method: data.get('color', '#000000') for method, data in correlation_data.items()}
-            print(f"Using correlation-based colors from: {color_file_path}")
-        except Exception as e:
-            print(f"Error loading correlation colors: {e}")
-            correlation_colors = {}
-    
-    # Create mapping from display names to internal method names
-    CORR_METHODS_CORRESP = {
-        'Context-aware': {
-            'equally-w. class avg.': 'class_mean_w_equal_weights',
-            'imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
-        },
-        'Baseline': {
-            'mean': 'mean',
-        },
-        'Threshold': {
-            'ata 0.2': 'above_threshold_mean_0.2',
-            'ata 0.3': 'above_threshold_mean_0.3',
-            'ata 0.5': 'above_threshold_mean_0.5',
-            'ata 0.7': 'above_threshold_mean_0.7',
-            'ata 0.9': 'above_threshold_mean_0.9',
-            'ata 0.95': 'above_threshold_mean_0.95',
-        },
-        'Quantile': {
-            'aqa 0.3': 'above_quantile_mean_0.3',
-            'aqa 0.5': 'above_quantile_mean_0.5',
-            'aqa 0.7': 'above_quantile_mean_0.7',
-            'aqa 0.9': 'above_quantile_mean_0.9',
-            'aqa fg. ratio': 'above_quantile_mean_fg_ratio',
-        },
-        'Patch': {
-            'plm 10': 'patch_aggregation_10',
-            'plm 20': 'patch_aggregation_20',
-            'plm 40': 'patch_aggregation_40',
-            'plm 60': 'patch_aggregation_60',
-            'plm 80': 'patch_aggregation_80',
-            'plm 100': 'patch_aggregation_100',
-            'plm 200': 'patch_aggregation_200',
-        },
-    }
-    
-    # Create reverse mapping for easier lookup
-    display_to_internal = {}
-    for category, methods in CORR_METHODS_CORRESP.items():
-        for display_name, internal_name in methods.items():
-            display_to_internal[display_name] = internal_name
-    
     # Create figure with subplots in a single row
-    fig, axes = plt.subplots(1, len(noise_levels), figsize=(20, 5))
+    fig, axes = plt.subplots(1, len(noise_levels), figsize=(20, 5), sharey=True)
+    if len(noise_levels) == 1:
+        axes = [axes] # Make sure axes is always iterable
+
+    # --- DYNAMIC STRATEGY MODIFICATION ---
+    # Check if GMM score exists in the first result dataframe to decide on modifications
+    strategies_dict_local = strategies_dict.copy()
+    barplot_colors_local = barplot_colors.copy()
     
-    # Create a mapping from each method to its high-level category
-    method_to_category = {
-        method: category
-        for category, methods in strategies_dict.items()
-        for method in methods.keys()
-    }
-    
-    # Function to get color for a method
-    def get_method_color(method_name, category):
-        # First try to find the method in correlation colors
-        if correlation_colors:
-            # Try direct match first
-            if method_name in correlation_colors:
-                return correlation_colors[method_name]
-            
-            # Try to find matching internal name
-            method_lower = method_name.lower()
-            for display_name, internal_name in display_to_internal.items():
-                if display_name.lower() == method_lower or method_lower.replace(' ', '').replace('-', '').replace('.', '') == display_name.lower().replace(' ', '').replace('-', '').replace('.', ''):
-                    if internal_name in correlation_colors:
-                        return correlation_colors[internal_name]
-            
-            # Try partial matching for common patterns
-            for internal_name, color in correlation_colors.items():
-                if 'mean' in method_lower and 'mean' in internal_name:
-                    return color
-                elif 'threshold' in method_lower and 'threshold' in internal_name:
-                    # Try to match threshold values
-                    import re
-                    method_match = re.search(r'(\d+\.?\d*)', method_name)
-                    internal_match = re.search(r'(\d+\.?\d*)', internal_name)
-                    if method_match and internal_match and method_match.group(1) == internal_match.group(1):
-                        return color
-                elif 'quantile' in method_lower and 'quantile' in internal_name:
-                    # Try to match quantile values
-                    import re
-                    method_match = re.search(r'(\d+\.?\d*)', method_name)
-                    internal_match = re.search(r'(\d+\.?\d*)', internal_name)
-                    if method_match and internal_match and method_match.group(1) == internal_match.group(1):
-                        return color
-                elif 'patch' in method_lower and 'patch' in internal_name:
-                    # Try to match patch values
-                    import re
-                    method_match = re.search(r'(\d+)', method_name)
-                    internal_match = re.search(r'(\d+)', internal_name)
-                    if method_match and internal_match and method_match.group(1) == internal_match.group(1):
-                        return color
+    # Check if GMM score exists in the results to set the correct path
+    if not results[0].empty and 'GMM Normalized' in results[0]['Aggregator'].values:
+        print("GMM score found. Using joint_correlation color path and adding 'Spatial' category.")
+        pre_color_path = output_path / "figures" / "joint_correlation" / "colors"
         
-        # Fallback to original category-based colors
-        return barplot_colors.get(category, '#000000')
-    
+        # Dynamically add the new category for the legend
+        strategies_dict_local['Spatial GMM'] = {'GMM Normalized': (None, None)}
+        barplot_colors_local['Spatial GMM'] = '#C0C0C0' # Default gray, will be replaced by JSON color if found
+    else:
+        print("GMM score not found. Using standard color path.")
+        pre_color_path = output_path / "figures" / "colors"
+    # --- END DYNAMIC MODIFICATION ---
+
+    # Get the path to the correlation color file
+    color_file_path = _get_color_file_path(pre_color_path, dataset_name, task, variation)
+    correlation_colors = _load_correlation_colors(color_file_path)
+
+    # Create a mapping from each method to its high-level category
+    method_to_category = _create_method_category_mapping(strategies_dict_local)
+
     # Create plots for each noise level
     for idx, (noise_level, df) in enumerate(zip(noise_levels, results)):
         ax = axes[idx]
-        
+        if df.empty:
+            ax.set_title(f'Noise Level: {noise_level}\n(No data)')
+            continue
+
         # Get colors for each method
-        colors = [get_method_color(method, method_to_category[method]) for method in df['Aggregator']]
+        colors = [_get_method_color(method, method_to_category, 
+                                   correlation_colors, barplot_colors_local) 
+                  for method in df['Aggregator']]
         
+        # Create bar plot
         bars = ax.bar(
-            df['Aggregator'],
-            df['AUROC'],
-            yerr=df['AUROC_std'],
-            color=colors,
-            capsize=4,
-            zorder=3,
+            df['Aggregator'], df['AUROC'], yerr=df.get('AUROC_std'),
+            color=colors, capsize=4, zorder=3,
         )
         
-        # Add AUROC values on top of bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.annotate(
-                f'{height:.3f}',
-                xy=(bar.get_x() + bar.get_width()/2, height),
-                xytext=(0, 3),  # 3 points vertical offset
-                textcoords="offset points",
-                ha='center', va='bottom'
-            )
-        
-        # Add method label inside the bar, rotated horizontally
-        for bar, label in zip(bars, df['Aggregator']):
-            y_offset = 0.005 * 2 * bar.get_height()  # Adjust offset as needed
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                y_offset,
-                label,
-                ha="center",
-                va="bottom",
-                rotation="vertical",
-                fontsize=15,
-                zorder=4,
-            )
-        
+        # Add formatting
+        _format_bars(ax, bars, df)
+        _format_axes(ax)
         ax.set_title(f'Noise Level: {noise_level}')
-        ax.set_ylabel('AUROC' + r" $\uparrow$", fontsize=12)
-        ax.set_ylim(0, 1)  # AUROC is between 0 and 1
-        ax.spines[['right', 'top']].set_visible(False)
-        ax.tick_params(axis='y', which='major', labelsize=13)
-        ax.set(xticklabels=[])
-        ax.tick_params(bottom=False)
+        
+    # Add a single, shared legend
+    _add_legend(fig, strategies_dict_local, method_to_category, results[0], 
+                correlation_colors, barplot_colors_local, legend_ncol=len(strategies_dict_local))
     
-    # Create legend - use correlation colors if available, otherwise use original colors
-    if correlation_colors:
-        # Create legend based on categories but with correlation colors
-        legend_elements = []
-        for category in strategies_dict.keys():
-            # Use the first method's color from this category as representative
-            methods_in_category = [method for method in df['Aggregator'] if method_to_category[method] == category]
-            if methods_in_category:
-                representative_color = get_method_color(methods_in_category[0], category)
-                legend_elements.append(Patch(facecolor=representative_color, label=category))
-    else:
-        legend_elements = [
-            Patch(facecolor=v, label=k)
-            for k, v in barplot_colors.items()
-        ]
-    
-    fig.legend(
-        handles=legend_elements,
-        loc='upper center',
-        bbox_to_anchor=(0.5, 0.05),
-        fancybox=True,
-        shadow=True,
-        ncol=3
-    )
-    
-    # Add title
+    # Add main title
     plt.suptitle(
         f'OOD correctness measured by the AUROC w.r.t. model confidence correctness.\n'
         f'Task: {task}, Variation: {variation}',
         fontsize=16
     )
-    plt.tight_layout(rect=[0, 0, 1, 0.90])
-    
-    # Ensure output directory exists
-    file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
-    if spatial:
-        file_name += f'_{spatial}'
-    output_file = output_path.joinpath(f'figures/{file_name}_barplot.png')
-    output_file.parent.mkdir(exist_ok=True, parents=True)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.90]) # Adjust rect to make space for legend
     
     # Save the plot
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Plot saved to: {output_file}")
+    _save_plot(fig, output_path, task, dataset_name, variation, decomp, spatial)
+    plt.close()
 
+# --- Helper Functions  ---
+
+def _get_color_file_path(pre_color_path: Path, dataset_name: str, task: str, variation: str) -> Path:
+    """Constructs the path to the correlation color file."""
+    # This logic assumes GMM is always run with dropout, which seems to be the case.    
+    if dataset_name == 'ade20k': 
+        return pre_color_path / f"correlation_matrix_spearman_joint_noise_{dataset_name}_deeplabv3_{task}_{variation}_dropout_pu_combined_method_colors.json"
+    else:
+        return pre_color_path / f"correlation_matrix_spearman_joint_noise_{dataset_name}_{task}_{variation}_dropout_pu_combined_method_colors.json"
+    
 def create_single_auroc_barplot(
     results: pd.DataFrame,
     barplot_colors: Dict[str, str],
@@ -273,14 +389,16 @@ def create_single_auroc_barplot(
     dataset_name: str,
     decomp: str,
     output_path: Path,
-    spatial: str = None,
+    spatial: Optional[str] = None,
+    figsize: Tuple[int, int] = (6, 5),
 ) -> None:
     """
     Create a single bar plot of image-level AUROC values.
+    
     Parameters
     ----------
     results : pd.DataFrame
-        DataFrame with AUROC results
+        DataFrame with AUROC results containing columns: 'Aggregator', 'AUROC', 'AUROC_std'
     barplot_colors : Dict[str, str]
         Dictionary mapping categories to colors
     strategies_dict : Dict
@@ -295,131 +413,58 @@ def create_single_auroc_barplot(
         Uncertainty component tested ('pu', 'eu' or 'au')
     output_path : Path
         Path to save the output figure
+    spatial : Optional[str], default=None
+        Spatial component identifier
+    figsize : Tuple[int, int], default=(6, 5)
+        Figure size as (width, height)
     """
+    # Build color file path
+    # if results['Aggregator'].str.contains('gmm_normalized').any():
+    #     pre_color_path = output_path / "figures" / "joint_correlation" / "colors"
+    # else:
+    #     pre_color_path = output_path / "figures" / "colors"
     
-    # Check if correlation-based colors file exists
-    if dataset_name == 'ade20k': 
-        color_file_path = output_path / "figures" / "colors" / f"correlation_matrix_spearman_joint_noise_{dataset_name}_deeplabv3_{task}_{variation}_dropout_pu_combined_method_colors.json"
-    else:
-        color_file_path = output_path / "figures" / "colors" / f"correlation_matrix_spearman_joint_noise_{dataset_name}_{task}_{variation}_dropout_pu_combined_method_colors.json"
+    # if dataset_name == 'ade20k':
+    #     color_file_path = (pre_color_path / 
+    #                       f"correlation_matrix_spearman_joint_noise_{dataset_name}_deeplabv3_{task}_{variation}_dropout_pu_combined_method_colors.json")
+    # else:
+    #     color_file_path = (pre_color_path / 
+    #                       f"correlation_matrix_spearman_joint_noise_{dataset_name}_{task}_{variation}_dropout_pu_combined_method_colors.json")
     
-    correlation_colors = {}
-    print(f"Looking for color file at: {color_file_path}")
-    if color_file_path.exists():
-        print("Color file found!")
-        try:
-            with open(color_file_path, 'r') as f:
-                correlation_data = json.load(f)
-                # print(f"Loaded correlation data keys: {list(correlation_data.keys())}")
-                # Filter out any non-dict entries and ensure we get the color field
-                correlation_colors = {}
-                for method, data in correlation_data.items():
-                    if isinstance(data, dict) and 'color' in data:
-                        color = data['color']
-                        # Handle NaN colors by assigning gray
-                        if color == '#000000' or color is None or (isinstance(color, float) and pd.isna(color)):
-                            color = '#C0C0C0'  # Gray color for NaN/missing values
-                        correlation_colors[method] = color
-                    else:
-                        print(f"Warning: Invalid data format for method {method}: {data}")
-                # print(f"Final correlation colors: {correlation_colors}")
-            print(f"Using correlation-based colors from: {color_file_path}")
-        except Exception as e:
-            print(f"Error loading correlation colors: {e}")
-            correlation_colors = {}
+    # --- DYNAMIC PATH AND STRATEGY LOGIC (mirrored from multi-plot function) ---
+    strategies_dict_local = strategies_dict.copy()
+    barplot_colors_local = barplot_colors.copy()
+
+    if not results.empty and 'GMM Normalized' in results['Aggregator'].values:
+        print("GMM score found. Using joint_correlation color path and adding 'Spatial' category.")
+        pre_color_path = output_path / "figures" / "joint_correlation" / "colors"
+        strategies_dict_local['Spatial GMM'] = {'GMM Normalized': (None, None)}
+        barplot_colors_local['Spatial GMM'] = '#C0C0C0'
     else:
-        print("Color file not found, using default colors")
-        
-    # Create reverse mapping for easier lookup
-    display_to_internal = {}
-    for category, methods in CORR_METHODS_CORRESP.items():
-        for display_name, internal_name in methods.items():
-            display_to_internal[display_name] = internal_name
+        print("GMM score not found. Using standard color path.")
+        pre_color_path = output_path / "figures" / "colors"
+    # --- END DYNAMIC LOGIC ---
+
+    color_file_path = _get_color_file_path(pre_color_path, dataset_name, task, variation)
+    
+    logger.info(f"Looking for color file at: {color_file_path}")
+ 
+    # Load correlation-based colors
+    correlation_colors = _load_correlation_colors(color_file_path, output_path)
+    
+    # Create method to category mapping
+    method_to_category = _create_method_category_mapping(strategies_dict_local)
     
     # Create figure
-    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-    
-    # Create a mapping from each method to its high-level category
-    method_to_category = {
-        method: category
-        for category, methods in strategies_dict.items()
-        for method in methods.keys()
-    }
-    
-    # Function to get color for a method
-    def get_method_color(method_name, category):
-        # First try to find the method in correlation colors
-        if correlation_colors:
-            # Try direct match first (exact case-sensitive match)
-            if method_name in correlation_colors:
-                return correlation_colors[method_name]
-            
-            # Create a mapping from AUROC display names to internal JSON names
-            auroc_to_json_mapping = {
-                # Context-aware
-                'Equally-w. class avg.': 'class_mean_w_equal_weights',
-                'Imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
-                
-                # Baseline
-                'Mean': 'mean',
-                
-                # Threshold
-                'Threshold 0.3': 'above_threshold_mean_0.3',
-                'Threshold 0.5': 'above_threshold_mean_0.5',
-                'Threshold 0.7': 'above_threshold_mean_0.7',
-                
-                # Quantile (note: display names don't match the actual parameters used!)
-                'Quantile 0.6': 'above_quantile_mean_0.5',  # Uses parameter 0.5
-                'Quantile 0.75': 'above_quantile_mean_0.7', # Uses parameter 0.7
-                'Quantile 0.9': 'above_quantile_mean_0.9',  # Uses parameter 0.9
-                'Quantile fg. ratio': 'above_quantile_mean_fg_ratio',
-                
-                # Patch
-                'Patch 10': 'patch_aggregation_10',
-                'Patch 20': 'patch_aggregation_20',
-                'Patch 50': 'patch_aggregation_40',  # Uses parameter 40, not 50!
-            }
-            
-            # Try direct mapping
-            if method_name in auroc_to_json_mapping:
-                json_name = auroc_to_json_mapping[method_name]
-                if json_name in correlation_colors:
-                    return correlation_colors[json_name]
-            
-            # If no direct mapping found, try the old CORR_METHODS_CORRESP approach
-            # but with case-insensitive matching
-            method_lower = method_name.lower()
-            for display_name, internal_name in display_to_internal.items():
-                if (display_name.lower() == method_lower or 
-                    method_lower.replace(' ', '').replace('-', '').replace('.', '') == 
-                    display_name.lower().replace(' ', '').replace('-', '').replace('.', '')):
-                    if internal_name in correlation_colors:
-                        return correlation_colors[internal_name]
-        
-        # If we get here, something went wrong - we should have found a match
-        print(f"Warning: Could not find color for method '{method_name}' in category '{category}'")
-        print(f"Available correlation colors: {list(correlation_colors.keys()) if correlation_colors else 'None'}")
-        
-        # Fallback to original category-based colors (and handle RGB tuples)
-        fallback_color = barplot_colors.get(category, '#C0C0C0')
-        
-        # Convert RGB tuple to hex if necessary
-        if isinstance(fallback_color, tuple):
-            if len(fallback_color) >= 3:
-                # Convert from 0-1 range to 0-255 range if necessary
-                if all(isinstance(x, (int, float)) and 0 <= x <= 1 for x in fallback_color[:3]):
-                    r, g, b = [int(x * 255) for x in fallback_color[:3]]
-                else:
-                    r, g, b = [int(x) for x in fallback_color[:3]]
-                return f'#{r:02x}{g:02x}{b:02x}'
-            else:
-                return '#C0C0C0'
-        
-        return fallback_color
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
     
     # Get colors for each method
-    colors = [get_method_color(method, method_to_category[method]) for method in results['Aggregator']]
-        
+    colors = [_get_method_color(method, method_to_category[method], 
+                               correlation_colors, barplot_colors_local) 
+              for method in results['Aggregator']]
+    
+    print(strategies_dict_local['Spatial GMM'], barplot_colors_local['Spatial GMM'])
+    
     # Create bar plot
     bars = ax.bar(
         results['Aggregator'],
@@ -430,252 +475,92 @@ def create_single_auroc_barplot(
         zorder=3,
     )
     
-    # Add AUROC values on top of bars
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(
-            f'{height:.3f}',
-            xy=(bar.get_x() + bar.get_width()/2, height),
-            xytext=(0, 3),  # 3 points vertical offset
-            textcoords="offset points",
-            ha='center', va='bottom'
-        )
+    # Add formatting
+    _format_bars(ax, bars, results)
+    _format_axes(ax)
     
-    # Add method label inside the bar, rotated vertically
-    for bar, label in zip(bars, results['Aggregator']):
-        y_offset = 0.005 * 2 * bar.get_height()  # Adjust offset as needed
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            y_offset,
-            label,
-            ha="center",
-            va="bottom",
-            rotation="vertical",
-            fontsize=15,
-            zorder=4,
-        )
-    
-    # Set labels and formatting
-    ax.set_ylabel('AUROC' + r" $\uparrow$", fontsize=12)
-    ax.set_ylim(0, 1)  # AUROC is between 0 and 1
-    ax.spines[['right', 'top']].set_visible(False)
-    ax.tick_params(axis='y', which='major', labelsize=13)
-    ax.set(xticklabels=[])
-    ax.tick_params(bottom=False)
-    
-    # Create legend - use correlation colors if available, otherwise use original colors
-    if correlation_colors:
-        # Create legend based on categories but with correlation colors
-        legend_elements = []
-        for category in strategies_dict.keys():
-            # Use the first method's color from this category as representative
-            methods_in_category = [method for method in results['Aggregator'] if method_to_category[method] == category]
-            if methods_in_category:
-                representative_color = get_method_color(methods_in_category[0], category)
-                legend_elements.append(Patch(facecolor=representative_color, label=category))
-    else:
-        legend_elements = [
-            Patch(facecolor=v, label=k)
-            for k, v in barplot_colors.items()
-        ]
-    
-    ax.legend(
-        handles=legend_elements,
-        loc='upper center',
-        bbox_to_anchor=(0.5, -0.025),
-        fancybox=True,
-        shadow=True,
-        ncol=3
-    )
-    
+    # Add legend
+    _add_legend(ax, strategies_dict_local, method_to_category, results, 
+                correlation_colors, barplot_colors_local)
     # Add title
-    title_text = (
-        f'OOD correctness measured by the AUROC w.r.t. model confidence correctness.\n'
-        f'Task: {task}, Variation: {variation}'
-    )
-    plt.title(title_text, fontsize=16, pad=20)
-    plt.tight_layout()
+    _add_title(ax, task, variation)
+    # Save plot
+    _save_plot(fig, output_path, task, dataset_name, variation, decomp, spatial)
     
-    # Ensure output directory exists
-    file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
-    if spatial:
-        file_name += f'_{spatial}'
-    output_file = output_path.joinpath(f'figures/{file_name}_barplot.png')
-    output_file.parent.mkdir(exist_ok=True, parents=True)
-    
-    # Save the plot
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Plot saved to: {output_file}")
     plt.close()  # Close figure to free memory
+
+def _load_correlation_colors(color_file_path: Path, output_path: Path) -> Dict[str, str]:
+    """Load correlation-based colors from file."""   
+    if not color_file_path.exists():
+        logger.info("Color file not found, using default colors")
+        return {}
     
-def create_auroc_barplot(
-    results: List[pd.DataFrame],
-    noise_levels: List[str],
-    barplot_colors: Dict[str, str],
-    strategies_dict: Dict,
-    task: str,
-    variation: str,
-    dataset_name: str,
-    decomp: str,
-    output_path: Path,
-    spatial: str = None,
-) -> None:
-    """
-    Create comparative bar plots of image-level AUROC values.
-    Parameters
-    ----------
-    results : List[pd.DataFrame]
-        List of DataFrames with AUROC results for each noise level
-    noise_levels : List[str]
-        List of noise levels
-    barplot_colors : Dict[str, str]
-        Dictionary mapping categories to colors
-    strategies_dict : Dict
-        Dictionary of strategies by category
-    task : str
-        Task type ('instance' or 'semantic')
-    variation : str
-        Variation type
-    output_path : Path
-        Path to save the output figure
-    """
-    
-    # Check if correlation-based colors file exists
-    if dataset_name == 'ade20k': 
-        color_file_path = output_path / "figures" / "colors" / f"correlation_matrix_spearman_joint_noise_{dataset_name}_deeplabv3_{task}_{variation}_dropout_pu_combined_method_colors.json"
-    else:
-        color_file_path = output_path / "figures" / "colors" / f"correlation_matrix_spearman_joint_noise_{dataset_name}_{task}_{variation}_dropout_pu_combined_method_colors.json"
-    
-    correlation_colors = {}
-    print(f"Looking for color file at: {color_file_path}")
-    if color_file_path.exists():
-        print("Color file found!")
-        try:
-            with open(color_file_path, 'r') as f:
-                correlation_data = json.load(f)
-                # print(f"Loaded correlation data keys: {list(correlation_data.keys())}")
-                # Filter out any non-dict entries and ensure we get the color field
-                correlation_colors = {}
-                for method, data in correlation_data.items():
-                    if isinstance(data, dict) and 'color' in data:
-                        color = data['color']
-                        # Handle NaN colors by assigning gray
-                        if color == '#000000' or color is None or (isinstance(color, float) and pd.isna(color)):
-                            color = '#C0C0C0'  # Gray color for NaN/missing values
-                        correlation_colors[method] = color
-                    else:
-                        print(f"Warning: Invalid data format for method {method}: {data}")
-                # print(f"Final correlation colors: {correlation_colors}")
-            print(f"Using correlation-based colors from: {color_file_path}")
-        except Exception as e:
-            print(f"Error loading correlation colors: {e}")
-            correlation_colors = {}
-    else:
-        print("Color file not found, using default colors")
+    try:
+        with open(color_file_path, 'r') as f:
+            correlation_data = json.load(f)
         
-    # Create reverse mapping for easier lookup
-    display_to_internal = {}
-    for category, methods in CORR_METHODS_CORRESP.items():
-        for display_name, internal_name in methods.items():
-            display_to_internal[display_name] = internal_name
-    
-    # Create figure with subplots in a single row
-    fig, axes = plt.subplots(1, len(noise_levels), figsize=(20, 5))
-    
-    # Create a mapping from each method to its high-level category
-    method_to_category = {
+        correlation_colors = {}
+        for method, data in correlation_data.items():
+            if isinstance(data, dict) and 'color' in data:
+                color = data['color']
+                # Handle NaN colors by assigning gray
+                if color == '#000000' or color is None or (isinstance(color, float) and pd.isna(color)):
+                    color = '#C0C0C0'  # Gray color for NaN/missing values
+                correlation_colors[method] = color
+            else:
+                logger.warning(f"Invalid data format for method {method}: {data}")
+        
+        logger.info(f"Using correlation-based colors from: {color_file_path}")
+        return correlation_colors
+        
+    except Exception as e:
+        logger.error(f"Error loading correlation colors: {e}")
+        return {}
+
+def _create_method_category_mapping(strategies_dict: Dict) -> Dict[str, str]:
+    """Create a mapping from each method to its high-level category."""
+    return {
         method: category
         for category, methods in strategies_dict.items()
         for method in methods.keys()
     }
+
+def _get_method_color(method_name: str, category: str, correlation_colors: Dict[str, str], 
+                     barplot_colors: Dict[str, str]) -> str:
+    """Get color for a method, preferring correlation colors over category colors."""
+    if not correlation_colors:
+        return _convert_color_to_hex(barplot_colors.get(category, '#C0C0C0'))
     
-    # Function to get color for a method
-    def get_method_color(method_name, category):
-        # First try to find the method in correlation colors
-        if correlation_colors:
-            # Try direct match first (exact case-sensitive match)
-            if method_name in correlation_colors:
-                return correlation_colors[method_name]
-            
-            # Create a mapping from AUROC display names to internal JSON names
-            auroc_to_json_mapping = {
-                # Context-aware
-                'Equally-w. class avg.': 'class_mean_w_equal_weights',
-                'Imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
-                
-                # Baseline
-                'Mean': 'mean',
-                
-                # Threshold
-                'Threshold 0.3': 'above_threshold_mean_0.3',
-                'Threshold 0.5': 'above_threshold_mean_0.5',
-                'Threshold 0.7': 'above_threshold_mean_0.7',
-                
-                # Quantile (note: display names don't match the actual parameters used!)
-                'Quantile 0.6': 'above_quantile_mean_0.5',  # Uses parameter 0.5
-                'Quantile 0.75': 'above_quantile_mean_0.7', # Uses parameter 0.7
-                'Quantile 0.9': 'above_quantile_mean_0.9',  # Uses parameter 0.9
-                'Quantile fg. ratio': 'above_quantile_mean_fg_ratio',
-                
-                # Patch
-                'Patch 10': 'patch_aggregation_10',
-                'Patch 20': 'patch_aggregation_20',
-                'Patch 50': 'patch_aggregation_40',  # Uses parameter 40, not 50!
-            }
-            
-            # Try direct mapping
-            if method_name in auroc_to_json_mapping:
-                json_name = auroc_to_json_mapping[method_name]
-                if json_name in correlation_colors:
-                    return correlation_colors[json_name]
-            
-            # If no direct mapping found, try the old CORR_METHODS_CORRESP approach
-            # but with case-insensitive matching
-            method_lower = method_name.lower()
-            for display_name, internal_name in display_to_internal.items():
-                if (display_name.lower() == method_lower or 
-                    method_lower.replace(' ', '').replace('-', '').replace('.', '') == 
-                    display_name.lower().replace(' ', '').replace('-', '').replace('.', '')):
-                    if internal_name in correlation_colors:
-                        return correlation_colors[internal_name]
+    # Try direct match first
+    if method_name in correlation_colors:
+        return correlation_colors[method_name]
+    
+    # Try mapping through AUROC display names
+    color = _try_auroc_mapping(method_name, correlation_colors)
+    if color:
+        return color
         
-        # If we get here, something went wrong - we should have found a match
-        print(f"Warning: Could not find color for method '{method_name}' in category '{category}'")
-        print(f"Available correlation colors: {list(correlation_colors.keys()) if correlation_colors else 'None'}")
-        
-        # Fallback to original category-based colors (and handle RGB tuples)
-        fallback_color = barplot_colors.get(category, '#C0C0C0')
-        
-        # Convert RGB tuple to hex if necessary
-        if isinstance(fallback_color, tuple):
-            if len(fallback_color) >= 3:
-                # Convert from 0-1 range to 0-255 range if necessary
-                if all(isinstance(x, (int, float)) and 0 <= x <= 1 for x in fallback_color[:3]):
-                    r, g, b = [int(x * 255) for x in fallback_color[:3]]
-                else:
-                    r, g, b = [int(x) for x in fallback_color[:3]]
-                return f'#{r:02x}{g:02x}{b:02x}'
+    # Fallback to category color
+    logger.warning(f"Could not find color for method '{method_name}' in category '{category}'")
+    return _convert_color_to_hex(barplot_colors.get(category, '#C0C0C0'))
+
+def _convert_color_to_hex(color) -> str:
+    """Convert color to hex format."""
+    if isinstance(color, tuple):
+        if len(color) >= 3:
+            # Convert from 0-1 range to 0-255 range if necessary
+            if all(isinstance(x, (int, float)) and 0 <= x <= 1 for x in color[:3]):
+                r, g, b = [int(x * 255) for x in color[:3]]
             else:
-                return '#C0C0C0'
-        
-        return fallback_color
-    
-    # Create plots for each noise level
-    for idx, (noise_level, df) in enumerate(zip(noise_levels, results)):
-        ax = axes[idx]
-        
-        # Get colors for each method
-        colors = [get_method_color(method, method_to_category[method]) for method in df['Aggregator']]
-        
-        bars = ax.bar(
-            df['Aggregator'],
-            df['AUROC'],
-            yerr=df['AUROC_std'],
-            color=colors,
-            capsize=4,
-            zorder=3,
-        )
-        
+                r, g, b = [int(x) for x in color[:3]]
+            return f'#{r:02x}{g:02x}{b:02x}'
+        else:
+            return '#C0C0C0'
+    return color
+
+def _format_bars(ax, bars, results: pd.DataFrame, show_values: bool = True) -> None:
+    """Format bars with values and labels."""
+    if show_values:
         # Add AUROC values on top of bars
         for bar in bars:
             height = bar.get_height()
@@ -686,78 +571,117 @@ def create_auroc_barplot(
                 textcoords="offset points",
                 ha='center', va='bottom'
             )
-        
-        # Add method label inside the bar, rotated horizontally
-        for bar, label in zip(bars, df['Aggregator']):
-            y_offset = 0.005 * 2 * bar.get_height()  # Adjust offset as needed
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                y_offset,
-                label,
-                ha="center",
-                va="bottom",
-                rotation="vertical",
-                fontsize=15,
-                zorder=4,
-            )
-        
-        ax.set_title(f'Noise Level: {noise_level}')
-        ax.set_ylabel('AUROC' + r" $\uparrow$", fontsize=12)
-        ax.set_ylim(0, 1)  # AUROC is between 0 and 1
-        ax.spines[['right', 'top']].set_visible(False)
-        ax.tick_params(axis='y', which='major', labelsize=13)
-        ax.set(xticklabels=[])
-        ax.tick_params(bottom=False)
     
-    # Create legend - use correlation colors if available, otherwise use original colors
-    if correlation_colors:
-        # Create legend based on categories but with correlation colors
-        legend_elements = []
-        for category in strategies_dict.keys():
-            # Use the first method's color from this category as representative
-            methods_in_category = [method for method in df['Aggregator'] if method_to_category[method] == category]
-            if methods_in_category:
-                representative_color = get_method_color(methods_in_category[0], category)
-                legend_elements.append(Patch(facecolor=representative_color, label=category))
-    else:
+    # Add method labels inside bars
+    for bar, label in zip(bars, results['Aggregator']):
+        y_offset = 0.005 * 2 * bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            y_offset,
+            label,
+            ha="center",
+            va="bottom",
+            rotation="vertical",
+            fontsize=15,
+            zorder=4,
+        )
+
+def _format_axes(ax) -> None:
+    """Format axes appearance."""
+    ax.set_ylabel('AUROC' + r" $\uparrow$", fontsize=12)
+    ax.set_ylim(0, 1)  # AUROC is between 0 and 1 (?)
+    ax.spines[['right', 'top']].set_visible(False)
+    ax.tick_params(axis='y', which='major', labelsize=13)
+    ax.set(xticklabels=[])
+    ax.tick_params(bottom=False)
+
+def _try_auroc_mapping(method_name: str, correlation_colors: Dict[str, str]) -> Optional[str]:
+    """Try to map method name through AUROC display names."""
+    auroc_to_json_mapping = {
+        'GMM Normalized': 'gmm_normalized_score',
+        'Equally-w. class avg.': 'class_mean_w_equal_weights',
+        'Imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
+        'Mean': 'mean',
+        'Threshold 0.3': 'above_threshold_mean_0.3',
+        'Threshold 0.5': 'above_threshold_mean_0.5',
+        'Threshold 0.7': 'above_threshold_mean_0.7',
+        'Quantile 0.6': 'above_quantile_mean_0.5',
+        'Quantile 0.75': 'above_quantile_mean_0.7',
+        'Quantile 0.9': 'above_quantile_mean_0.9',
+        'Quantile fg. ratio': 'above_quantile_mean_fg_ratio',
+        'Patch 10': 'patch_aggregation_10',
+        'Patch 20': 'patch_aggregation_20',
+        'Patch 50': 'patch_aggregation_40',
+    }
+    
+    if method_name in auroc_to_json_mapping:
+        json_name = auroc_to_json_mapping[method_name]
+        if json_name in correlation_colors:
+            return correlation_colors[json_name]
+    
+    return None
+
+def _add_legend(ax, strategies_dict: Dict, method_to_category: Dict, 
+               results: pd.DataFrame, correlation_colors: Dict[str, str], 
+               barplot_colors: Dict[str, str], legend_ncol: int = 3) -> None:
+    """Add legend to the plot."""
+    legend_elements = []
+    
+    for category in strategies_dict.keys():
+        # Use the first method's color from this category as representative
+        methods_in_category = [method for method in results['Aggregator'] 
+                              if method_to_category[method] == category]
+        
+        if methods_in_category:
+            representative_color = _get_method_color(
+                methods_in_category[0], category, correlation_colors, barplot_colors
+            )
+            legend_elements.append(Patch(facecolor=representative_color, label=category))
+    
+    # Fallback to original colors if no methods found
+    if not legend_elements:
         legend_elements = [
-            Patch(facecolor=v, label=k)
+            Patch(facecolor=_convert_color_to_hex(v), label=k)
             for k, v in barplot_colors.items()
         ]
     
-    fig.legend(
+    ax.legend(
         handles=legend_elements,
         loc='upper center',
-        bbox_to_anchor=(0.5, 0.05),
+        bbox_to_anchor=(0.5, -0.025),
         fancybox=True,
         shadow=True,
-        ncol=3
+        ncol=legend_ncol
     )
     
-    # Add title
-    plt.suptitle(
+def _add_title(ax, task: str, variation: str) -> None:
+    """Add title to the plot."""
+    title_text = (
         f'OOD correctness measured by the AUROC w.r.t. model confidence correctness.\n'
-        f'Task: {task}, Variation: {variation}',
-        fontsize=16
+        f'Task: {task}, Variation: {variation}'
     )
-    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    ax.set_title(title_text, fontsize=16, pad=20)
     
-    # Ensure output directory exists
+def _save_plot(fig, output_path: Path, task: str, dataset_name: str, 
+              variation: str, decomp: str, spatial: Optional[str]) -> None:
+    """Save the plot to file."""
     file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
     if spatial:
         file_name += f'_{spatial}'
-    output_file = output_path.joinpath(f'figures/{file_name}_barplot.png')
+    
+    output_file = output_path / f'figures/auroc_gmm/{file_name}_barplot.png'
     output_file.parent.mkdir(exist_ok=True, parents=True)
     
-    # Save the plot
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Plot saved to: {output_file}")
+    plt.tight_layout()
+    fig.savefig(output_file, dpi=300, bbox_inches='tight')
+    logger.info(f"Plot saved to: {output_file}")
 
 def create_selective_risks_coverage_plot(
         method_names: List[str],
         aurc_res: AnalysisResults,
         output_path: Path, 
-        args: argparse.Namespace
+        args: argparse.Namespace,
+        ood : bool,
     ) -> None:
     """
     Create and save AURC plot.
@@ -767,8 +691,9 @@ def create_selective_risks_coverage_plot(
         augrc_res: Analysis results containing AURC data
         output_path: Path to save output
         args: Command line arguments
+        ood: bool. to select between id and ood
     """
-    # # Plot mean results
+    # Plot mean results
     x = aurc_res.coverages.flatten() # Flatten to 1D for plotting
     y = aurc_res.mean_selective_risks # Shape: [coverage points, num_strategies]
     y_std = aurc_res.std_selective_risks # Shape: same as y
@@ -777,75 +702,430 @@ def create_selective_risks_coverage_plot(
     data_dict = {"Coverage": x[::-1]} # Reverse to match plotting order
     
     # Define method categories for styling
-    method_categories = ["Threshold", "Patch", "Quantile"]
+    method_categories = ["Threshold", "Patch", "Quantile", "Quantile fg."]
     first_occurrence = {cat: True for cat in method_categories}
     
+    # Build color file path
+    color_variation = 'none' if not args.variation else args.variation
+    color_noise = '1_00' if ood is True else '0_00'
+    if args.dataset_name == 'ade20k':
+        color_file_path = (output_path / "figures" / "colors" / 
+                          f"correlation_matrix_spearman_joint_noise_{args.dataset_name}_deeplabv3_{args.task}_{color_variation}_dropout_pu_{color_noise}_method_colors.json")
+    else:
+        color_file_path = (output_path / "figures" / "colors" / 
+                          f"correlation_matrix_spearman_joint_noise_{args.dataset_name}_{args.task}_{color_variation}_dropout_pu_{color_noise}_method_colors.json")
+    
+    # Load correlation-based colors
+    correlation_colors = _load_correlation_colors(color_file_path, output_path)
+
     # Plot each method
-    plt.figure(figsize=(8, 6))
     for j, method_name in enumerate(method_names):
+        # Add data to CSV export dictionary
         data_dict[f"{method_name} (Mean Risk)"] = y[:, j][::-1]
         data_dict[f"{method_name} (Std Dev)"] = y_std[:, j][::-1]
         
-        color = COLORS[j % len(COLORS)]
-        linestyle = '-'  # Default solid line
-        alpha = 1.0  # Default opacity
-        linewidth = 2  # Default line width
-        alpha_fill_in = 0.2 #default fill-in transparency
+        # Get color and styling
+        color, linestyle, alpha, linewidth, alpha_fill_current = _get_method_styling(
+            method_name, j, method_categories, first_occurrence, 
+            correlation_colors, 0.2, 0.1
+        )
         
-        # Check if the method belongs to a category
-        for cat in method_categories:
-            if method_name.startswith(cat):
-                if first_occurrence[cat]:
-                    first_occurrence[cat] = False  # Mark first as used
-                else:
-                    linestyle = '--'  # Dashed line for subsequent ones
-                    linewidth = 1 # Make it thinner
-                    alpha = 0.5  # Make it more transparent
-                    alpha_fill_in = 0.1
-                break  # Exit loop once category is found
-        
-        if method_name.startswith("Mean"):
-            color = 'gray'
-            linewidth = 2
-        
+        # Plot line
         plt.plot(x[::-1], y[:, j][::-1], 
                  label=f"{method_names[j]} (AURC: {aurc_res.mean_aurc[j]:.4f})",
                  linewidth=linewidth, color=color, linestyle=linestyle, alpha=alpha)
         
         # Add shaded area (mean ± std)
         plt.fill_between(x[::-1], 
-                        (y[:, j] - y_std[:, j])[::-1],  # Lower bound
-                        (y[:, j] + y_std[:, j])[::-1],  # Upper bound
-                        color=color, alpha=alpha_fill_in)  # Transparency
+                        (y[:, j] - y_std[:, j])[::-1],
+                        (y[:, j] + y_std[:, j])[::-1],
+                        color=color, alpha=alpha_fill_current)
     
-    # Convert to DataFrame and save
+    # Save data to CSV
+    _save_aurc_data(data_dict, output_path, args, ood)
+    
+    # Format and save plot
+    _format_aurc_plot()
+    _save_aurc_plot(output_path, args, ood)
+    
+      # Create and save barplot
+    _create_aurc_barplot(method_names, aurc_res, output_path, args, ood, correlation_colors)
+    
+def _get_method_styling(method_name: str, method_index: int, method_categories: List[str], 
+                       first_occurrence: Dict[str, bool], correlation_colors: Dict[str, str],
+                       alpha_fill: float, alpha_fill_secondary: float) -> tuple:
+    """Get styling parameters for a method."""
+    # Default fallback colors (you may want to define these based on your original COLORS list)
+    default_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                     '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    # Get color from correlation colors or fallback
+    color = _get_aurc_method_color(method_name, correlation_colors, 
+                                  default_colors[method_index % len(default_colors)])
+    
+    # Default styling
+    linestyle = '-'
+    alpha = 1.0
+    linewidth = 2
+    alpha_fill_current = alpha_fill
+    
+    # Special handling for Mean method
+    if method_name.startswith("Mean"):
+        color = 'gray'
+        linewidth = 2
+        return color, linestyle, alpha, linewidth, alpha_fill_current
+    
+    # Check if the method belongs to a category for special styling
+    for cat in method_categories:
+        if method_name.startswith(cat):
+            if cat == "Quantile fg.":
+                linestyle = '-'
+                break  # Do not modify style
+            if first_occurrence[cat]:
+                first_occurrence[cat] = False  # Mark first as used
+            else:
+                linestyle = '--'  # Dashed line for subsequent ones
+                linewidth = 1  # Make it thinner
+                alpha = 0.5  # Make it more transparent
+                alpha_fill_current = alpha_fill_secondary
+            break  # Exit loop once category is found
+    
+    return color, linestyle, alpha, linewidth, alpha_fill_current
+
+def _get_aurc_method_color(method_name: str, correlation_colors: Dict[str, str], 
+                          default_color: str) -> str:
+    """Get color for AURC method, mapping from display name to internal name."""
+    if not correlation_colors:
+        return default_color
+    
+    # Try direct match first
+    if method_name in correlation_colors:
+        return correlation_colors[method_name]
+    
+    # AUROC display name to internal name mapping (same as before)
+    auroc_to_json_mapping = {
+        'Equally-w. class avg.': 'class_mean_w_equal_weights',
+        'Imbalance-w. class avg.': 'class_mean_weighted_by_occurrence',
+        'Mean': 'mean',
+        'Threshold 0.3': 'above_threshold_mean_0.3',
+        'Threshold 0.5': 'above_threshold_mean_0.5',
+        'Threshold 0.7': 'above_threshold_mean_0.7',
+        'Quantile 0.6': 'above_quantile_mean_0.5',
+        'Quantile 0.75': 'above_quantile_mean_0.7',
+        'Quantile 0.9': 'above_quantile_mean_0.9',
+        'Quantile fg. ratio': 'above_quantile_mean_fg_ratio',
+        'Patch 10': 'patch_aggregation_10',
+        'Patch 20': 'patch_aggregation_20',
+        'Patch 50': 'patch_aggregation_40',
+    }
+    
+    # Try mapping through AUROC display names
+    if method_name in auroc_to_json_mapping:
+        json_name = auroc_to_json_mapping[method_name]
+        if json_name in correlation_colors:
+            return correlation_colors[json_name]
+    
+    # Try fuzzy matching with normalized strings
+    method_normalized = _normalize_aurc_string(method_name)
+    for internal_name, color in correlation_colors.items():
+        if method_normalized in _normalize_aurc_string(internal_name):
+            return color
+    
+    # Try partial matching for method categories
+    for display_name, internal_name in auroc_to_json_mapping.items():
+        if _normalize_aurc_string(display_name) == method_normalized:
+            if internal_name in correlation_colors:
+                return correlation_colors[internal_name]
+    
+    logger.warning(f"Could not find color for AURC method '{method_name}', using default")
+    return default_color
+
+def _normalize_aurc_string(s: str) -> str:
+    """Normalize string for fuzzy matching in AURC context."""
+    return s.lower().replace(' ', '').replace('-', '').replace('.', '').replace('_', '')
+
+def _save_aurc_data(data_dict: Dict, output_path: Path, args: argparse.Namespace, ood: bool) -> None:
+    """Save AURC data to CSV file."""
     df = pd.DataFrame(data_dict)
     
     # Define output file paths
-    ood = 'ood' if args.image_noise != '0_00' else 'id'
+    data_mod = 'ood' if ood is True else 'id'
     csv_file = output_path.joinpath(
-        f'tables/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{ood}.csv'
+        f'tables/aurc_{data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{data_mod}.csv'
     )
+    
+    # Ensure directory exists
+    csv_file.parent.mkdir(parents=True, exist_ok=True)
     
     # Check if file exists to handle headers
     file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
     df.to_csv(csv_file, mode='a', index=False, header=file_empty)
     print(f"Data saved to: {csv_file}")
+    logger.info(f"Data saved to: {csv_file}")
     
-    # Finalize plot
+def _format_aurc_plot(legend_ncol: int = 5) -> None:
+    """Format the AURC plot with labels, legend, and styling."""
     plt.xlabel("Coverage")
     plt.ylabel("Selective Risks")
-    plt.legend(loc='lower center', bbox_to_anchor=(0.5, -0.2), ncol=4, fontsize=8)
+    
+    # Get handles and labels
+    handles, labels = plt.gca().get_legend_handles_labels()
+
+    # Reorder manually: Mean first, then the rest
+    mean_indices = [i for i, label in enumerate(labels) if label.startswith("Mean")]
+    
+    if mean_indices:
+        mean_index = mean_indices[0]
+        mean_handle = handles[mean_index]
+        mean_label = labels[mean_index]
+
+        # Remove 'Mean' from the lists
+        handles.pop(mean_index)
+        labels.pop(mean_index)
+
+        # Combine with Mean at the beginning
+        handles = [mean_handle] + handles
+        labels = [mean_label] + labels
+
+    # Create legend
+    legend = plt.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.3), 
+                ncol=legend_ncol, fontsize=8, columnspacing=1.0)
+    frame = legend.get_frame()
+    frame.set_facecolor('#a39b9b')
+    
     plt.grid(False)
     
     # Remove top and right spines
     ax = plt.gca()
+    ax.set_facecolor('#a39b9b')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
-    # Save plot
-    output_file = output_path.joinpath(
-        f'figures/{ood}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}.png'
+
+def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults, 
+                        output_path: Path, args: argparse.Namespace, 
+                        ood: bool, correlation_colors: Dict[str, str]) -> None:
+    """Create and save AURC barplot with methods sorted by AURC values."""
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+    
+    # Create DataFrame with method names and AURC values
+    df = pd.DataFrame({
+        'Aggregator': method_names,
+        'AURC': aurc_res.mean_aurc,
+        'AURC_std': aurc_res.std_aurc
+    })
+    
+    # Sort by AURC values (lowest to highest)
+    df_sorted = df.sort_values('AURC', ascending=True).reset_index(drop=True)
+    
+    data_mod = 'ood' if ood is True else 'id'
+    # Save results to CSV
+    csv_name = f'{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    if args.spatial: 
+        csv_name += f'_{args.spatial}'
+    csv_file = output_path.joinpath(f'tables/aurc_{data_mod}/{csv_name}_aurc_{data_mod}_results.csv')
+    
+    # Check if the file exists to handle headers properly
+    file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
+    
+    # Append to CSV (write header only if the file is empty)
+    df.to_csv(csv_file, mode='a', index=False, header=file_empty)
+    print(f"Data appended to {csv_file}")
+    
+    # Create new figure for barplot
+    plt.figure(figsize=(6, 5))
+    plt.rcParams['axes.grid'] = False
+    ax = plt.gca()
+    
+    # Add title
+    plt.suptitle(
+        f'iD failures measured by the AURC w.r.t. model confidence correctness.\n'
+        f'Task: {args.task}, Variation: {args.variation}',
+        fontsize=16
     )
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    
+    # Define method categories for coloring
+    method_categories = ["Threshold", "Patch", "Quantile", "Quantile fg."]
+    
+    # Create method to category mapping
+    method_to_category = {}
+    for method in df_sorted['Aggregator']:
+        category = "Other"  # Default category
+        for cat in method_categories:
+            if method.startswith(cat):
+                category = cat
+                break
+        if method.startswith("Mean"):
+            category = "Mean"
+        elif method.startswith("Equally-w.") or method.startswith("Imbalance-w."):
+            category = "Class Average"
+        method_to_category[method] = category
+    
+    # Define strategies dictionary for legend
+    strategies_dict = {
+        "Threshold": ["Threshold 0.3", "Threshold 0.5", "Threshold 0.7"],
+        "Patch": ["Patch 10", "Patch 20", "Patch 50"],
+        "Quantile": ["Quantile 0.6", "Quantile 0.75", "Quantile 0.9"],
+        "Quantile fg.": ["Quantile fg. ratio"],
+        "Class Average": ["Equally-w. class avg.", "Imbalance-w. class avg."],
+        "Mean": ["Mean"]
+    }
+    
+    # Define barplot colors (fallback colors)
+    barplot_colors = {
+        "Threshold": '#1f77b4',
+        "Patch": '#ff7f0e', 
+        "Quantile": '#2ca02c',
+        "Quantile fg.": '#d62728',
+        "Class Average": '#9467bd',
+        "Mean": '#8c564b',
+        "Other": '#e377c2'
+    }
+    
+    # Get colors for each method
+    colors = []
+    for method in df_sorted['Aggregator']:
+        category = method_to_category[method]
+        color = _get_method_color(method, category, correlation_colors, barplot_colors)
+        colors.append(color)
+    
+    # Create bars
+    bars = ax.bar(
+        df['Aggregator'], #range(len(df_sorted)), 
+        df_sorted['AURC'], 
+        yerr=df['AURC_std'],
+        color=colors,
+        capsize=4,
+        zorder=3,
+        )
+    
+    # Format bars and axes
+    _format_aurc_bars(ax, bars, df_sorted, show_values=True)
+    _format_aurc_axes(ax)
+    
+    # Add legend
+    _add_aurc_legend(ax, strategies_dict, method_to_category, df_sorted, 
+                     correlation_colors, barplot_colors, legend_ncol=3)
+    
+    # Save barplot
+    _save_aurc_barplot(output_path, args, ood)
+
+def _get_method_color(method_name: str, category: str, correlation_colors: Dict[str, str], 
+                     barplot_colors: Dict[str, str]) -> str:
+    """Get color for method, prioritizing correlation colors."""
+    # Try to get color from correlation colors first
+    color = _get_aurc_method_color(method_name, correlation_colors, None)
+    if color is not None:
+        return color
+    
+    # Fallback to category-based colors
+    return barplot_colors.get(category, '#e377c2')
+
+def _format_aurc_bars(ax, bars, results: pd.DataFrame, show_values: bool = True) -> None:
+    """Format bars with values and labels."""
+    if show_values:
+        # Add AURC values on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(
+                f'{height:.3f}',
+                xy=(bar.get_x() + bar.get_width()/2, height),
+                xytext=(0, 3),  # 3 points vertical offset
+                textcoords="offset points",
+                ha='center', va='bottom'
+            )
+    
+    # Add method labels inside bars
+    for bar, label in zip(bars, results['Aggregator']):
+        y_offset = 0.005 * 2 * bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            y_offset,
+            label,
+            ha="center", va="bottom",
+            rotation="vertical",
+            fontsize=15,
+            zorder=4,
+        )
+
+def _format_aurc_axes(ax) -> None:
+    """Format axes appearance for AURC barplot."""
+    ax.set_ylabel('AURC' + r" $\downarrow$", fontsize=12)  # Lower is better for AURC
+    ax.set_ylim(0, 1)
+    # Set y-axis limits based on data range
+    # y_min = min([bar.get_height() for bar in ax.patches])
+    # y_max = max([bar.get_height() for bar in ax.patches])
+    # y_range = y_max - y_min
+    # ax.set_ylim(max(0, y_min - 0.1 * y_range), y_max + 0.1 * y_range)
+    ax.spines[['right', 'top']].set_visible(False)
+    ax.tick_params(axis='y', which='major', labelsize=13)
+    ax.set(xticklabels=[])
+    ax.tick_params(bottom=False)
+
+def _add_aurc_legend(ax, strategies_dict: Dict, method_to_category: Dict,
+                    results: pd.DataFrame, correlation_colors: Dict[str, str], 
+                    barplot_colors: Dict[str, str], legend_ncol: int = 3) -> None:
+    """Add legend to the AURC barplot."""
+    from matplotlib.patches import Patch
+    
+    legend_elements = []
+    for category in strategies_dict.keys():
+        # Use the first method's color from this category as representative
+        methods_in_category = [method for method in results['Aggregator'] 
+                              if method_to_category[method] == category]
+        if methods_in_category:
+            representative_color = _get_method_color(
+                methods_in_category[0], category, correlation_colors, barplot_colors
+            )
+            legend_elements.append(Patch(facecolor=representative_color, label=category))
+    
+    # Fallback to original colors if no methods found
+    if not legend_elements:
+        legend_elements = [
+            Patch(facecolor=color, label=category) 
+            for category, color in barplot_colors.items()
+        ]
+    
+    ax.legend(
+        handles=legend_elements,
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.025),
+        fancybox=True,
+        shadow=True,
+        ncol=legend_ncol
+    )
+
+def _save_aurc_plot(output_path: Path, args: argparse.Namespace, ood: bool) -> None:
+    """Save the AURC plot to file."""
+    data_mod = 'ood' if ood is True else 'id'
+    output_file = output_path.joinpath(
+        f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}.png'
+    )
+    
+    # Ensure directory exists
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
+    logger.info(f"Plot saved to: {output_file}")
+    plt.close()  # Close figure to free memory
+
+def _save_aurc_barplot(output_path: Path, args: argparse.Namespace, ood: bool) -> None:
+    """Save the AURC barplot to file."""
+    data_mod = 'ood' if ood is True else 'id'
+    output_file = output_path.joinpath(
+        f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}_barplot.png'
+    )
+    
+    # Ensure directory exists
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"AURC Barplot saved to: {output_file}")
+    logger.info(f"AURC Barplot saved to: {output_file}")
+    plt.close()  # Close figure to free memory
+

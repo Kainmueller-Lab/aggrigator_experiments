@@ -3,6 +3,7 @@ import torch
 import argparse
 import mahotas as mh
 import os
+import json
 import cv2
 
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from datasets.Arctique.arctique_dataset_creation import (
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
 from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import OptimizedGTA_CityscapesDataset
 from datasets.ADE20K.ade20k_dataset_creation import OptimizedADE20K_CityscapesDataset
+from datasets.Weedsgalore.weedsgalore_dataset_creation import OptimizedWeedsGalore
 
 from evaluation.constants import BACKGROUND_FREE_STRATEGIES, AUROC_STRATEGIES
 
@@ -41,6 +43,7 @@ class DataPaths:
 class AnalysisResults(NamedTuple):
     """Container for AURC analysis results."""
     mean_aurc: np.ndarray
+    std_aurc: np.ndarray
     coverages: np.ndarray
     mean_selective_risks: np.ndarray
     std_selective_risks: np.ndarray
@@ -69,11 +72,11 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
         elif args.dataset_name.startswith('lizard'): 
             data_path = Path(args.label_path)
             
-    elif args.dataset_name.startswith(('gta', 'ade20k')): 
+    elif args.dataset_name.startswith(('gta', 'ade20k', 'weedsgalore')): 
         data_path = Path(args.label_path)
         uq_maps_path = base_path
         
-        if args.dataset_name.startswith('gta'):
+        if args.dataset_name.startswith(('gta', 'weedsgalore')):
             preds_path = base_path
         else:
             preds_path = data_path
@@ -206,8 +209,10 @@ def remove_background_only_images(gt_list, pred_list, idx_task, task, dataset_na
     '''Excludes images containing only background (class 0) from ground truth and predictions for the AURC experiment.'''
     if dataset_name.startswith(('arctique', 'lizard')):
         mask = np.array([np.all(np.unique(gt[..., idx_task]) == 0) for gt in gt_list])
-    elif dataset_name.startswith('lidc'):
+    elif dataset_name.startswith(('lidc', 'weedsgalore')):
         mask = np.array([np.all(np.unique(gt) == 0) for gt in gt_list])
+    elif dataset_name.startswith(('gta', 'ade20k')):
+        mask = np.array([np.all(np.unique(gt) == 255) for gt in gt_list])
         
     background_only_indices = np.where(mask)[0].tolist()  # Get indices of images to remove
     
@@ -236,19 +241,25 @@ def select_strategies(str_type: str):
 def rescale_maps(unc_maps, uq_method, task, dataset_name):
     if uq_method == 'softmax':
         return unc_maps
-    if task == 'instance':
-        rescale_fact = np.log(3) 
-    elif task == 'semantic' and dataset_name.startswith('arctique'):
-        rescale_fact = np.log(6)
-    elif task == 'semantic' and dataset_name.startswith('lizard'):
-        rescale_fact = np.log(7) 
-    elif task == 'semantic' and dataset_name.startswith('gta'):
-        rescale_fact = np.log(24) 
-    elif task == 'semantic' and dataset_name.startswith('ade20k'):
-        rescale_fact = np.log(150) 
+    if task == 'instance' or dataset_name.startswith('weedsgalore'):
+        return unc_maps/np.log(3) 
+    elif task == 'semantic':
+        if dataset_name.startswith('arctique'):
+            return unc_maps/np.log(6)
+        elif dataset_name.startswith('lizard'):
+            return unc_maps/np.log(7) 
+        elif dataset_name.startswith('gta'):
+            return unc_maps/np.log(19) 
+        elif dataset_name.startswith('ade20k'):
+            return unc_maps/np.log(150)   
+    elif task == 'panoptic' and dataset_name.startswith('arctique'):
+        map1 = unc_maps[...,0] / np.log(6)
+        map2 = unc_maps[...,1] / np.log(3)
+        return np.stack([map1, map2], axis=-1) 
     elif task == 'fgbg' and dataset_name.startswith('lidc'):
-        rescale_fact = np.log(2) #TODO: define how to normalize ValUES maps
-    return unc_maps / rescale_fact 
+        return unc_maps/np.log(2) 
+    else:
+        raise ValueError('Undefined rescale factor for the chosen dataset/task')
 
 # ---- Pre-cache uncertainty maps, gt and OoD AUROC targets ----
 
@@ -311,7 +322,7 @@ def preload_uncertainty_maps(
         }
     return cached_maps
 
-def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str) -> Dict:
+def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str, args: argparse.Namespace = None) -> Dict:
     """
     Convert concatenated_data format to cached_maps format for a specific combo key.
     
@@ -337,22 +348,51 @@ def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str
             masks = data['mask']  # Shape: (N, H, W) or similar
             uq_maps = data.get('uq_map', None)  # Shape: (N, H, W) or similar
             gt_labels = data['gt_label']  # Shape: (N,)
+            real_masks = data['real_mask'] # Shape: (N, H, W) or similar
+            sample_names = data['sample_names']
             
             # Create UncertaintyMap objects
-            uncertainty_maps = []
-            for i in range(len(masks)):
-                uncertainty_map = UncertaintyMap(
-                    array=uq_maps[i], 
-                    mask=masks[i], 
-                    name=None
-                )
-                uncertainty_maps.append(uncertainty_map)
+            if uq_maps[0].ndim > 2:
+                if args.variation == 'blood_cells':
+                    uncertainty_maps = []
+                    for i in range(len(masks)):
+                        uncertainty_map = UncertaintyMap(
+                            array=uq_maps[i][...,0], 
+                            mask=masks[i][...,1], 
+                            name=None
+                        )
+                        uncertainty_maps.append(uncertainty_map)
+                    args.task = 'semantic'
+                elif args.variation == 'nuclei_intensity':
+                    uncertainty_maps = []
+                    for i in range(len(masks)):
+                        uncertainty_map = UncertaintyMap(
+                            array=uq_maps[i][...,1], 
+                            mask=masks[i][...,2], 
+                            name=None
+                        )
+                        uncertainty_maps.append(uncertainty_map)
+                    args.task = 'instance'
+                else:
+                    raise NotImplementedError
+            else:       
+                uncertainty_maps = []
+                for i in range(len(masks)):
+                    uncertainty_map = UncertaintyMap(
+                        array=uq_maps[i], 
+                        mask=masks[i], 
+                        name=None
+                    )
+                    uncertainty_maps.append(uncertainty_map)
                     
             # Store in cached_maps format
             cached_maps[uq_method] = {
                 'maps': uncertainty_maps,
                 'gt_labels': gt_labels,
-                'metadata': None  # Add metadata if available
+                'masks': masks,
+                'real_masks': real_masks,
+                'metadata': None, # Add metadata if available
+                'sample_names': sample_names,
             }
     
     return cached_maps
@@ -660,10 +700,14 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
             }
         }
     """
-    concatenated_results = {}
-    idx_task = 1 if task == 'instance' else 2 #in {'instance', 'semantic'} else 2 #for panoptic masks
     
-    common_size = (256,256)
+    concatenated_results = {}
+    idx_task = 1 #if task == 'instance' else 2 #in {'instance', 'semantic'} else 2 #for panoptic masks
+    
+    def is_list_of_lists(lst):
+        return bool(lst) and isinstance(lst[0], list)
+    
+    # common_size = (256,256)
 
     for uq_method, noise_loaders in datasets.items():
         print(f"Processing UQ Method: {uq_method}")
@@ -671,12 +715,17 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
         
         for noise_combo in noise_combinations:
             print(f"Processing noise combo: {noise_combo}")
+            # Define only one noise_combo if there is only one noise_level list in noise_combinations
+            if not is_list_of_lists(noise_combinations): noise_combo = [noise_combo]
+            
             # Create a key for this noise combination
             combo_key = '_'.join(sorted(noise_combo))
             
             all_masks = []
             all_uq_maps = []
             all_gt_labels = []
+            all_real_msks = []
+            all_sample_names = [] 
             
             for noise_level in noise_combo:
                 if noise_level not in noise_loaders:
@@ -692,12 +741,24 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                         # masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
                         # masks = masks[..., idx_task] if masks.ndim > 3 else masks #panoptic masks vs non-panoptic case
                         preds = batch['prediction'].numpy() if isinstance(batch['prediction'], torch.Tensor) else batch['prediction']
-                        preds = preds[..., idx_task] if preds.ndim > 3 else preds #panoptic preds vs non-panoptic case
+                        if is_list_of_lists(noise_combinations) and preds.ndim > 3:
+                            preds = preds[..., idx_task] #panoptic preds vs non-panoptic case
+                        else:
+                            preds 
                         # if dataset_name.startswith('ade20k'): preds = resize_array(preds, common_size)
                         # all_masks.append(preds)
                         # Store each sample separately
                         for i in range(preds.shape[0]):
                             all_masks.append(preds[i])
+                    
+                    if 'mask' in batch:
+                        masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
+                        if is_list_of_lists(noise_combinations) and masks.ndim > 3:
+                            masks = masks[..., idx_task] #panoptic preds vs non-panoptic case
+                        else:
+                            masks 
+                        for i in range(masks.shape[0]):
+                            all_real_msks.append(masks[i])
                     
                     if 'uq_map' in batch:
                         uq_maps = batch['uq_map'].numpy() if isinstance(batch['uq_map'], torch.Tensor) else batch['uq_map']
@@ -706,6 +767,10 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                         # all_uq_maps.append(uq_maps)
                         for i in range(uq_maps.shape[0]):
                             all_uq_maps.append(uq_maps[i])
+                    
+                    if 'sample_name' in batch:
+                        # Dataloader batch size is 1, so name is a list with one element
+                        all_sample_names.extend(batch['sample_name'])
                     
                     # Create gt_labels: 1 for noisy data, 0 for clean (0_00)
                     batch_size = uq_maps.shape[0] #masks.shape[0] if 'mask' in batch else uq_maps.shape[0]
@@ -720,8 +785,10 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
             if all_masks:
                 concatenated_results[uq_method][combo_key] = {
                     'mask': all_masks, #np.concatenate(all_masks, axis=0),
-                    'uq_map':all_uq_maps, #np.concatenate(all_uq_maps, axis=0) if all_uq_maps else None,
-                    'gt_label': np.concatenate(all_gt_labels, axis=0)
+                    'uq_map': all_uq_maps, #np.concatenate(all_uq_maps, axis=0) if all_uq_maps else None,
+                    'gt_label': np.concatenate(all_gt_labels, axis=0),
+                    'real_mask': all_real_msks,
+                    'sample_names': all_sample_names
                 }
             else:
                 print(f"Warning: No data found for combination {combo_key} in {uq_method}")
@@ -750,8 +817,8 @@ def process_concatenated_datasets(datasets, image_noises, task, dataset_name):
     """
     Process and concatenate datasets for all noise combinations.
     """
-    # Create noise combinations
-    noise_combinations = create_noise_combinations(image_noises)
+    # Create noise combinations for the image_noises list larger than 1 item
+    noise_combinations = create_noise_combinations(image_noises) if len(image_noises) > 1 else image_noises
     
     print(f"Processing {len(noise_combinations)} noise combinations:")
     for combo in noise_combinations:
@@ -777,7 +844,6 @@ def process_concatenated_datasets(datasets, image_noises, task, dataset_name):
             print(f"    GT labels distribution: {np.bincount(data['gt_label'])}")
     return concatenated_data
 
-
 def load_dataset_abstract_class(
     paths: DataPaths,
     image_noises: List[str],
@@ -785,13 +851,14 @@ def load_dataset_abstract_class(
     num_workers: int,
     dataset_name: str,
     task: str = 'semantic',
-    return_id_only: bool = False,
+    return_one_only: bool = False,
     uq_methods: Optional[List[str]] = None,
+    ood: bool = False,
 ) -> Tuple[Dict[str, DataLoader]]:
     """Load uq data loader and gt"""
     
     # Common setup
-    noise_levels_to_process = ['0_00'] if return_id_only else image_noises
+    noise_levels_to_process = image_noises
     datasets = {}
     
     # Dataset-specific configuration
@@ -803,6 +870,8 @@ def load_dataset_abstract_class(
         dataset_config = _get_gta_config(paths)
     elif dataset_name.startswith("ade20k"):
         dataset_config = _get_ade20k_config(paths)
+    elif dataset_name.startswith("weedsgalore"):
+        dataset_config = _get_weeds_config(paths)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} not implemented in optimized version")
     
@@ -830,7 +899,7 @@ def load_dataset_abstract_class(
                 **dataset_config.get('extra_kwargs', {}),
                 **current_extra_info
             )
-            
+                        
             # Create DataLoader with common configuration
             loader = DataLoader(
                 data_loader,
@@ -844,27 +913,14 @@ def load_dataset_abstract_class(
             datasets[uq_method][noise] = loader
             
             # Handle early return for id-only case
-            if return_id_only:
+            if return_one_only:
                 break
     
     # Final processing
-    if datasets is not None:
-        concatenated_data = process_concatenated_datasets(datasets, image_noises, task, dataset_name)
-        return concatenated_data
-    
-    # Handle early return for id-only case (for selective classification)
-    # if return_id_only:
-    #     id_gt_list = np.array([label.numpy().squeeze() for _, label in dataset['id_masks']])
-    #     print(f"GT masks shape: {id_gt_list.shape}")
-    #     print(f"✓ Loaded {dataset_name} id-only test set and ground truth")
-    #     return dataset['id_masks'], id_gt_list
-    
-    # # Create ground truth labels using separated function
-    # context_gt, gt_labels = extract_gt_masks_labels(dataset, task)
-    # print(f"GT masks shape: {context_gt.shape}")
-    # print(f"✓ Loaded {dataset_name} test set and ground truth")
-    # return dataset, context_gt, gt_labels
-
+    if (datasets is not None and return_one_only is not True):
+        return process_concatenated_datasets(datasets, image_noises, task, dataset_name)
+    elif datasets is not None:
+        return process_concatenated_datasets(datasets, noise_levels_to_process, task, dataset_name)
 
 def _get_arctique_config(paths: DataPaths, task: str) -> dict:
     """Get configuration for Arctique dataset"""
@@ -883,6 +939,22 @@ def _get_arctique_config(paths: DataPaths, task: str) -> dict:
     
     def get_paths(noise: str, extra_info: dict) -> dict:
         """Get paths for Arctique dataset - uses reference paths for all noise levels"""
+        if extra_info['data_noise'] == "0_00":
+            # Construct the path to the potential new split file
+            dynamic_split_filename = f"{extra_info['task']}_arctique_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+            dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+            
+            # Check if the dynamic split file exists
+            use_dynamic_split = os.path.exists(dynamic_split_path)
+            if use_dynamic_split:
+                print(f"Found spatial split file. Using: {dynamic_split_path}")
+            
+            # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+            if use_dynamic_split:
+                extra_info['split_path'] = dynamic_split_path
+        else:
+            extra_info['split_path'] = None
+        
         return {
             'image_path': ref_image_path,
             'mask_path': ref_mask_path,
@@ -893,17 +965,28 @@ def _get_arctique_config(paths: DataPaths, task: str) -> dict:
         'get_paths': get_paths,
         'extra_kwargs': {'shared_masks': shared_masks}
     }
-
-
 def _get_lidc_config(paths: DataPaths) -> dict:
     """Get configuration for LIDC dataset"""
     
     def get_paths(noise: str, extra_info: dict) -> dict:
-        """Get paths for LIDC dataset - different paths based on noise level"""
+        """Get paths for LIDC dataset - different paths based on noise level"""                
         if extra_info['data_noise'] == "0_00":
             data_dir = paths.data / "id"
+            # Construct the path to the potential new split file
+            dynamic_split_filename = f"{extra_info['task']}_lidc_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+            dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+            
+            # Check if the dynamic split file exists
+            use_dynamic_split = os.path.exists(dynamic_split_path)
+            if use_dynamic_split:
+                print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+            # If the dynamic file exists, override the split path
+            if use_dynamic_split:
+                extra_info['split_path'] = dynamic_split_path
         else:
             data_dir = paths.data / "ood"
+            extra_info['split_path'] = None
         
         return {
             'image_path': data_dir / "input",
@@ -924,6 +1007,19 @@ def _get_gta_config(paths: DataPaths) -> dict:
         if extra_info['data_noise'] == "0_00":
             ref_data_path = paths.data.joinpath('OriginalData', 'preprocessed')
             extra_info['split_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test"
+            
+            # Construct the path to the potential new split file
+            dynamic_split_filename = f"{extra_info['task']}_gta_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+            dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+            
+            # Check if the dynamic split file exists
+            use_dynamic_split = os.path.exists(dynamic_split_path)
+            if use_dynamic_split:
+                print(f"Found spatial split file. Using: {dynamic_split_path}")
+            
+            # If it's the '0_00' noise level and the dynamic file exists, override the split path
+            if use_dynamic_split:
+                extra_info['split_path'] = dynamic_split_path
         else:
             ref_data_path = paths.data.joinpath('CityScapesOriginalData', 'preprocessed')
             extra_info['split_path'] = None
@@ -948,8 +1044,46 @@ def _get_ade20k_config(paths: DataPaths) -> dict:
         if extra_info['data_noise'] == "0_00":
             ref_img_path = paths.data.joinpath('images', 'validation')
             ref_msk_path = paths.data.joinpath('annotations', 'validation')
-            # extra_info['split_path'] = None
-            extra_info['split_path'] =  "/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test"
+
+            original_full_split_path = Path("/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test")
+            dynamic_gmm_split_filename = f"{extra_info['task']}_ade20k_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+            dynamic_gmm_split_path = Path(os.getcwd()) / "spatial" / "splits" / dynamic_gmm_split_filename
+            
+            if dynamic_gmm_split_path.exists():
+                print(f"Found dynamic GMM split file: {dynamic_gmm_split_path}")
+                
+                # Load names from the original full test set and STRIP the file extension.
+                with open(original_full_split_path, 'r') as f:
+                    # We split each line at the '.' and take the first part.
+                    original_names = {line.strip().split('.')[0] for line in f}
+
+                with open(dynamic_gmm_split_path, 'r') as f:
+                    # The JSON names are likely already clean, but using a set is good practice.
+                    gmm_names = set(json.load(f))
+                    
+                common_samples = sorted(list(original_names.intersection(gmm_names)))
+                
+                print(f"Found {len(common_samples)} common samples between original test set ({len(original_names)}) and GMM split ({len(gmm_names)}).")
+
+                if not common_samples:
+                    raise ValueError("No common samples found between the original and GMM splits. Cannot proceed.")
+
+                intersection_split_dir = original_full_split_path.parent
+                intersection_filename = "ADE20k_id_test_intersection"
+                intersection_split_path = intersection_split_dir / intersection_filename
+                
+                print(f"Creating new intersection split file at: {intersection_split_path}")
+                # Write the CLEAN names (without extension) to the new file
+                with open(intersection_split_path, 'w') as f:
+                    for name in common_samples:
+                        # Re-add the extension for the dataloader
+                        f.write(f"{name}.png\n")
+                
+                extra_info['split_path'] = str(intersection_split_path)
+
+            else:
+                print("Dynamic GMM split not found. Using original full test set.")
+                extra_info['split_path'] = str(original_full_split_path)
         else:
             ref_img_path = paths.data.joinpath('images', 'test_cityscapes')
             ref_msk_path = paths.data.joinpath('annotations', 'test_cityscapes')
@@ -963,6 +1097,22 @@ def _get_ade20k_config(paths: DataPaths) -> dict:
     
     return {
         'dataset_class': OptimizedADE20K_CityscapesDataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {}
+    }
+
+def _get_weeds_config(paths: DataPaths) -> dict:
+    """Get configuration for Weedsgalore dataset"""
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for GTA dataset - uses reference paths for all noise levels"""
+        return {
+            'image_path': paths.data,
+            'mask_path': paths.data
+        }
+    
+    return {
+        'dataset_class': OptimizedWeedsGalore,
         'get_paths': get_paths,
         'extra_kwargs': {}
     }

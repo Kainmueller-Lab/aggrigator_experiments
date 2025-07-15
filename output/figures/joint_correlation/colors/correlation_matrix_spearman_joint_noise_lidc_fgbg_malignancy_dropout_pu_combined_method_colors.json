@@ -1,0 +1,78 @@
+{
+  "mean": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_threshold_mean_0.3": {
+    "correlation_with_mean": 0.02090173811612505,
+    "color": "#f7f4f2"
+  },
+  "above_threshold_mean_0.5": {
+    "correlation_with_mean": -0.0413311096758023,
+    "color": "#eef3f5"
+  },
+  "above_threshold_mean_0.7": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.9": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_threshold_mean_0.95": {
+    "correlation_with_mean": NaN,
+    "color": "#000000"
+  },
+  "above_quantile_mean_0.3": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.5": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.7": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.9": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_fg_ratio": {
+    "correlation_with_mean": 0.45770005687678944,
+    "color": "#eb9072"
+  },
+  "patch_aggregation_10": {
+    "correlation_with_mean": 0.9189688912882111,
+    "color": "#840923"
+  },
+  "patch_aggregation_20": {
+    "correlation_with_mean": 0.998661949427858,
+    "color": "#67001f"
+  },
+  "patch_aggregation_40": {
+    "correlation_with_mean": 0.9999691515718239,
+    "color": "#67001f"
+  },
+  "patch_aggregation_80": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "patch_aggregation_100": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "class_mean_w_equal_weights": {
+    "correlation_with_mean": 0.4858665453326602,
+    "color": "#e6856a"
+  },
+  "class_mean_weighted_by_occurrence": {
+    "correlation_with_mean": 0.4858665453326602,
+    "color": "#e6856a"
+  },
+  "gmm_normalized_score": {
+    "correlation_with_mean": 0.5072734809559156,
+    "color": "#e48065"
+  }
+}

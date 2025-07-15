@@ -1,0 +1,15 @@
+Aggregator,AUROC,AUROC_std,Noise_Level
+GMM Normalized,1.0,0.0,1_00
+Equally-w. class avg.,0.886884,0.0,1_00
+Imbalance-w. class avg.,0.85284,0.0,1_00
+Mean,0.749528,0.0,1_00
+Quantile 0.6,0.6422680000000001,0.0,1_00
+Quantile fg. ratio,0.641556,0.0,1_00
+Quantile 0.75,0.600844,0.0,1_00
+Patch 50,0.45688000000000006,0.0,1_00
+Quantile 0.9,0.45585200000000003,0.0,1_00
+Patch 10,0.42854800000000004,0.0,1_00
+Patch 20,0.417944,0.0,1_00
+Threshold 0.3,0.353436,0.0,1_00
+Threshold 0.7,0.34439600000000004,0.0,1_00
+Threshold 0.5,0.31304000000000004,0.0,1_00

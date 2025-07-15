@@ -1,0 +1,12 @@
+[paths]
+id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_ade20k_deeplabv3_semantic_cityscapes_0_00_dropout_pu.csv'
+ood_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_ade20k_deeplabv3_semantic_cityscapes_1_00_dropout_pu.csv' 
+
+[dataset]
+task = 'semantic'
+dataset_name = 'ade20k'
+variation = 'cityscapes'
+
+[pm]
+model_ceckpoint = 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512'
+uq_method = 'dropout'

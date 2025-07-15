@@ -1,0 +1,11 @@
+[paths]
+id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_gta_0_00_dropout_pu.csv'
+ood_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_gta_1_00_dropout_pu.csv' 
+
+[dataset]
+task = 'semantic'
+dataset_name = 'gta'
+variation = 'cityscapes'
+
+[pm]
+uq_method = 'dropout'

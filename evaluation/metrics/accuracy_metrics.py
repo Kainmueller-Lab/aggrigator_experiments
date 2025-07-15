@@ -11,7 +11,7 @@ from skimage.measure import regionprops, label
 from scipy.optimize import linear_sum_assignment
 
 from evaluation.data_utils import validate_metric_keys
-from evaluation.metrics.dice import dice_coefficient_torchmetrics 
+from evaluation.metrics.dice import dice_coefficient_torchmetrics, dice_torchmetrics_aligned, debug_dice_calculation, compare_ignore_strategies
 
 # ---- Functions to handle calculations of performance metrics or to load them if they exist. ----
 
@@ -119,18 +119,31 @@ def acc_score(
     This function maintains backward compatibility with the original interface.
     Consider using calculate_accuracy_scores directly for new code.
     """
+    dataset_config = None 
     if shared_data["dataset_name"].startswith('lidc'):
-        # TODO - Predefine the check function to verify that Performance_metrics exists, 
-        # otherwise proceed with on-the-fly calculation 
-                
-        return dice_coefficient_torchmetrics(
-            preds=acc_preds, 
-            targets=acc_y, 
-            ignore_index=True, 
-            num_classes=2, 
-            smooth=1e-6
-        )
+        dataset_config = {'num_classes': 2, 'ignore_index': True, 'ignore_value': 0, 'average': 'micro'}
+    elif shared_data["dataset_name"].startswith('weedsgalore'):
+        dataset_config = {'num_classes': 3, 'ignore_index': True, 'ignore_value': 0, 'average': 'macro'}
+    elif shared_data["dataset_name"].startswith('gta'):
+        dataset_config = {'num_classes': 19, 'ignore_index': True, 'ignore_value': 18, 'average': 'macro'}
+    elif shared_data["dataset_name"].startswith('ade20k'):
+        dataset_config = {'num_classes': 150, 'ignore_index': True, 'ignore_value': 0, 'average': 'macro'} #because of padding
+            
+    # TODO - Predefine the check function to verify that Performance_metrics exists, 
+    # otherwise proceed with on-the-fly calculation 
+    if dataset_config is not None:
+        # individual_dice = debug_dice_calculation(acc_preds, acc_y, num_classes=19, ignore_index=255)
+        # print('INDIVIDUAL_DICE', individual_dice)
+        # compare_ignore_strategies(acc_preds, acc_y, num_classes=19)
         
+        return dice_torchmetrics_aligned(
+            preds=acc_preds,
+            targets=acc_y,
+            num_classes=dataset_config['num_classes'],
+            ignore_index=dataset_config['ignore_value'],
+            average=dataset_config['average'],
+            # ignore_value=dataset_config['ignore_value'],
+        )
         # 3d score
         # return load_accuracy_scores( 
         #     task=shared_data["task"],
@@ -140,7 +153,8 @@ def acc_score(
         #     uq_method=shared_data["uq_method"], 
         #     metric=MetricType.DICE.value
         # )
-        
+
+    # Fallback for other datasets
     return calculate_accuracy_scores(
         ground_truth_masks=acc_y,
         predictions=acc_preds,

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Callable, Any, Tuple, Optional
@@ -117,46 +118,93 @@ def evaluate_all_strategies(
     cached_maps: Dict,
     strategies: Dict,
     noise_level: str,
-    ignore_index: int 
+    ignore_index: int, 
+    dataset_name: str,
+    task: str,
+    variation: str,
+    decomp: str
     ) -> pd.DataFrame:
     """
     Evaluate all aggregation strategies for a given noise level.
-    
-    Parameters
-    ----------
-    cached_maps : Dict
-        Preloaded uncertainty maps
-    strategies : Dict
-        Dictionary of aggregation strategies
-    noise_level : str
-        Current noise level
-    
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with AUROC results for all strategies
     """
+    if not cached_maps:
+        print(f"Warning: cached_maps dictionary is empty for noise level {noise_level}. No strategies will be evaluated.")
+        return pd.DataFrame()
+    
     auroc_data = []
     
-    # Process each aggregation strategy
+    # ... (standard aggregator loop remains the same) ...
     for category, methods in strategies.items():
         for aggr_name, (aggr_method, param) in methods.items():
             try:
-                print(f"----Processing aggregator function: {aggr_name}, in {category} category----")
-                # Evaluate the strategy
                 result = evaluate_aggregation_strategy(
                     cached_maps, aggr_name, aggr_method, param, category, ignore_index
                 )
-                # Add noise level
                 result['Noise_Level'] = noise_level
-                # Store results
                 auroc_data.append(result)
-            
             except Exception as e:
                 print(f"Error processing method {aggr_method} for noise level {noise_level}: {e}")
                 continue
+
+    # --- GMM SCORE PROCESSING BLOCK ---
+    first_uq_method = next(iter(cached_maps.keys()))
     
-    # Convert to DataFrame and sort by AUROC
+    if 'sample_names' in cached_maps[first_uq_method]:
+        
+        scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores.csv"
+        scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
+        
+        if os.path.exists(scores_filepath):
+            print("----Processing aggregator function: GMM Normalized Score, in Spatial category----")
+            
+            # Load the GMM scores and prepare them with a multi-column key
+            gmm_scores_df = pd.read_csv(scores_filepath) # Load without setting index_col
+            # Rename the index column to be a normal column
+            gmm_scores_df.rename(columns={'Unnamed: 0': 'uq_map_name', 'is_ood': 'gt_label'}, inplace=True)
+            # Ensure the key columns have the same data type
+            gmm_scores_df['uq_map_name'] = gmm_scores_df['uq_map_name'].astype(str)
+            gmm_scores_df['gt_label'] = gmm_scores_df['gt_label'].astype(int)
+            
+            # Select only the columns we need for the merge
+            gmm_scores_to_merge = gmm_scores_df[['uq_map_name', 'gt_label', 'ood_score_normalized']]
+
+            # Create the alignment dataframe from our cached data
+            alignment_df = pd.DataFrame({
+                'uq_map_name': cached_maps[first_uq_method]['sample_names'],
+                'gt_label': cached_maps[first_uq_method]['gt_labels']
+            })
+            # Ensure the key columns have the same data type
+            alignment_df['uq_map_name'] = alignment_df['uq_map_name'].astype(str)
+            alignment_df['gt_label'] = alignment_df['gt_label'].astype(int)
+
+            # Perform an explicit merge on both columns: this is now an unambiguous join.
+            final_scores = pd.merge(
+                alignment_df,
+                gmm_scores_to_merge,
+                on=['uq_map_name', 'gt_label'],
+                how='left'
+            )
+            final_scores.rename(columns={'ood_score_normalized': 'gmm_score'}, inplace=True)            
+            final_scores.dropna(subset=['gmm_score'], inplace=True)
+            
+            if not final_scores.empty:
+                # Compute AUROC directly
+                fpr, tpr, _ = roc_curve(final_scores['gt_label'], final_scores['gmm_score'])
+                roc_auc = auc(fpr, tpr)
+                
+                gmm_result = {
+                    'Aggregator': 'GMM Normalized',
+                    'AUROC': roc_auc,
+                    'AUROC_std': 0.0,
+                    'Noise_Level': noise_level,
+                }
+                auroc_data.append(gmm_result)
+        else:
+            print("Warning: GMM scores file not found, skipping GMM AUROC calculation.")
+    
+    if not auroc_data:
+        return pd.DataFrame()
+        
     df = pd.DataFrame(auroc_data)
     df = df.sort_values('AUROC', ascending=False).reset_index(drop=True)
     return df

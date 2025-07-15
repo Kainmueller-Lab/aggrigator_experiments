@@ -31,24 +31,37 @@ def process_strategy(
     strategy_idx, method, param, shared, category, method_name = strategy_data
     
     # Get shared data
-    uq_path = shared['paths'].uq_maps
-    gt = shared['gt']
-    task = shared['task']
-    model_noise = shared['model_noise']
-    uq_method = shared['uq_method']
-    decomp = shared['decomp']
-    variation = shared['variation']
-    data_noise = shared['data_noise']
-    dataset_name = shared['dataset_name']
-    ind_to_rem = shared['ind_to_rem']
+    uq_maps = shared['uq_maps']
         
     # Process the strategy
     print(f"Processing aggregator function {strategy_idx}")
-    aggr_unc, _ = process_aggr_unc(
-        uq_path, gt, task, model_noise, uq_method, decomp, variation, data_noise, 
-        method, param, category, ind_to_rem, dataset_name, shared['paths'].metadata
-    )
-    return strategy_idx, aggr_unc
+    
+    # Apply aggregation method to each map
+    if category == 'Context-aware':
+        res = [method(map, param, True) for map in uq_maps]
+        # Convert numpy types to Python types for consistency - in some cases the resulting values have a weird np.float(64) format..
+        converted_res = []
+        for item in res:
+            if hasattr(item, 'tolist'):
+                converted_res.append(item.tolist())
+            elif isinstance(item, (list, tuple)):
+                converted_res.append([x.tolist() if hasattr(x, 'tolist') else x for x in item])
+            else:
+                converted_res.append(item)
+        return strategy_idx, list(converted_res)
+
+    res = [method(map, param) for map in uq_maps]
+
+    # Convert numpy types to regular Python types for all cases
+    if hasattr(res[0], 'tolist'):
+        # If elements are numpy arrays
+        res = [item.tolist() if not isinstance(item, (int, np.integer)) else item for item in res]
+    elif any(hasattr(item, 'item') for item in res):
+        # If elements are numpy scalars
+        res = [item.item() if hasattr(item, 'item') else item for item in res]
+    if category == 'Threshold':
+        res = np.nan_to_num(np.array(res), nan=0).tolist()
+    return strategy_idx, res
 
 def _pad_selective_risks(selective_risks, pred_list):
     selective_risks = selective_risks
@@ -63,7 +76,8 @@ def _pad_selective_risks(selective_risks, pred_list):
         ])       
     return selective_risks
 
-def compute_selective_risks_coverage(gt_list: List[np.ndarray], 
+def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
+        gt_list: List[np.ndarray], 
         pred_list: List[np.ndarray],
         paths: Path,  
         task: str, 
@@ -80,9 +94,10 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
     Calculate selective risk-coverage curves for different aggregation strategies.
     
     Args:
+        cached_maps : cached UncertaintyMap, masks and predictions objects
         gt_list: list of gt masks
         pred_list: instance and semantic predictions list
-        uq_path: path to uncertainty maps
+        paths: preprocess paths
         task: Task type (e.g., "semantic" or "instance")
         model_noise: Image noise level (OOD severity)
         uq_method: UQ method
@@ -94,7 +109,8 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
         dataset_name: selected dataset
     """
     
-    idx_task = 1 if task == 'semantic' else 2
+    idx_task = 1 if task == 'semantic' else 2 
+    # idx_task = 0 if task == 'semantic' else 1 
     class_names = CLASS_NAMES_ARCTIQUE if dataset_name.startswith("arctique") else CLASS_NAMES_LIZARD
     total_subkeys = sum(len(subdict) for subdict in strategies.values()) # Count total number of strategies
     
@@ -110,6 +126,7 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
     strategy_list = []
     idx = 0
     shared_data = {
+        'uq_maps': uq_maps,
         'paths': paths,
         'gt': gt_list_shared,
         'task': task,
@@ -139,9 +156,10 @@ def compute_selective_risks_coverage(gt_list: List[np.ndarray],
         
         for future in tqdm(futures, desc="Processing aggregation strategies"):
             idx, aggr_unc = future.result()
+            
             aggr_acc_val = acc_score(
                 gt_list, 
-                np.stack(pred_list, axis=0), 
+                [pred_list[i] for i in range(len(gt_list))], #np.stack(pred_list, axis=0), 
                 list(class_names.keys()), 
                 len(class_names), 
                 shared_data

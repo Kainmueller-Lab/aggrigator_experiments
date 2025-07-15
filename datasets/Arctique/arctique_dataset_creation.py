@@ -1,5 +1,6 @@
 import torch
 import os 
+import json
 import numpy as np
 import mahotas as mh
 import matplotlib.pyplot as plt
@@ -115,9 +116,9 @@ class ArctiqueDataset(Dataset_Class):
         self.sem_mask_dir = Path(mask_path).joinpath("semantic_indexing") 
         
         # extract the integer indices from filenames    
-        self.sample_names = [int(digits) for filename in os.listdir(self.image_path) 
-                             if (digits := ''.join(filter(str.isdigit, filename)))
-                             ]
+        # self.sample_names = [int(digits) for filename in os.listdir(self.image_path) 
+        #                      if (digits := ''.join(filter(str.isdigit, filename)))
+        #                      ]
         
         # Extract kwargs with defaults if not provided
         self.task = kwargs.get('task', None)
@@ -128,17 +129,27 @@ class ArctiqueDataset(Dataset_Class):
         self.variation = kwargs.get('variation', None)
         self.data_noise = kwargs.get('data_noise', None)
         self.metadata = kwargs.get('metadata', False)
+        self.split_path = kwargs.get('split_path', None)
+        self.split = kwargs.get('split', ['test'])
         
         # Load and cache metadata indices if metadata validation is enabled
         self._metadata_indices = None
         if self.metadata:
             self._load_metadata_indices()
+        else:
+            print("Warning: 'metadata=False' for ArctiqueDataset. Data alignment is not guaranteed without metadata indices.")
         
+        # Conditionally load sample names
+        if self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_img_directory()
+
     def _load_metadata_indices(self):
         """Load metadata indices once and cache them"""
         parent_path = self.uq_map_path.parent
         self.metadata_path = parent_path.joinpath('UQ_metadata')
-        metadata_file = f'{self.task}_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_pu_sample_idx.npy'
+        metadata_file = f'semantic_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_pu_sample_idx.npy'
         self._metadata_indices = np.load(self.metadata_path.joinpath(metadata_file))
         
     def _get_metadata_index(self, sample_name):
@@ -218,15 +229,15 @@ class ArctiqueDataset(Dataset_Class):
         map_type_sem += ".npy"
         map_type_threeinst += ".npy"
         
-        map_file_sem = self.uq_map_path .joinpath(map_type_sem)
-        map_file_inst = self.uq_map_path .joinpath(map_type_threeinst)
+        map_file_sem = self.uq_map_path.joinpath(map_type_sem)
+        map_file_inst = self.uq_map_path.joinpath(map_type_threeinst)
         
         if self.task.startswith('semantic'):
             return np.load(map_file_sem)[fn]
         elif self.task.startswith('instance'):
             return np.load(map_file_inst)[fn]
         
-        return np.stack((np.load(map_file_inst)[fn],np.load(map_file_inst)[fn]), axis=-1)
+        return np.stack((np.load(map_file_sem)[fn], np.load(map_file_inst)[fn]), axis=-1)
     
     def get_prediction(self, idx, **kwargs):
         """Load panoptic model predictions"""
@@ -258,6 +269,20 @@ class ArctiqueDataset(Dataset_Class):
              
     def get_sample_names(self):
         return self.sample_names
+    
+    def get_sample_names_from_split_file(self):
+        """Load sample names from a JSON split file. Ensures they are integers."""
+        split_path = Path(self.split_path)
+        
+        with open(split_path, "r") as f:
+            loaded_names = json.load(f)
+            self.sample_names = [int(name) for name in loaded_names]  # Arctique uses integer sample names, so we cast them to int.
+            
+    def get_sample_names_from_img_directory(self):
+        """ Extracts integer sample names from the image directory."""
+        self.sample_names = [int(digits) for filename in os.listdir(self.image_path) 
+                             if (digits := ''.join(filter(str.isdigit, filename)))
+                             ]
     
     def get_semantic_mapping(self):
         return mapping_dict
@@ -370,6 +395,8 @@ def main():
         'decomp' : 'pu',
         'spatial' : 'high_moran',
         'metadata' : True,
+        'split_path': None, 
+        'split': None,
     }
     
     main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"

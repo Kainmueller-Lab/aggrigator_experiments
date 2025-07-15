@@ -45,29 +45,43 @@ class weedsgalore_dataset(Dataset_Class):
             if not os.path.exists(folder):
                 raise FileNotFoundError(f"File not found: {folder}")
 
-        self.image_path = image_path
-        self.mask_path = mask_path
-        self.uq_map_path = uq_map_path
-        self.prediction_path = prediction_path
-        self.semantic_mapping_path = semantic_mapping_path
-        self.metadata = kwargs["metadata_file"]
+        self.image_path = Path(image_path)
+        self.mask_path = Path(mask_path)
+        self.uq_map_path = Path(uq_map_path)
+        self.prediction_path = Path(prediction_path)
+        self.semantic_mapping_path = Path(semantic_mapping_path)
+        
+        # Extract kwargs with defaults if not provided
+        self.task = kwargs.get('task', None)
+        self.model_noise = kwargs.get('model_noise', None)
+        self.uq_method = kwargs.get('uq_method', None)
+        self.decomp = kwargs.get('decomp', None)
+        self.spatial = kwargs.get('spatial', None)
+        self.variation = kwargs.get('variation', None)
+        self.data_noise = kwargs.get('data_noise', None)
+        self.metadata_flag = kwargs.get('metadata', False)
+        self.split_path = kwargs.get('split_path', None)
+        self.split = kwargs.get('split', ['test'])
 
-
+        if self.metadata_flag is True:
+            self.metadata = self.uq_map_path.joinpath(self.task, self.uq_method, "metadata.json")
+        self.uq_map_path = self.uq_map_path.joinpath(self.task, self.uq_method, self.decomp)
+        self.prediction_path = self.prediction_path.joinpath(self.task, self.uq_method, "pred")
+            
         # extract information about the uq maps frorm their location. 
         # uq maps are expected to be saved in the following format: 
         #  "<basefolder>/weedsgalore/<input-type>_<split>/<task>/<uq_methods>/<deomposition>/"
-        str_idx = self.uq_map_path.find("weedsgalore")
-        uq_info = self.uq_map_path[str_idx+len("weedsgalore/"):].split("/")
+        str_idx = str(self.uq_map_path).find("weedsgalore")
+        uq_info = str(self.uq_map_path)[str_idx+len("weedsgalore/"):].split("/")
         self.input_type, self.split = uq_info[0].split("_")
         self.in_bands = 3 if self.input_type == "rgb" else 5
-        self.task = uq_info[1]
         self.num_classes = 6 if self.task == "semantic" else 3
-        self.uq_method = uq_info[2]
-        self.decomposition = uq_info[3]
 
-        with open(image_path + f'/splits/{self.split}.txt', 'r') as file:
-            data = [line.rstrip('\n') for line in file]  # Assuming elements are numeric
-        self.img_list = np.array(data)
+        # Extract the integer indices from filenames
+        if self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_img_directory()
         
     def __len__(self):
         """Return the length / number of samples of the dataset."""
@@ -115,12 +129,12 @@ class weedsgalore_dataset(Dataset_Class):
 
     def get_uq_map(self, idx):
         """Return the uq_map at the given index."""
-        uq_map = np.load(self.uq_map_path+ self.get_sample_name(idx) + ".npy")
+        uq_map = np.load(self.uq_map_path.joinpath(f"{self.get_sample_name(idx)}.npy"))
         return uq_map
     
     def get_prediction(self, idx):
         """Return the prediction at the given index."""
-        pred = np.load(self.prediction_path+ self.get_sample_name(idx) + ".npy")       
+        pred = np.load(self.prediction_path.joinpath(f"{self.get_sample_name(idx)}.npy"))      
         return pred.squeeze(0)
 
     def get_sample_name(self, idx):
@@ -130,6 +144,20 @@ class weedsgalore_dataset(Dataset_Class):
     def get_sample_names(self):
         """Return the list of sample names."""
         return self.img_list
+    
+    def get_sample_names_from_split_file(self):
+        """Load sample names from split file."""
+        split_path = Path(self.split_path)
+        
+        with open(split_path, "r") as f:
+            self.img_list = json.load(f)  # Assuming the JSON file contains a flat list of filenames
+            # self.img_list = np.array(self.img_list) #shall we convert it to numpy array ?
+    
+    def get_sample_names_from_img_directory(self):
+        """Load sample names from directory listing."""
+        with open(self.image_path.joinpath('splits', f'{self.split}.txt'), 'r') as file:
+            data = [line.rstrip('\n') for line in file]  # Assuming elements are numeric
+            self.img_list = np.array(data)
 
     def get_semantic_mapping(self):
         """Return the semantic mapping dictionary."""
@@ -152,19 +180,48 @@ class weedsgalore_dataset(Dataset_Class):
             'task': self.task,
             'num_classes': self.num_classes,
             'uq_method': self.uq_method,
-            'decomposition': self.decomposition,
+            'decomposition': self.decomp,
             'metadata': self.metadata,
             'input_typs': self.input_type, 
             'split': self.split 
         }
         return info_dictionary
 
+class OptimizedWeedsGalore(weedsgalore_dataset):
+    """Memory-efficient version that can skip loading images"""
+    
+    def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
+                 semantic_mapping_path, load_images=False, load_preds=True, **kwargs):
+        super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
+                        semantic_mapping_path, **kwargs)
+        self.load_images = load_images
+        self.load_preds = load_preds
+    
+    def __getitem__(self, idx):
+        if idx >= self.__len__():
+            raise IndexError("Index out of bounds.")
+                        
+        data = {
+            'mask': self.get_mask(idx), 
+            'uq_map': self.get_uq_map(idx),
+            'sample_name': self.get_sample_name(idx),
+        }
+        
+         # Only load images if requested 
+        if self.load_images:
+            data['image'] = self.get_image(idx)
+            
+        # Only load predictions if requested 
+        if self.load_preds:
+            data['prediction'] = self.get_prediction(idx)
+        return data
+
 class OptimizedWeedsGalore_Properties(weedsgalore_dataset):
     """Memory-efficient version that can skip loading images"""
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
-                 semantic_mapping_path, load_images=False, load_preds=False, 
-                 load_uq_maps = False, **kwargs):
+                 semantic_mapping_path, load_images=True, load_preds=False, 
+                 load_uq_maps=False, **kwargs):
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images
@@ -186,7 +243,7 @@ class OptimizedWeedsGalore_Properties(weedsgalore_dataset):
         if self.load_preds:
             data['prediction'] = self.get_prediction(idx)
 
-        # Only load predictions if requested but do not match instance masks
+        # Only load unc. maps if requested but do not match instance masks
         if self.load_uq_maps:
             data['uq_map'] = self.get_uq_map(idx)
         return data
@@ -196,20 +253,31 @@ class OptimizedWeedsGalore_Properties(weedsgalore_dataset):
 def main():
     image_path = "/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/"
     mask_path = image_path
-    uq_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/crops_vs_weed/dropout/au/"
-    pred_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/crops_vs_weed/dropout/pred/"
-    metadata_file = "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/crops_vs_weed/dropout/metadata.json"
+    uq_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/"
+    pred_folder = uq_folder
 
+    extra_info = {
+        'task' : 'crops_vs_weed',
+        'variation' : None,
+        'model_noise' : 0,
+        'data_noise': '0_00',
+        'uq_method' : 'dropout',
+        'decomp' : 'pu',
+        'spatial' : None,
+        'metadata' : True,
+        'split_path' : None,
+        'split' : None
+    }
     
-    data_loader = OptimizedWeedsGalore_Properties(image_path, 
-                                                    mask_path, 
-                                                    uq_folder, 
-                                                    pred_folder, 
-                                                    'abc',
-                                                    load_images = True,
-                                                    load_uq_maps = True,
-                                                    load_preds = True,
-                                                    metadata_file = metadata_file)
+    dataset_func = OptimizedWeedsGalore_Properties if extra_info['task'].startswith('istance') else OptimizedWeedsGalore
+    
+    data_loader = dataset_func(image_path, 
+                               mask_path, 
+                               uq_folder, 
+                               pred_folder, 
+                               'abc',
+                               load_images=True,
+                               **extra_info)
     
     loader = DataLoader(data_loader, 
                         batch_size=1, 

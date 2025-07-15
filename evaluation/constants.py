@@ -150,4 +150,4 @@ BARPLOTS_COLORS = {
 }
 
 tab20 = cm.get_cmap('tab20', 20)  # Get the tab20 colormap with 20 colors
-COLORS = [tab20(i) for i in range(7)]
+COLORS = [tab20(i) for i in range(13)]

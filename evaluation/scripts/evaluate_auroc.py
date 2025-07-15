@@ -26,7 +26,7 @@ def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: s
     csv_name = f'{task}_{dataset_name}_{variation}_{decomp}'
     if spatial: 
         csv_name += f'_{spatial}'
-    csv_file = output_path.joinpath(f'tables/{csv_name}_auroc_ood_results.csv')
+    csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_auroc_ood_results.csv')
     
     # Ensure directory exists
     csv_file.parent.mkdir(exist_ok=True, parents=True)
@@ -48,14 +48,23 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
     noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
     
     # Evaluate all strategies
-    df = evaluate_all_strategies(cached_maps, AUROC_STRATEGIES, noise_level, ignore_index)
+    df = evaluate_all_strategies(
+        cached_maps, 
+        AUROC_STRATEGIES, 
+        noise_level, 
+        ignore_index, 
+        dataset_name=dataset_name,
+        task=task,
+        variation=variation,
+        decomp=decomp
+    )
     print(df)
     
     # Save results to CSV
     csv_name = f'{task}_{dataset_name}_{variation}_{decomp}'
     if spatial: 
         csv_name += f'_{spatial}'
-    csv_file = output_path.joinpath(f'tables/{csv_name}_auroc_ood_results.csv')
+    csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_auroc_ood_results.csv')
     
     # Check if the file exists to handle headers properly
     file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
@@ -163,7 +172,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
-    # gta_cityscapes: --
+    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'

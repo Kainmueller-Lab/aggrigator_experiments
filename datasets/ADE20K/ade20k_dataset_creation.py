@@ -360,13 +360,19 @@ class ADE20K_CityscapesDataset(Dataset_Class):
     def get_sample_names_from_split_file(self):
         """Load sample names from split file."""
         split_path = Path(self.split_path)
+        if split_path.suffix == '.json':
+            print(f"Loading sample names from JSON split file: {split_path}")
+            with open(split_path, "r") as f:
+                names_from_json = json.load(f)  # Assuming the JSON file contains a flat list of filenames
+                self.image_filenames = [str(name).split(".")[0] for name in names_from_json] # Ensure we strip any potential file extensions
         
-        with open(split_path, "r") as f:
-            self.image_filenames = [
-                line.strip().split(".")[0] 
-                for line in f 
-                if line.strip().endswith(".png")
-            ]
+        else:
+            with open(split_path, "r") as f:
+                self.image_filenames = [
+                    line.strip().split(".")[0] 
+                    for line in f 
+                    if line.strip().endswith(".png")
+                ]
     
     def get_sample_names_from_img_directory(self):
         """Load sample names from directory listing."""
@@ -451,7 +457,7 @@ class OptimizedADE20K_CityscapesDataset(ADE20K_CityscapesDataset):
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
                  semantic_mapping_path, load_images=False, load_preds=True, 
-                 max_samples=28, random_sampling=True, seed=42, **kwargs):
+                 max_samples=50, random_sampling=True, seed=42, **kwargs): #max_samples=28
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images
