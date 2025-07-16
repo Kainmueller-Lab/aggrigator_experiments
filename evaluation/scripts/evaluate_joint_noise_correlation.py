@@ -910,7 +910,7 @@ def run_cross_dataset_analysis(uq_method, sample_size=0, num_workers=16):
     
     # Arctique
     print("Creating Arctique datasets...")
-    for task in ['semantic']: #'instance' 
+    for task in ['semantic', 'instance']: 
         datasets = create_arctique_datasets(task, uq_method)
         variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
         all_datasets[f'arctique_{task}_{variation}'] = datasets

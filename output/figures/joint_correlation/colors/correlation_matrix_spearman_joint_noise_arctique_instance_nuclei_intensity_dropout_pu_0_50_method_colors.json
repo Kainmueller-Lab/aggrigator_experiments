@@ -70,5 +70,9 @@
   "class_mean_weighted_by_occurrence": {
     "correlation_with_mean": 0.6468667466986795,
     "color": "#cd4f45"
+  },
+  "gmm_normalized_score": {
+    "correlation_with_mean": 0.10204081632653061,
+    "color": "#fae8dd"
   }
 }

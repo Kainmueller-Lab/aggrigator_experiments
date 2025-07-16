@@ -239,13 +239,14 @@ if __name__ == "__main__":
         id_path_template = config['paths']['id_csv_path']
         ood_path_template = config['paths']['ood_csv_path']
         original_task = config['dataset']['task']
-        variation = config['dataset']['variation']
-        uq_method = config['dataset']['variation']
-        for task in ['semantic']: #, 'instance'
-            print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()} {'='*25}")
+        original_variation = config['dataset']['variation']
+        for task, var in zip(['semantic', 'instance'], ['blood_cells', 'nuclei_intensity']):
+            print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()}; VARIATION: {var.upper()}  {'='*25}")
             current_id_path = id_path_template.replace(original_task, task)
+            current_id_path = current_id_path.replace(original_variation, var)
             current_ood_path = ood_path_template.replace(original_task, task)
-            base_filename = f"{task}_{dataset_name}_{variation}_pu"
+            current_ood_path = current_ood_path.replace(original_variation, var)
+            base_filename = f"{task}_{dataset_name}_{var}_pu"
             run_analysis_pipeline(current_id_path, current_ood_path, base_filename)
     
     elif dataset_name.startswith('lidc'):

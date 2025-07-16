@@ -72,7 +72,7 @@
     "color": "#c33b3b"
   },
   "gmm_normalized_score": {
-    "correlation_with_mean": -0.1321968787515006,
-    "color": "#deebf2"
+    "correlation_with_mean": 0.507611044417767,
+    "color": "#e48065"
   }
 }
