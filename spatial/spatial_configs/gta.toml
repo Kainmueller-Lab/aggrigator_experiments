@@ -1,6 +1,8 @@
 [paths]
-id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_gta_0_00_dropout_pu.csv'
-ood_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_gta_1_00_dropout_pu.csv' 
+id_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_gta_0_00_dropout_pu.csv'
+ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_gta_1_00_dropout_pu.csv' 
+id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_gta_semantic_cityscapes_dropout_pu_0_00.csv'
+ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_gta_semantic_cityscapes_dropout_pu_1_00.csv'
 
 [dataset]
 task = 'semantic'

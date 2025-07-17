@@ -1,6 +1,8 @@
 [paths]
-id_csv_path = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_dropout_pu.csv'
-ood_csv_path = ''
+id_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_dropout_pu.csv'
+ood_csv_path_spatial = ''
+id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_summary_weedsgalore_dropout_pu.csv'
+ood_csv_path_magnitude = ''
 
 [dataset]
 task = 'crops_vs_weed'

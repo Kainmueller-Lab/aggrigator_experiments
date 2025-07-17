@@ -5,8 +5,9 @@ import os
 import matplotlib.pyplot as plt
 import argparse
 from sklearn.mixture import GaussianMixture
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_curve, roc_auc_score, auc
+from sklearn.metrics import roc_curve, auc
 import json
 
 def load_config(config_path: str = "config.toml"):
@@ -15,25 +16,51 @@ def load_config(config_path: str = "config.toml"):
         raise FileNotFoundError(f"Config file '{config_path}' not found.")
     return toml.load(config_path)
 
-def load_fingerprints_from_csv(filepath: str) -> pd.DataFrame:
-    """Loads spatial fingerprints from a CSV file."""
+def load_spatial_fingerprints(filepath: str, base_filename: str) -> pd.DataFrame:
+    """Loads spatial fingerprints, ensuring the index is treated as a string."""
     try:
-        df = pd.read_csv(filepath, index_col=0)
+        if 'arctique' in base_filename: 
+            df = pd.read_csv(filepath, index_col=0)
+        else:
+            df = pd.read_csv(filepath, index_col=0, dtype={0: str})
         return df[['moran', 'entropy', 'eds']]
     except FileNotFoundError:
-        print(f"Error: The file '{filepath}' was not found.")
+        print(f"Warning: The spatial data file '{filepath}' was not found.")
         return None
     except Exception as e:
-        print(f"An error occurred while reading the CSV: {e}")
+        print(f"An error occurred while reading the spatial CSV: {e}")
+        return None
+
+def load_magnitude_fingerprints(filepath: str, base_filename: str) -> pd.DataFrame:
+    """
+    Loads magnitude fingerprints, ensuring the index is treated as a string.
+    """
+    try:
+        # FIX: Force the 'uq_map_name' column to be read as a string.
+        if 'arctique' in base_filename:
+             df = pd.read_csv(filepath, index_col='uq_map_name')
+        else:
+            df = pd.read_csv(filepath, index_col='uq_map_name', dtype={'uq_map_name': str})
+        numeric_df = df.select_dtypes(include=np.number)
+        feature_cols = [col for col in numeric_df.columns if not col.lower().startswith('gmm')]
+        if not feature_cols:
+            print(f"Warning: No numeric feature columns found in '{filepath}' after filtering.")
+            return None
+        return numeric_df[feature_cols]
+    except FileNotFoundError:
+        print(f"Warning: The magnitude data file '{filepath}' was not found.")
+        return None
+    except KeyError:
+        print(f"Error: The required index column 'uq_map_name' was not found in '{filepath}'.")
+        return None
+    except Exception as e:
+        print(f"An error occurred while reading the magnitude CSV: {e}")
         return None
 
 def get_or_create_split(id_full_df: pd.DataFrame, split_dir: str, base_filename: str):
     """
     Checks for existing train/test split JSON files. If they don't exist,
-    creates a 50/50 split and saves it.
-
-    For the 'gta' dataset, it saves correctly formatted, zero-padded 6-digit
-    string indices. For all other datasets, it saves the raw integer indices.
+    creates a 50/50 split and saves it. Correctly handles string-based indices.
     """
     train_split_path = os.path.join(split_dir, f"{base_filename}_train_split.json")
     test_split_path = os.path.join(split_dir, f"{base_filename}_test_split.json")
@@ -41,233 +68,253 @@ def get_or_create_split(id_full_df: pd.DataFrame, split_dir: str, base_filename:
     if os.path.exists(train_split_path) and os.path.exists(test_split_path):
         print(f"Found existing split files. Loading from:\n  - {train_split_path}\n  - {test_split_path}")
         with open(train_split_path, 'r') as f:
-            train_indices_loaded = json.load(f)
+            train_indices = json.load(f)
         with open(test_split_path, 'r') as f:
-            test_indices_loaded = json.load(f)
-            
-        # For DataFrame slicing, we need the original integer indices.
-        # This robustly converts loaded indices (whether string or int) back to int.
-        train_indices = [int(i) for i in train_indices_loaded]
-        test_indices = [int(i) for i in test_indices_loaded]
-
+            test_indices = json.load(f)
     else:
-        print("No existing split found. Creating a new 50/50 split.")
-        # These are the original, unformatted indices (e.g., integers)
-        indices = id_full_df.index.to_list()
+        print("No existing split found. Creating a new 50/50 split for ID data.")
+        indices = id_full_df.index.astype(str).to_list()
         train_indices, test_indices = train_test_split(indices, test_size=0.5, random_state=42)
 
-        # --- MODIFICATION: Conditional Formatting Logic ---
-        # Check if the dataset is 'gta' based on the filename structure.
+        # Special formatting for 'gta' is handled here, but the base indices are strings
         if 'gta' in base_filename:
-            print("GTA dataset detected. Applying 5-digit zero-padding to indices for saving.")
-            # Format the numeric indices into 5-digit zero-padded strings.
             train_indices_to_save = [f"{int(i):05d}" for i in train_indices]
             test_indices_to_save = [f"{int(i):05d}" for i in test_indices]
-            print(f"Example formatted index: {train_indices[0]} -> {train_indices_to_save[0]}")
         else:
-            # For all other datasets, save the original integer indices.
-            print(f"Non-GTA dataset ('{base_filename}') detected. Saving raw integer indices.")
             train_indices_to_save = train_indices
             test_indices_to_save = test_indices
-        # --- END MODIFICATION ---
 
-        # Save the appropriate lists (either formatted or raw) to the JSON files.
-        with open(train_split_path, 'w') as f:
-            json.dump(train_indices_to_save, f, indent=4)
-        with open(test_split_path, 'w') as f:
-            json.dump(test_indices_to_save, f, indent=4)
+        with open(train_split_path, 'w') as f: json.dump(train_indices_to_save, f, indent=4)
+        with open(test_split_path, 'w') as f: json.dump(test_indices_to_save, f, indent=4)
         print(f"Saved new splits to:\n  - {train_split_path}\n  - {test_split_path}")
 
-    # Use the ORIGINAL, unformatted integer indices to locate data in the DataFrame.
-    id_train_df = id_full_df.loc[train_indices]
-    id_test_df = id_full_df.loc[test_indices]
-    
-    return id_train_df, id_test_df
+    return train_indices, test_indices
 
-def find_best_gmm(id_fingerprints: pd.DataFrame, max_components: int = 8):
+def find_best_gmm(fingerprints: pd.DataFrame, max_components: int = 11, model_type: str = ""):
     """Tests different numbers of GMM components and finds the best one using BIC."""
-    id_data = id_fingerprints.to_numpy()
+    data = fingerprints.to_numpy()
     bic_scores = []
     component_range = range(1, max_components + 1)
-    print(f"\n--- Model Selection on Training Data: Finding best GMM components ---")
+    print(f"\n--- Model Selection for {model_type.upper()} Data: Finding best GMM components ---")
     for n in component_range:
         gmm = GaussianMixture(n_components=n, random_state=42, n_init=10)
-        gmm.fit(id_data)
-        bic_scores.append(gmm.bic(id_data))
+        gmm.fit(data)
+        bic_scores.append(gmm.bic(data))
     best_n_components = np.argmin(bic_scores) + 1
-    print(f"CONCLUSION: Optimal number of components is {best_n_components} (lowest BIC).")
+    print(f"CONCLUSION: Optimal number of components for {model_type.upper()} is {best_n_components} (lowest BIC).")
     return best_n_components
 
-def build_id_gmm_model(id_train_fingerprints: pd.DataFrame, n_components: int):
+def build_id_gmm_model(train_fingerprints: pd.DataFrame, n_components: int, model_type: str = ""):
     """Builds a GMM from the ID training fingerprints."""
-    id_train_data = id_train_fingerprints.to_numpy()
-    print("\n--- Building final GMM Model on ID-Train data ---")
+    train_data = train_fingerprints.to_numpy()
+    print(f"\n--- Building final GMM Model on ID-Train {model_type.upper()} data ---")
     gmm_model = GaussianMixture(n_components=n_components, random_state=42, n_init=10)
-    gmm_model.fit(id_train_data)
-    id_log_likelihoods = gmm_model.score_samples(id_train_data)
+    gmm_model.fit(train_data)
+    id_log_likelihoods = gmm_model.score_samples(train_data)
     max_density = np.exp(np.max(id_log_likelihoods))
-    print(f"Using {n_components} component(s). Max likelihood density on training data: {max_density:.4f}\n")
+    print(f"Using {n_components} component(s). Max likelihood density: {max_density:.4f}\n")
     return gmm_model, max_density
 
-def calculate_scores(fingerprints: pd.DataFrame, id_model):
-    """MODIFIED: Calculates only the robust NLL-based scores."""
+def calculate_nll_scores(fingerprints: pd.DataFrame, id_model):
+    """Calculates the robust NLL-based scores."""
     gmm_model, max_density = id_model
     data = fingerprints.to_numpy()
-    
     log_p_values = gmm_model.score_samples(data)
     ood_scores_nll = -log_p_values
-    
     nll_min = -np.log(max_density + 1e-20)
-    ood_scores_nll_zero_floored = ood_scores_nll - nll_min
-    
-    results_df = fingerprints.copy()
-    results_df['ood_score_nll'] = ood_scores_nll
+    ood_scores_nll_zero_floored = np.maximum(0, ood_scores_nll - nll_min)
+    results_df = pd.DataFrame(index=fingerprints.index)
     results_df['ood_score_nll_zero_floored'] = ood_scores_nll_zero_floored
-    
     return results_df
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/spatial_configs/arctique.toml', help='Path to config TOML file')
-    return parser.parse_args()
+def calculate_and_plot_roc(y_true, y_score, res_dir, base_filename, model_type):
+    """
+    Calculates AUROC, saves the ROC curve plot, and returns the AUROC score.
+    """
+    fpr, tpr, _ = roc_curve(y_true, y_score)
+    auroc_score = auc(fpr, tpr)
+    print(f"AUROC Score ({model_type}): {auroc_score:.4f}")
 
-def run_analysis_pipeline(id_csv_path: str, ood_csv_path: str, base_filename: str):
-    """Loads data, handles splits, and runs the full GMM OoD analysis."""
-    print(f"ID Path: {id_csv_path}")
-    print(f"OoD Path: {ood_csv_path}\n")
-
-    id_full_df = load_fingerprints_from_csv(id_csv_path)
-    if id_full_df is None:
-        print("Skipping analysis due to missing ID data.")
-        return
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUROC = {auroc_score:.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random Chance')
+    plt.xlim([0.0, 1.0]); plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate'); plt.ylabel('True Positive Rate')
+    plt.title(f'ROC: {base_filename} ({model_type})'); plt.legend(loc="lower right")
     
+    roc_curve_dir = os.path.join(res_dir, 'roc_curves')
+    os.makedirs(roc_curve_dir, exist_ok=True)
+    roc_plot_filename = os.path.join(roc_curve_dir, f"{base_filename}_{model_type}_roc_curve.png")
+    plt.savefig(roc_plot_filename)
+    plt.close()
+    print(f"Saved ROC curve plot to: {roc_plot_filename}")
+    
+    return auroc_score
+
+def run_analysis_pipeline(paths: dict, base_filename: str):
+    """Loads data, handles splits, and runs the full GMM OoD analysis."""
+    print("--- Loading All Datasets ---")
+    id_spatial = load_spatial_fingerprints(paths['id_spatial'], base_filename)
+    ood_spatial = load_spatial_fingerprints(paths['ood_spatial'], base_filename)
+    id_magnitude = load_magnitude_fingerprints(paths['id_magnitude'], base_filename)
+    ood_magnitude = load_magnitude_fingerprints(paths['ood_magnitude'], base_filename)
+
+    if id_spatial is None and id_magnitude is None:
+        print("Skipping analysis: No In-Distribution data found.")
+        return
+
+    if 'gta' in base_filename and id_spatial is not None:
+        if pd.api.types.is_numeric_dtype(id_spatial.index):
+            print("GTA dataset detected: Re-formatting spatial index to match splits (zero-padded string).")
+            id_spatial.index = id_spatial.index.astype(str).str.zfill(5)
+
+    split_basis_df = id_spatial if id_spatial is not None else id_magnitude
     save_dir = os.path.join(os.getcwd(), 'spatial', 'splits')
     os.makedirs(save_dir, exist_ok=True)
+    train_indices, test_indices = get_or_create_split(split_basis_df, save_dir, base_filename)
+    
+    id_train_spatial = id_spatial.loc[train_indices] if id_spatial is not None else None
+    id_test_spatial = id_spatial.loc[test_indices] if id_spatial is not None else None
+    id_train_magnitude_raw = id_magnitude.loc[train_indices] if id_magnitude is not None else None
+    id_test_magnitude_raw = id_magnitude.loc[test_indices] if id_magnitude is not None else None
 
-    id_train_df, id_test_df = get_or_create_split(id_full_df, save_dir, base_filename)
-    best_k = find_best_gmm(id_train_df, max_components=8)
-    id_model = build_id_gmm_model(id_train_df, n_components=best_k)
+    final_results_df = pd.DataFrame()
+    auroc_scores_collection = {}
 
-    print("--- Calculating scores for ID-Test data ---")
-    id_test_results = calculate_scores(id_test_df, id_model)
-    id_test_results['is_ood'] = 0
-
-    ood_fingerprints = load_fingerprints_from_csv(ood_csv_path)
-    if ood_fingerprints is not None:
-        print("\n--- Calculating scores for OoD data ---")
-        ood_results = calculate_scores(ood_fingerprints, id_model)
-        ood_results['is_ood'] = 1
-
-        final_results = pd.concat([id_test_results, ood_results])
+    # --- 1. Spatial Model ---
+    if id_train_spatial is not None:
+        model = build_id_gmm_model(id_train_spatial, find_best_gmm(id_train_spatial, model_type="spatial"), model_type="spatial")
+        id_test_scores = calculate_nll_scores(id_test_spatial, model); id_test_scores['is_ood'] = 0
+        ood_scores = calculate_nll_scores(ood_spatial, model) if ood_spatial is not None else pd.DataFrame()
+        if not ood_scores.empty: ood_scores['is_ood'] = 1
         
-        max_nll = final_results['ood_score_nll_zero_floored'].max()
-        print(f"\nDynamically scaling scores based on observed max NLL: {max_nll:.4f}")
-        final_results['ood_score_normalized'] = (final_results['ood_score_nll_zero_floored'] / (max_nll + 1e-9)).clip(0, 1)
+        results = pd.concat([id_test_scores, ood_scores])
+        max_nll = results['ood_score_nll_zero_floored'].max()
+        final_results_df[f'ood_score_normalized_spatial'] = (results['ood_score_nll_zero_floored'] / (max_nll + 1e-9)).clip(0, 1)
+        final_results_df['is_ood'] = results['is_ood']
 
-        cols = ['moran', 'entropy', 'eds', 'ood_score_normalized', 'ood_score_nll', 'ood_score_nll_zero_floored', 'is_ood']
-        final_results = final_results[cols]
+    # --- 2. Magnitude Model (with PCA) ---
+    id_train_magnitude_pca, id_test_magnitude_pca, ood_magnitude_pca = None, None, None
+    if id_train_magnitude_raw is not None:
+        print("\n--- Applying PCA to Magnitude Features ---")
+        pca = PCA(n_components=0.95, random_state=42) # Keep components that explain 95% of variance
+        id_train_magnitude_pca_data = pca.fit_transform(id_train_magnitude_raw)
+        print(f"PCA selected {pca.n_components_} components for Magnitude model.")
+        
+        pca_cols = [f'mag_pca_{i}' for i in range(pca.n_components_)]
+        id_train_magnitude_pca = pd.DataFrame(id_train_magnitude_pca_data, index=id_train_magnitude_raw.index, columns=pca_cols)
 
-        res_dir = os.path.join(os.getcwd(), 'spatial', 'results')
-        os.makedirs(res_dir, exist_ok=True)
-        results_filename = os.path.join(res_dir, f"{base_filename}_scores.csv")
-        final_results.to_csv(results_filename)
-        print(f"\nSaved combined scores to:\n  - {results_filename}")
+        id_test_magnitude_pca_data = pca.transform(id_test_magnitude_raw)
+        id_test_magnitude_pca = pd.DataFrame(id_test_magnitude_pca_data, index=id_test_magnitude_raw.index, columns=pca_cols)
         
-        # --- ENHANCED SUMMARY SECTION ---
-        print("\n--- Final Summary ---")
+        if ood_magnitude is not None:
+            ood_magnitude_pca_data = pca.transform(ood_magnitude)
+            ood_magnitude_pca = pd.DataFrame(ood_magnitude_pca_data, index=ood_magnitude.index, columns=pca_cols)
 
-        # --- NEW: AUROC & ROC Curve Analysis ---
-        y_true = final_results['is_ood']
-        y_score = final_results['ood_score_normalized']
-        fpr, tpr, _ = roc_curve(y_true, y_score)
-        auroc_score = auc(fpr, tpr)
-        # auroc_score = roc_auc_score(y_true, y_score)
+        model = build_id_gmm_model(id_train_magnitude_pca, find_best_gmm(id_train_magnitude_pca, model_type="magnitude_pca"), model_type="magnitude_pca")
+        id_test_scores = calculate_nll_scores(id_test_magnitude_pca, model)
+        ood_scores = calculate_nll_scores(ood_magnitude_pca, model) if ood_magnitude_pca is not None else pd.DataFrame()
         
-        print("\n--- ROC / AUROC Performance Analysis ---")
-        print(f"Area Under the ROC Curve (AUROC): {auroc_score:.4f}")
+        results = pd.concat([id_test_scores, ood_scores])
+        max_nll = results['ood_score_nll_zero_floored'].max()
+        final_results_df = final_results_df.merge(
+            pd.DataFrame({f'ood_score_normalized_magnitude': (results['ood_score_nll_zero_floored'] / (max_nll + 1e-9)).clip(0, 1)}),
+            left_index=True, right_index=True, how='left'
+        )
+    
+    # --- 3. Fused Model (Spatial + Magnitude-PCA) ---
+    if id_train_spatial is not None and id_train_magnitude_pca is not None:
+        id_train_all_fused = pd.concat([id_train_spatial, id_train_magnitude_pca], axis=1)
+        id_test_all_fused = pd.concat([id_test_spatial, id_test_magnitude_pca], axis=1)
+        ood_all_fused = pd.concat([ood_spatial, ood_magnitude_pca], axis=1) if ood_spatial is not None and ood_magnitude_pca is not None else None
+        
+        model = build_id_gmm_model(id_train_all_fused, find_best_gmm(id_train_all_fused, model_type="all_fused"), model_type="all_fused")
+        id_test_scores = calculate_nll_scores(id_test_all_fused, model)
+        ood_scores = calculate_nll_scores(ood_all_fused, model) if ood_all_fused is not None and not ood_all_fused.empty else pd.DataFrame()
+        
+        results = pd.concat([id_test_scores, ood_scores])
+        max_nll = results['ood_score_nll_zero_floored'].max()
+        final_results_df = final_results_df.merge(
+            pd.DataFrame({f'ood_score_normalized_all': (results['ood_score_nll_zero_floored'] / (max_nll + 1e-9)).clip(0, 1)}),
+            left_index=True, right_index=True, how='left'
+        )
 
-        # Generate and save ROC curve plot
-        fpr, tpr, thresholds = roc_curve(y_true, y_score)
-        
-        plt.figure()
-        plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUROC = {auroc_score:.2f})')
-        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random Chance')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate (1 - Specificity)')
-        plt.ylabel('True Positive Rate (Sensitivity)')
-        plt.title(f'Receiver Operating Characteristic: {base_filename}')
-        plt.legend(loc="lower right")
-        
-        roc_plot_filename = os.path.join(res_dir, f"{base_filename}_roc_curve.png")
-        plt.savefig(roc_plot_filename)
-        plt.close() # Close the plot to free memory
-        print(f"Saved ROC curve plot to:\n  - {roc_plot_filename}")
-        
-        print("\n--- Misclassification Examples ---")
-        
-        print("\nTop 5 ID samples that look most like OoD (Highest Score):")
-        print(final_results[final_results['is_ood'] == 0].sort_values(by='ood_score_normalized', ascending=False).head())
+    # --- Save results and generate plots ---
+    if final_results_df.empty:
+        print("\nAnalysis complete, but no results were generated.")
+        return
 
-        print("\nTop 5 OoD samples that look most like ID (Lowest Score):")
-        print(final_results[final_results['is_ood'] == 1].sort_values(by='ood_score_normalized', ascending=True).head())
-        
+    res_dir = os.path.join(os.getcwd(), 'spatial', 'results')
+    os.makedirs(res_dir, exist_ok=True)
+    results_filename = os.path.join(res_dir, f"{base_filename}_scores.csv")
+    final_results_df.to_csv(results_filename)
+    print(f"\nSaved combined scores to:\n  - {results_filename}")
+
+    if 'is_ood' in final_results_df.columns and 1 in final_results_df['is_ood'].unique():
+        print("\n--- Generating AUROC and ROC Curve Plots ---")
+        y_true = final_results_df['is_ood']
+        for model_type in ['spatial', 'magnitude', 'all']:
+            score_col = f'ood_score_normalized_{model_type}'
+            if score_col in final_results_df.columns:
+                valid_indices = final_results_df[score_col].notna()
+                score = calculate_and_plot_roc(
+                    y_true.loc[valid_indices], final_results_df.loc[valid_indices, score_col],
+                    res_dir, base_filename, model_type
+                )
+                auroc_scores_collection[f'auroc_{model_type}'] = score
+
+        if auroc_scores_collection:
+            auroc_df = pd.DataFrame([auroc_scores_collection])
+            auroc_csv_filename = os.path.join(res_dir, f"{base_filename}_auroc_scores.csv")
+            auroc_df.to_csv(auroc_csv_filename, index=False)
+            print(f"\nSaved consolidated AUROC scores to:\n  - {auroc_csv_filename}")
     else:
-        print("Skipping OoD scoring due to missing OoD data.")
-        # Handle case with only ID data
-        res_dir = os.path.join(os.getcwd(), 'spatial', 'results')
-        os.makedirs(res_dir, exist_ok=True)
-        results_filename = os.path.join(res_dir, f"{base_filename}_scores.csv")
-        max_nll_id = id_test_results['ood_score_nll_zero_floored'].max()
-        id_test_results['ood_score_normalized'] = (id_test_results['ood_score_nll_zero_floored'] / (max_nll_id + 1e-9)).clip(0, 1)
-        id_test_results.to_csv(results_filename)
-        print(f"\nSaved scores for ID-Test data to:\n  - {results_filename}")
-
+        print("\nSkipping AUROC calculation: No Out-of-Distribution data was processed.")
 
 if __name__ == "__main__":
-    # The main execution block remains the same
-    args = parse_args()
+    parser = argparse.ArgumentParser(description="Run GMM OoD analysis on spatial, magnitude, and combined fingerprints.")
+    parser.add_argument('--config', type=str, default='/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/spatial_configs/arctique.toml', help='Path to config TOML file')
+    args = parser.parse_args()
+    
     config = load_config(args.config)
     dataset_name = config['dataset']['dataset_name']
     
-    os.makedirs(os.path.join(os.getcwd(), 'spatial', 'splits'), exist_ok=True)
-    os.makedirs(os.path.join(os.getcwd(), 'spatial', 'results'), exist_ok=True)
-    
     print(f"Loaded configuration for dataset: '{dataset_name}'")
 
-    if dataset_name.startswith('arctique'):
-        id_path_template = config['paths']['id_csv_path']
-        ood_path_template = config['paths']['ood_csv_path']
-        original_task = config['dataset']['task']
-        original_variation = config['dataset']['variation']
-        for task, var in zip(['semantic', 'instance'], ['blood_cells', 'nuclei_intensity']):
-            print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()}; VARIATION: {var.upper()}  {'='*25}")
-            current_id_path = id_path_template.replace(original_task, task)
-            current_id_path = current_id_path.replace(original_variation, var)
-            current_ood_path = ood_path_template.replace(original_task, task)
-            current_ood_path = current_ood_path.replace(original_variation, var)
-            base_filename = f"{task}_{dataset_name}_{var}_pu"
-            run_analysis_pipeline(current_id_path, current_ood_path, base_filename)
+    analysis_paths_templates = {
+        'id_spatial': config['paths'].get('id_csv_path_spatial'),
+        'ood_spatial': config['paths'].get('ood_csv_path_spatial'),
+        'id_magnitude': config['paths'].get('id_csv_path_magnitude'),
+        'ood_magnitude': config['paths'].get('ood_csv_path_magnitude')
+    }
     
-    elif dataset_name.startswith('lidc'):
-        id_path_template = config['paths']['id_csv_path']
-        ood_path_template = config['paths']['ood_csv_path']
+    main_loop_executed = False
+
+    if dataset_name.startswith('lidc'):
+        main_loop_executed = True
         task = config['dataset']['task']
         original_variation = config['dataset']['variation']
         for var in ['malignancy', 'texture']:
             print(f"\n\n{'='*25} PROCESSING VARIATION: {var.upper()} {'='*25}")
-            current_id_path = id_path_template.replace(original_variation, var)
-            current_ood_path = ood_path_template.replace(original_variation, var)
+            current_paths = {k: v.replace(original_variation, var) for k, v in analysis_paths_templates.items()}
             base_filename = f"{task}_{dataset_name}_{var}_pu"
-            run_analysis_pipeline(current_id_path, current_ood_path, base_filename)
+            run_analysis_pipeline(current_paths, base_filename)
             
-    else:
-        print("Standard dataset detected. Running a single analysis.")
-        id_csv_path = config['paths']['id_csv_path']
-        ood_csv_path = config['paths']['ood_csv_path'] 
+    if dataset_name.startswith('arctique'):
+        main_loop_executed = True
+        original_task = config['dataset']['task']
+        original_variation = config['dataset']['variation']
+        for task, var in zip(['semantic', 'instance'], ['blood_cells', 'nuclei_intensity']):
+            print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()}; VARIATION: {var.upper()}  {'='*25}")
+            current_paths = {k: v.replace(original_task, task).replace(original_variation, var) for k, v in analysis_paths_templates.items()}
+            base_filename = f"{task}_{dataset_name}_{var}_pu"
+            run_analysis_pipeline(current_paths, base_filename)
+
+    if not main_loop_executed:
+        print("\n\nStandard dataset detected. Running a single analysis.")
         task = config['dataset']['task']
         variation = config['dataset']['variation']
-        base_filename = f"{task}_{dataset_name}_{variation}_pu" if variation != "" else f"{task}_{dataset_name}_pu" 
-        run_analysis_pipeline(id_csv_path, ood_csv_path, base_filename)
+        base_filename = f"{task}_{dataset_name}_{variation}_pu" if variation else f"{task}_{dataset_name}_pu" 
+        run_analysis_pipeline(analysis_paths_templates, base_filename)
 
     print(f"\n{'='*25} ANALYSIS COMPLETE {'='*25}")

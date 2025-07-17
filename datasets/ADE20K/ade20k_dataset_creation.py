@@ -457,7 +457,7 @@ class OptimizedADE20K_CityscapesDataset(ADE20K_CityscapesDataset):
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
                  semantic_mapping_path, load_images=False, load_preds=True, 
-                 max_samples=50, random_sampling=True, seed=42, **kwargs): #max_samples=28
+                 max_samples=None, random_sampling=True, seed=42, **kwargs): #max_samples=28
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images

@@ -416,11 +416,11 @@ def compute_individual_noise_correlations(dataset, dataset_name, sample_size, nu
     summary_df = process_single_dataset(dataset, dataset_name, sample_size, num_workers, ignore_index, include_background)
     
     # The summary_df will now contain the 'gmm_normalized_score' if available.
-    summary_df = load_and_merge_spatial_scores(summary_df, base_dataset_name, noise_level)
+    # summary_df = load_and_merge_spatial_scores(summary_df, base_dataset_name, noise_level)
     
     # Save individual summary
     out_name = f"aggregation_value_summary_{base_dataset_name}_{noise_level}"
-    summary_df.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"), index=False)
+    summary_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False) #"joint_correlation", f"{out_name}.csv"), index=False)
     print(f"Individual aggregation value summary {out_name}.csv saved to output folder.")
     
     # Compute correlations between methods (columns)
@@ -436,16 +436,16 @@ def compute_individual_noise_correlations(dataset, dataset_name, sample_size, nu
     print(f"Computed individual correlation matrices for {noise_level}: {time.time() - start} s")
     
     # Save correlation matrices and plots for individual noise level
-    for correlation_type, corr_matrix in correlations.items():
-        out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_{noise_level}"
+    # for correlation_type, corr_matrix in correlations.items():
+    #     out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_{noise_level}"
         
-        # Save to csv
-        corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
-        print(f"Individual correlation matrix {out_name}.csv saved to output folder.")
+    #     # Save to csv
+    #     corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
+    #     print(f"Individual correlation matrix {out_name}.csv saved to output folder.")
         
-        # Save heatmap as png
-        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"), True)
-        print(f"Individual correlation heatmap {out_name}.png saved to output folder.")
+    #     # Save heatmap as png
+    #     save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"), True)
+    #     print(f"Individual correlation heatmap {out_name}.png saved to output folder.")
     
     return summary_df
 
@@ -507,7 +507,7 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
     
     # Save combined summary
     out_name = f"aggregation_value_summary_{base_dataset_name}_combined"
-    combined_df.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"), index=False)
+    combined_df.to_csv(os.path.join("output", "tables", f"{out_name}.csv"), index=False) #"joint_correlation", f"{out_name}.csv"), index=False)
     print(f"Combined aggregation value summary {out_name}.csv saved to output folder.")
     
     # FIXED: Compute correlations between methods (columns), not samples (rows)
@@ -525,21 +525,21 @@ def evaluate_correlation_across_noise_levels(datasets_dict, sample_size, num_wor
     print(f"Computed correlation matrices: {time.time() - start} s")
     
     # Save correlation matrices and plots
-    for correlation_type, corr_matrix in correlations.items():
-        out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_combined"
+    # for correlation_type, corr_matrix in correlations.items():
+    #     out_name = f"correlation_matrix_{correlation_type}_{base_dataset_name}_combined"
         
-        # Save to csv
-        corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
-        print(f"Correlation matrix {out_name}.csv saved to output folder.")
+    #     # Save to csv
+    #     corr_matrix.to_csv(os.path.join("output", "tables", "joint_correlation", f"{out_name}.csv"))
+    #     print(f"Correlation matrix {out_name}.csv saved to output folder.")
         
-        # Create a temporary dataframe for plotting with method names
-        plot_df = pd.DataFrame(index=method_columns)
-        plot_df['Name'] = method_columns
-        plot_df = plot_df.set_index('Name')
+    #     # Create a temporary dataframe for plotting with method names
+    #     plot_df = pd.DataFrame(index=method_columns)
+    #     plot_df['Name'] = method_columns
+    #     plot_df = plot_df.set_index('Name')
         
-        # Save heatmap as png
-        save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"), True)
-        print(f"Correlation heatmap {out_name}.png saved to output folder.")
+    #     # Save heatmap as png
+    #     save_correlation_matrix_plot(corr_matrix, out_name, correlation_type, os.path.join("output", "figures", "joint_correlation"), True)
+    #     print(f"Correlation heatmap {out_name}.png saved to output folder.")
 
 
 # Modified dataset creation functions
@@ -559,24 +559,24 @@ def create_ade20k_datasets(model_id, uq_method):
             'uq_method': uq_method,
             'decomp': 'pu',
             'spatial': None,
-            'split_path': split,
+            'split_path': None, #split,
             'split': None,
             'metadata': False,
             'model_checkpoint': model_id,
         }
         
         # Construct the path to the potential new split file
-        dynamic_split_filename = f"{extra_info['task']}_ade20k_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
-        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        # dynamic_split_filename = f"{extra_info['task']}_ade20k_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        # dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
         
-        # Check if the dynamic split file exists
-        use_dynamic_split = os.path.exists(dynamic_split_path)
-        if use_dynamic_split:
-            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        # # Check if the dynamic split file exists
+        # use_dynamic_split = os.path.exists(dynamic_split_path)
+        # if use_dynamic_split:
+        #     print(f"Found spatial split file. Using: {dynamic_split_path}")
         
-        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
-        if nl == '0_00' and use_dynamic_split:
-            extra_info['split_path'] = dynamic_split_path
+        # # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        # if nl == '0_00' and use_dynamic_split:
+        #     extra_info['split_path'] = dynamic_split_path
        
         image_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/images/{fold}'
         mask_path = f'/fast/AG_Kainmueller/data/ADEChallengeData2016/annotations/{fold}'
@@ -732,22 +732,22 @@ def create_gta_datasets(uq_method):
             'uq_method': uq_method,
             'decomp': 'pu',
             'spatial': None,
-            'split_path': current_split_path, 
+            'split_path': None, #current_split_path, 
             'split': None
         }
         
         # Construct the path to the potential new split file
-        dynamic_split_filename = f"{extra_info['task']}_gta_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
-        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        # dynamic_split_filename = f"{extra_info['task']}_gta_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        # dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
         
-        # Check if the dynamic split file exists
-        use_dynamic_split = os.path.exists(dynamic_split_path)
-        if use_dynamic_split:
-            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        # # Check if the dynamic split file exists
+        # use_dynamic_split = os.path.exists(dynamic_split_path)
+        # if use_dynamic_split:
+        #     print(f"Found spatial split file. Using: {dynamic_split_path}")
         
-        # If it's the '0_00' noise level and the dynamic file exists, override the split path
-        if noise_level == '0_00' and use_dynamic_split:
-            extra_info['split_path'] = dynamic_split_path
+        # # If it's the '0_00' noise level and the dynamic file exists, override the split path
+        # if noise_level == '0_00' and use_dynamic_split:
+        #     extra_info['split_path'] = dynamic_split_path
     
         image_path = f"/fast/AG_Kainmueller/data/GTA/{fold}/preprocessed/images/" 
         mask_path = f"/fast/AG_Kainmueller/data/GTA/{fold}/preprocessed/labels/" 
