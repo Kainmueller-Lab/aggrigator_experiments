@@ -1,13 +1,14 @@
 [paths]
 id_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_arctique_semantic_blood_cells_0_00_dropout_pu.csv'
-ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_arctique_semantic_blood_cells_0_50_dropout_pu.csv'
+ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_arctique_semantic_blood_cells_0_75_dropout_pu.csv'
 id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_arctique_semantic_blood_cells_dropout_pu_0_00.csv'
-ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_arctique_semantic_blood_cells_dropout_pu_0_50.csv'
+ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_arctique_semantic_blood_cells_dropout_pu_0_75.csv'
 
 [dataset]
 task = 'semantic' #or 'instance'
 dataset_name = 'arctique'
 variation = 'blood_cells' #or 'nuclei_intensity'
+noise_level = '0_75'
 
 [pm]
 uq_method = 'dropout'

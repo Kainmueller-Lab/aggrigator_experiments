@@ -596,7 +596,7 @@ def create_ade20k_datasets(model_id, uq_method):
 def create_arctique_datasets(task, uq_method):
     """Create Arctique datasets for both noise levels."""
     datasets = {}
-    noise_levels = ['0_00', '0_50'] #if task == 'semantic' else ['0_00', '0_25']
+    noise_levels = ['0_00', '0_25', '0_50', '0_75', '1_00'] #if task == 'semantic' else ['0_00', '0_25']
     
     for noise_level in noise_levels:
         variation = 'blood_cells' if task == 'semantic' else 'nuclei_intensity'
@@ -614,17 +614,17 @@ def create_arctique_datasets(task, uq_method):
         }
         
         # Construct the path to the potential new split file
-        dynamic_split_filename = f"{extra_info['task']}_arctique_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
-        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        # dynamic_split_filename = f"{extra_info['task']}_arctique_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        # dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
         
-        # Check if the dynamic split file exists
-        use_dynamic_split = os.path.exists(dynamic_split_path)
-        if use_dynamic_split:
-            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        # # Check if the dynamic split file exists
+        # use_dynamic_split = os.path.exists(dynamic_split_path)
+        # if use_dynamic_split:
+        #     print(f"Found spatial split file. Using: {dynamic_split_path}")
         
-        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
-        if noise_level == '0_00' and use_dynamic_split:
-            extra_info['split_path'] = dynamic_split_path
+        # # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        # if noise_level == '0_00' and use_dynamic_split:
+        #     extra_info['split_path'] = dynamic_split_path
         
         map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
         base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
@@ -677,17 +677,17 @@ def create_lidc_datasets(variation, uq_method):
         }
         
         # Construct the path to the potential new split file
-        dynamic_split_filename = f"{extra_info['task']}_lidc_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
-        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        # dynamic_split_filename = f"{extra_info['task']}_lidc_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        # dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
         
-        # Check if the dynamic split file exists
-        use_dynamic_split = os.path.exists(dynamic_split_path)
-        if use_dynamic_split:
-            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        # # Check if the dynamic split file exists
+        # use_dynamic_split = os.path.exists(dynamic_split_path)
+        # if use_dynamic_split:
+        #     print(f"Found spatial split file. Using: {dynamic_split_path}")
         
-        # If it's the '0_00' noise level and the dynamic file exists, override the none split path
-        if noise_level == '0_00' and use_dynamic_split:
-            extra_info['split_path'] = dynamic_split_path
+        # # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        # if noise_level == '0_00' and use_dynamic_split:
+        #     extra_info['split_path'] = dynamic_split_path
         
         base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
         cycle = 'FirstCycle'
