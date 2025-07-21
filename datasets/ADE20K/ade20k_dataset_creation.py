@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import mahotas as mh
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -9,6 +10,15 @@ from pathlib import Path
 from torch.utils.data import DataLoader 
 
 from datasets.dataset import Dataset_Class
+
+def inst_to_3c(gt_labels, lizard =  True):
+    ''' https://github.com/digitalpathologybern/hover_next_train/blob/main/src/data_utils.py'''
+    borders = mh.labeled.borders(gt_labels, Bc=np.ones((3, 3)))
+    mask = gt_labels > 0
+    if lizard:
+        return (((borders & mask) * 1) + (mask * 1))[np.newaxis, :] 
+    else:
+        return (((borders & mask) * 1) + (mask * 1))
 
 # ADE20K semantic class mapping with class names and RGB colors
 # Based on the official ADE20K dataset with 150 classes
@@ -336,7 +346,16 @@ class ADE20K_CityscapesDataset(Dataset_Class):
             mask = np.load(self.mask_path.joinpath(filename))
         else:
             filename = self.image_filenames[idx] + '.png'
-            mask = np.array(Image.open(os.path.join(self.mask_path.joinpath(filename))))
+            semantic_img = Image.open(os.path.join(self.mask_path.joinpath(filename)))
+            mask = np.array(semantic_img)
+            if self.task.startswith('panoptic'):
+                base_path = self.mask_path.parents[1]
+                instance_img = Image.open(base_path.joinpath('annotations_instance', self.mask_path.name, filename))
+                # Check if the dimensions of the two masks are different
+                if instance_img.size != semantic_img.size:
+                    # Resize the instance mask to match the semantic mask's dimensions via Image.Resampling.NEAREST 
+                    mask_inst = np.array(instance_img.resize(semantic_img.size, Image.Resampling.NEAREST))
+                return np.stack((mask_inst, mask), axis=-1)
         return mask
     
     def get_uq_map(self, idx):
@@ -538,7 +557,7 @@ def main():
     text_path = f"{os.path.dirname(base_path.rstrip('/'))}/GTA_ValUES_splits/ADE20k_id_test"
     
     extra_info = {
-        'task' : 'semantic',
+        'task' : 'semantic', #'panoptic'
         'variation' : 'cityscapes',
         'model_noise' : 0,
         'data_noise': '0_00',
@@ -585,27 +604,40 @@ def main():
           data['prediction'].shape, 
           data['sample_name'])
     
-    def label_to_rgb(label_map, label_colors):
+    def label_to_rgb(label_map, label_colors, mode='prediction'):
         """Converts a (H, W) label map to an (H, W, 3) RGB overlay."""
         h, w = label_map.shape
         rgb = np.zeros((h, w, 3), dtype=np.uint8)
         for label, color in label_colors.items():
             mask = (label_map == label)
-            rgb[mask] = color[1]
+            if mode=='instance':
+                rgb[mask] = color
+            else:
+                rgb[mask] = color[1]
         return rgb
+    
+    # Overleay colours 
+    label_colors_inst = {
+        0: [0, 0, 0],             # Background - black or transparent
+        1: [0, 0, 0],             # Nucleus - black or transparent
+        2: [255, 105, 180],       # Border - reddish pink
+    }
 
     # Main visualization
     data = next(iter(loader))
     image = data['image'].squeeze(0) # (C, H, W)
     
-    mask = data['mask'].squeeze(0).cpu().numpy()  # (H, W)
+    mask = data['mask'].squeeze(0).cpu().numpy()  # (H, W) or (H, W, 2) if task == 'panoptic'
     prediction = data['prediction'].squeeze(0).cpu().numpy()  # (H, W)
     # label_colors = label_colors_sem                
     uq_map = data['uq_map'].squeeze(0).cpu().numpy()
     sample_name = data['sample_name'][0]
     
     # Generate colored overlays
-    mask_rgb = label_to_rgb(mask, sem_maps_colors)
+    if extra_info['task'].startswith('panoptic'): 
+        mask_rgb  = label_to_rgb(inst_to_3c(mask[...,0], False), label_colors_inst, 'instance')
+    else:
+        mask_rgb = label_to_rgb(mask, sem_maps_colors)
     pred_rgb = label_to_rgb(prediction, sem_maps_colors)
     
     # Create subplots
