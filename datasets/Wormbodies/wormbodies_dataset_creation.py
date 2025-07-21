@@ -7,6 +7,26 @@ import zarr
 import json
 from datasets.dataset import Dataset_Class
 
+'''
+ID paths 
+image_path: /fast/AG_Kainmueller/data/data_wormbodies/train
+mask_path: /fast/AG_Kainmueller/data/data_wormbodies/train
+uq_map_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/dropout/au
+pred_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/dropout/pred
+
+OOD paths - v1 
+image_path: /fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/images/images_bw_np
+mask_path: /fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/masks/binary
+uq_map_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/dropout/au
+pred_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/dropout/pred
+
+OOD paths - v2 
+image_path: /fast/AG_Kainmueller/data/Protists/processed/resize/images/images_bw_np
+mask_path: /fast/AG_Kainmueller/data/Protists/processed/resize/masks/binary
+uq_map_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/dropout/au
+pred_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/dropout/pred
+'''
+
 
 class wormbodies_dataset(Dataset_Class):
     """Dataset for UQ maps of BBBC010.
@@ -28,6 +48,8 @@ class wormbodies_dataset(Dataset_Class):
         self.kwargs = kwargs
 
         self.samples = [file.split(".")[0] for file in os.listdir(self.image_path)]
+        self.file_ending = list(os.listdir(self.image_path))[0].split(".")[1] 
+
 
         f = str(self.uq_map_path)
         f = f[(f.find("wormbodies")+len("wormbodies/")):].split("/")
@@ -53,25 +75,32 @@ class wormbodies_dataset(Dataset_Class):
 
         return sample
 
-    
     def get_image(self, idx):
         """Return the image at the given index."""
         
-        img_path = Path(self.image_path).joinpath(f"{self.get_sample_name(idx)}.zarr")
-        zarr_store = zarr.open(img_path, mode='r')
+        img_path = Path(self.image_path).joinpath(f"{self.get_sample_name(idx)}.{self.file_ending}")
 
-        # crop the image to (512, 512) shape otherwise there are issues with the model output shape 
-        image = np.array(zarr_store["volumes"]["raw_bf"][:][0,4:-4, 92:-92].copy())
+        if self.file_ending == "zarr":
+            zarr_store = zarr.open(img_path, mode='r')
+            # crop the image to (512, 512) shape otherwise there are issues with the model output shape 
+            image = np.array(zarr_store["volumes"]["raw_bf"][:][0,4:-4, 92:-92].copy())
+
+        elif self.file_ending == "npy":
+            image = np.load(img_path)
 
         return image
 
     def get_mask(self, idx):
         """Return the mask at the given index."""
-        mask_path = Path(self.mask_path).joinpath(f"{self.get_sample_name(idx)}.zarr")
-        zarr_store = zarr.open(mask_path, mode='r')
+        mask_path = Path(self.mask_path).joinpath(f"{self.get_sample_name(idx)}.{self.file_ending}")
 
-        # crop the image to (512, 512) shape otherwise there are issues with the model output shape 
-        mask = np.array(zarr_store["volumes"]["gt_fgbg"][:][0,4:-4, 92:-92].copy())
+        if self.file_ending == "zarr":
+            zarr_store = zarr.open(mask_path, mode='r')
+            # crop the image to (512, 512) shape otherwise there are issues with the model output shape 
+            mask = np.array(zarr_store["volumes"]["gt_fgbg"][:][0,4:-4, 92:-92].copy())
+
+        elif self.file_ending == "npy":
+            mask = np.load(mask_path)
         
         return mask
     
