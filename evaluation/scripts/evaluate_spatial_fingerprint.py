@@ -280,35 +280,42 @@ if __name__ == "__main__":
 
 
     if DATASET == "lizard":
-        spatial = False
-        main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-        lmdb_path = '/fast/AG_Kainmueller/data/Lizard/lizard_lmdb/'
-        # base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
-        extra_info = {
-            'task' : 'instance',
-            'variation' : 'glas',
-            'model_noise' : 0,
-            'data_noise': '0_00',
-            'uq_method' : args.uq_method,
-            'decomp' : 'pu',
-            'spatial' : None,
-            'metadata' : True,
-            'split_path' : None,
-            'split' : ['test']
-        }
-        
-        csv_path = Path(lmdb_path).parent.joinpath(f"splits/domain_shift_splits/lizard_domaingen_{extra_info['variation']}_test_split.csv")
-        extra_info['split_path'] = csv_path
-        
-        dataset = LizardDataset(lmdb_path, 
-                                    lmdb_path, 
-                                    lmdb_path, 
-                                    lmdb_path, 
-                                    'abc',
-                                    **extra_info)
-        dataset_name = f"lizard_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
-        dataset.num_classes = 7
-        evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+        for task in ['instance', 'semantic']:
+            for noise_level in ['0_00', '1_00']:
+                extra_info = {
+                    'task' : task,
+                    'variation' : 'glas_set',
+                    'model_noise' : 0,
+                    'data_noise': noise_level,
+                    'uq_method' : 'dropout',
+                    'decomp' : 'pu',
+                    'spatial' : None,
+                    'metadata' : True,
+                    'split_path' : None,
+                    'split' : ['test']
+                }
+                
+                main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
+                lmdb_path = '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
+                
+                # Define the uq_map and prediction paths based on the amsks' noise with which the model was trained        
+                map_path = Path(f'/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/uncertainty_lizard_convnextv2_tiny_{extra_info["model_noise"]}')
+                uq_map_path = map_path.joinpath(main_folder_name)
+                prediction_path = map_path.joinpath('UQ_predictions')
+                
+                # Deifne split path to exlude tiles with exceeeding and wrong padding 
+                json_path = Path(lmdb_path).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+                extra_info['split_path'] = json_path
+    
+                dataset = LizardDataset(lmdb_path, 
+                                            lmdb_path, 
+                                            uq_map_path, 
+                                            prediction_path, 
+                                            'abc',
+                                            **extra_info)
+                dataset_name = f"lizard_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                dataset.num_classes = 7
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "cityscapes":

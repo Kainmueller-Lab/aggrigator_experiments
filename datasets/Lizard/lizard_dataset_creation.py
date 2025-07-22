@@ -14,15 +14,25 @@ from functools import lru_cache
 
 # ---- Lizard Config. Functions ----
 
-# cell IDS from https://github.com/digitalpathologybern/hover_next_train/blob/main/src/constants.py whose order is modified according to those of Arctique 
+# cell IDS from https://github.com/digitalpathologybern/hover_next_train/blob/main/src/constants.py  
+# mapping_dict ={
+#         "0": "background",
+#         "1": "Epithelial",
+#         "2": "Plasma",
+#         "3": "Lymphocyte",
+#         "4": "Eosinophil",
+#         "5": "Connective tissue",
+#         "6": "Neutrophil",
+# }
+
 mapping_dict ={
-        "0": "background",
-        "1": "Epithelial",
-        "2": "Plasma",
-        "3": "Lymphocyte",
-        "4": "Eosinophil",
-        "5": "Connective tissue",
-        "6": "Neutrophil",
+    "0": "background",
+    "1": "Neutrophil",
+    "2": "Epithelial",
+    "3": "Lymphocyte",
+    "4": "Plasma",
+    "5": "Eosinophil",
+    "6": "Connective tissue"
 }
 
 # ---- Lizard Dataset Creation Functions ----
@@ -113,6 +123,8 @@ class LizardDataset(Dataset_Class):
             include_sample_names (list, optional): List of sample names to include. Default is None, meaning all samples are included.
         """
         self.lmdb_path = image_path
+        self.uq_map_path = Path(uq_map_path)
+        self.prediction_path = Path(prediction_path)
 
         # Open the LMDB environment
         self.env = lmdb.open(self.lmdb_path, readonly=True, lock=False, readahead=False, meminit=False)
@@ -127,54 +139,46 @@ class LizardDataset(Dataset_Class):
         self.data_noise = kwargs.get('data_noise', None)
         self.metadata = kwargs.get('metadata', False)
         self.split_path = kwargs.get('split_path', None)
-        self.split = kwargs.get('split', ['test'])
+        self.split = kwargs.get('split', ['test_id'])
         
-        assert any(s in self.split for s in {"train", "test", "valid"})
+        if self.data_noise == '0_00' and self.split != 'test_id':
+            self.split = [f'{s}_id' for s in self.split]
+        elif self.data_noise == '1_00' and self.split != 'test_ood':
+            self.split = [f'{s}_ood' for s in self.split]
+            
+        assert any(s in self.split for s in {"test_id", "test_ood"})
         
         if self.split_path:
             self.get_split()
+            self.sample_names = self.include_sample_names if self.include_sample_names else self.include_tile_names
         else:
             self.include_sample_names = None
             self.include_tile_names = None
-
-        # load metadata
-        self.metadata = self._load_metadata()
-        self.size = self.metadata["tile_size"]
-        self.microns_per_pixel = self.metadata["microns_per_pixel"]
-        self.class_mapping_dict = self.metadata["class_mapping_dict"]
-        self.n_classes = self.metadata["n_classes"]
+            self.get_sample_names_in_dataset()
         
         # rearrange mapping for comparison with Arctique 
         self.class_mapping = {0: 0, 1: 6, 2: 1, 3: 3, 4: 2, 5: 4, 6: 5} 
 
         # Filter the keys based on sample names
         self._filter_lmdb_indices()
-    
+            
     def get_split(self):
-        # load split .csv
-        split_df = pd.read_csv(self.split_path)
-        # enforce column names
-        assert {"sample_name", "train_test_val_split"} == set(split_df.columns)
+        # load split .json
+        with open(self.split_path, 'r') as f:
+            split_data = json.load(f)
         # enfore split names
-        assert {"train", "test", "valid"} == set(split_df["train_test_val_split"].unique())
+        assert {"train", "val", "test_id", "test_ood"} == set(split_data.keys())
         # load intended split
         for split in self.split:
-            include_fovs = split_df[split_df["train_test_val_split"] == split]["sample_name"].tolist()
+            include_fovs = split_data[split]
             if "tile" in str(include_fovs[0]).lower():
                 self.include_tile_names = include_fovs
                 self.include_sample_names = None
             else:
                 self.include_tile_names = None
                 self.include_sample_names = include_fovs
-
-    def _load_metadata(self):
-        """Loads metadata from the LMDB file."""
-        with self.env.begin(write=False) as txn:
-            meta_bytes = txn.get(b"__global_metadata__")
-            if meta_bytes is None:
-                raise ValueError("No global metadata found in the LMDB file.")
-            metadata = pickle.loads(meta_bytes)
-        return metadata
+                
+        print(f"--- Loaded {len(self.include_tile_names)} tile names for split '{self.split}' ---")
 
     def _filter_lmdb_indices(self):
         """Filters LMDB keys based on the include_sample_names list."""
@@ -184,53 +188,21 @@ class LizardDataset(Dataset_Class):
 
             cursor = txn.cursor()
             for key, value in cursor:
-                if key.startswith(b"tile-"):
-
-                    data = pickle.loads(value)
-                    if self.include_tile_names is not None:
-                        if data["tile_index"] in self.include_tile_names:
-                            include_keys.append(key)
-                            continue
-
-                    if self.include_sample_names is not None:
-                        if data["sample_name"] in self.include_sample_names:
-                            include_keys.append(key)
-                            continue
-
-                    else:  # Include all keys if include_sample_names is None and include_tile_names is None
+                data = pickle.loads(value)
+                if self.include_tile_names is not None:
+                    if data["tile_name"] in self.include_tile_names:
                         include_keys.append(key)
+                        continue
+
+                elif self.include_sample_names is not None:
+                    if data["sample_name"] in self.include_sample_names:
+                        include_keys.append(key)
+                        continue
+
+                else:  # Include all keys if include_sample_names is None and include_tile_names is None
+                    include_keys.append(key)
 
         self.lmdb_key_list = include_keys
-
-    def _pad_image_data(self, data, key='image'):
-        """Pads the image data to ensure all images are of the same size.
-
-        Args:
-            data (array): The data dictionary values for one key
-            keys (list): List of keys to pad.
-
-        Returns:
-            data (array): The padded data values dictionary.
-        """
-        target_size = self.metadata["tile_size"]
-        content_mask = np.zeros((target_size, target_size), dtype=np.uint8)
-        if isinstance(data, np.ndarray):
-            h, w = data.shape[:2]
-            pad_h = target_size - h
-            pad_w = target_size - w
-            if pad_h > 0 or pad_w > 0:
-                if len(data.shape) == 2:  # Grayscale image
-                    data = np.pad(
-                        data, ((0, pad_h), (0, pad_w)), 
-                        mode='constant', constant_values=0)
-                elif len(data.shape) == 3:  # Color image
-                    data = np.pad(
-                        data, ((0, pad_h), (0, pad_w), (0, 0)), 
-                        mode='constant', constant_values=0)
-                content_mask[:h, :w] = 1
-        else:
-            raise ValueError(f"Unsupported data type for key {key}: {type(data)}")
-        return data, content_mask
     
     def _image_to_tensor(self, data, keys=['image', 'mask']):
         """Converts image data to PyTorch tensors.
@@ -257,15 +229,7 @@ class LizardDataset(Dataset_Class):
         return len(self.lmdb_key_list)
 
     def __getitem__(self, idx):
-        """Retrieves a tile from the LMDB file based on the given index.
-
-        Args:
-            idx (int): Index of the tile to retrieve.
-
-        Returns
-        -------
-            dict: The data associated with the tile.
-        """
+        """Retrieves samples from the LMDB file based on the given index."""
         if idx < 0 or idx >= len(self.lmdb_key_list):
             raise IndexError("Index out of range.")
 
@@ -292,9 +256,9 @@ class LizardDataset(Dataset_Class):
             if data["image"].max() > 1:  # Normalize image if it is not already normalized
                 data["image"] = data["image"] / data["image"].max()
         
-        image, img_content_mask = self._pad_image_data(data.get('image'), 'image')
+        image = data.get('image') 
         image = torch.tensor(image, dtype=torch.float32) 
-        return image.permute(2, 0, 1) # CxHxW  
+        return image # CxHxW  
         
     def get_mask(self, idx):
         """Get mask for a specific index."""
@@ -306,9 +270,9 @@ class LizardDataset(Dataset_Class):
             data = pickle.loads(value)
             # print(data.keys())
         
-        sem_mask, sem_content_mask = self._pad_image_data(data.get('semantic_mask'), 'semantic_mask')
-        sem_mask = self.rearrange_class(sem_mask)
-        inst_mask, inst_content_mask = self._pad_image_data(data.get('instance_mask'), 'instance_mask')
+        sem_mask = data.get('semantic_mask')
+        # sem_mask = self.rearrange_class(sem_mask)
+        inst_mask = data.get('instance_mask')
         three_mask = inst_to_3c(inst_mask, False)
         
         # Check both 'mask' and 'masks' keys
@@ -324,11 +288,42 @@ class LizardDataset(Dataset_Class):
     @lru_cache(maxsize=32)
     def get_uq_map(self, idx):
         """Load uncertainty maps"""
-        return torch.zeros_like(self.get_mask(idx))
+        map_type_sem = f"semantic_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_{self.decomp}"
+        map_type_threeinst = f"instance_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}_{self.decomp}"
+
+        if self.spatial:
+            map_type_sem += f'_{self.spatial}'
+            map_type_threeinst += f'_{self.spatial}'
+        map_type_sem += ".npy"
+        map_type_threeinst += ".npy"
+        
+        map_file_sem = self.uq_map_path.joinpath(map_type_sem)
+        map_file_inst = self.uq_map_path.joinpath(map_type_threeinst)
+        
+        if self.task.startswith('semantic'):
+            return np.load(map_file_sem)[idx]
+        elif self.task.startswith('instance'):
+            return np.load(map_file_inst)[idx]
+        
+        return np.stack((np.load(map_file_sem)[idx], np.load(map_file_inst)[idx]), axis=-1)
     
     def get_prediction(self, idx, **kwargs):
-        """Load panoptic model predictions"""
-        return torch.zeros_like(self.get_mask(idx))
+        """Load panoptic model predictions"""                
+        preds_inst_type = f"instance_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}.npy"
+        preds_sem_type = f"semantic_noise_{self.model_noise}_{self.variation}_{self.data_noise}_{self.uq_method}.npy"
+        
+        preds_file_path_inst = self.prediction_path.joinpath(preds_inst_type)
+        preds_file_path_sem = self.prediction_path.joinpath(preds_sem_type)
+        
+        preds_inst, preds_sem = np.load(preds_file_path_inst)[idx], np.load(preds_file_path_sem)[idx]
+        three_preds = inst_to_3c(preds_inst, False)
+        
+        if self.task.startswith('semantic'):
+            return preds_sem
+        elif self.task.startswith('instance'):
+            preds_inst = np.stack((preds_inst, three_preds), axis=-1)
+            return preds_inst
+        return np.stack((preds_inst, preds_sem, three_preds), axis=-1) 
     
     def close(self):
         """Closes the LMDB environment."""
@@ -343,7 +338,7 @@ class LizardDataset(Dataset_Class):
             value = txn.get(key)
             if value is not None:
                 data = pickle.loads(value)
-                return f'{data["sample_name"]}_{data["tile_index"]}'
+                return f'{data["tile_name"]}'
         return None
              
     def get_sample_names(self):
@@ -357,8 +352,8 @@ class LizardDataset(Dataset_Class):
                 value = txn.get(key)
                 if value is not None:
                     data = pickle.loads(value)
-                    sample_names.add(f'{data["sample_name"]}_{data["tile_index"]}')
-        return list(sample_names)
+                    sample_names.add(f'{data["tile_name"]}')
+        self.sample_name = list(sample_names)
     
     def get_semantic_mapping(self):
         return mapping_dict
@@ -385,15 +380,11 @@ class LizardDataset(Dataset_Class):
         return info_dictionary
 
 def main():
-    spatial = False
-    main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-    lmdb_path = '/fast/AG_Kainmueller/data/Lizard/lizard_lmdb/'
-    # base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
     extra_info = {
-        'task' : 'instance',
-        'variation' : 'glas',
+        'task' : 'semantic',
+        'variation' : 'glas_set',
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '1_00',
         'uq_method' : 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
@@ -401,19 +392,23 @@ def main():
         'split_path' : None,
         'split' : ['test']
     }
+
+    main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
+    lmdb_path = '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
     
-    csv_path = Path(lmdb_path).parent.joinpath(f"splits/domain_shift_splits/lizard_domaingen_{extra_info['variation']}_test_split.csv")
-    extra_info['split_path'] = csv_path
+    # Define the uq_map and prediction paths based on the amsks' noise with which the model was trained        
+    map_path = Path(f'/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/uncertainty_lizard_convnextv2_tiny_{extra_info["model_noise"]}')
+    uq_map_path = map_path.joinpath(main_folder_name)
+    prediction_path = map_path.joinpath('UQ_predictions')
     
-    # image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
-    # mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')
-    # prediction_path = map_path.joinpath('UQ_predictions')
-    # uq_map_path = map_path.joinpath(main_folder_name)
+    # Deifne split path to exlude tiles with exceeeding and wrong padding 
+    json_path = Path(lmdb_path).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+    extra_info['split_path'] = json_path
     
     data_loader = LizardDataset(lmdb_path, 
                                 lmdb_path, 
-                                lmdb_path, 
-                                lmdb_path, 
+                                uq_map_path, 
+                                prediction_path, 
                                 'abc',
                                 **extra_info)
     print(data_loader.get_semantic_mapping())
@@ -429,26 +424,26 @@ def main():
     data = next(iter(loader))
     print(data['image'].shape,
           data['mask'].shape, #if task == 'instance', then mask[...,0] is instances and mask[...,1] is 3-class instance
-          data['uq_map'].shape, #if task == 'instance', then uq_map[...,0] is instances and uq_map[...,1] is 3-class instance
+          data['uq_map'].shape, #if task == 'instance', then uq_map[...,0] is 3-class instance
           data['prediction'].shape, #if task == 'instance', then uq_map[...,0] is instances and uq_map[...,1] is 3-class instance
           data['sample_name'])
     
     # Overleay colours 
     label_colors_sem = {
         0: [0, 0, 0],             # Background - black or transparent
-        1: [102, 0, 153],         # Epithelial - deep purple
-        2: [56, 153, 250],        # Plasma Cells - light blue
+        1: [255, 255, 255],       # Neutrophils - white
+        2: [102, 0, 153],         # Epithelial - deep purple
         3: [255, 255, 0],         # Lymphocytes - yellow
-        4: [255, 105, 180],       # Eosinophils - reddish pink
+        4: [56, 153, 250],        # Plasma Cells - light blue
+        5: [255, 105, 180],       # Eosinophils - reddish pink
         5: [0, 255, 0],           # Fibroblasts - green
-        6: [255, 255, 255],       # Neutrophils - white
     }
     
     # Overleay colours 
     label_colors_inst = {
         0: [0, 0, 0],             # Background - black or transparent
-        1: [255, 105, 180],       # Border - reddish pink
-        2: [0, 0, 0],             # Nucleus - black or transparent
+        1: [0, 0, 0],             # Nucleus - black or transparent
+        2: [255, 105, 180],       # Border - reddish pink
     }
     
     def label_to_rgb(label_map, label_colors):
@@ -466,24 +461,24 @@ def main():
     
     if extra_info['task'].startswith('semantic'):
         mask = data['mask'].squeeze(0).cpu().numpy()  # (H, W)
-        # prediction = data['prediction'].squeeze(0).cpu().numpy()  # (H, W)
+        prediction = data['prediction'].squeeze(0).cpu().numpy()  # (H, W)
         label_colors = label_colors_sem        
     else:
         mask = data['mask'][...,1].squeeze(0).cpu().numpy() # (H, W) 
-        # prediction = data['prediction'][...,1].squeeze(0).cpu().numpy()  # (H, W)
+        prediction = data['prediction'][...,1].squeeze(0).cpu().numpy()  # (H, W)
         label_colors = label_colors_inst
         
-    # uq_map = data['uq_map'].squeeze(0)
+    uq_map = data['uq_map'].squeeze(0)
     sample_name = data['sample_name'][0]
 
     # Generate colored overlays
     mask_rgb = label_to_rgb(mask, label_colors)
-    # pred_rgb = label_to_rgb(prediction, label_colors)
+    pred_rgb = label_to_rgb(prediction, label_colors)
 
     # Create subplots
     fig, axs = plt.subplots(1, 4, figsize=(16, 5))
     titles = ['Input Image', 'Ground Truth', 'Prediction', 'UQ Map']
-    overlays = [None, mask_rgb, None, None]#, mask_rgb, pred_rgb, uq_map.cpu().numpy()]
+    overlays = [None, mask_rgb, pred_rgb, uq_map.cpu().numpy()] #, mask_rgb, pred_rgb, uq_map.cpu().numpy()
     alphas = [1.0, 0.6, 0.6, 0.8]
 
     for ax, title, overlay, alpha in zip(axs, titles, overlays, alphas):
@@ -491,10 +486,10 @@ def main():
             ax.imshow(image.permute(1, 2, 0).cpu().numpy())  # RGB input, normalized
         else:
             ax.imshow(image[2], cmap='gray')
-            if title in ['Ground Truth']:# ,'Prediction']:
+            if title in ['Ground Truth', 'Prediction']:# ,'Prediction']:
                 ax.imshow(overlay, alpha=alpha)
-            # elif title == 'UQ Map':
-            #     ax.imshow(overlay, cmap='inferno', alpha=alpha)
+            elif title == 'UQ Map':
+                ax.imshow(overlay, cmap='inferno', alpha=alpha)
         ax.set_title(title, fontsize=10)
         ax.axis('off')
 
