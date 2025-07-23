@@ -822,6 +822,101 @@ def create_weedsgalore_datasets(uq_method):
         
     return datasets
 
+def create_lizard_datasets(task, uq_method):
+    """Create Arctique datasets for both noise levels."""
+    datasets = {}
+    
+    for noise_level in ['0_00', '1_00']:
+        extra_info = {
+            'task': task,
+            'variation': 'glas_set',
+            'model_noise': 0,
+            'data_noise': noise_level,
+            'uq_method': uq_method,
+            'decomp': 'pu',
+            'spatial': False,
+            'metadata': False,
+            'split_path': None, 
+            'split': ['test'],
+        }
+        
+        # Construct the path to the potential new split file
+        # dynamic_split_filename = f"{extra_info['task']}_lizard_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        # dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # # Check if the dynamic split file exists
+        # use_dynamic_split = os.path.exists(dynamic_split_path)
+        # if use_dynamic_split:
+        #     print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        # if noise_level == '0_00' and use_dynamic_split:
+        #     extra_info['split_path'] = dynamic_split_path
+        
+        lmdb_path = '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb' 
+        map_path = Path(f'/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/uncertainty_lizard_convnextv2_tiny_{extra_info["model_noise"]}')
+        uq_map_path = map_path.joinpath('UQ_maps')
+        prediction_path = map_path.joinpath('UQ_predictions')
+        
+        # Define split path to exlude tiles with exceeeding and wrong padding 
+        json_path = Path(lmdb_path).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+        extra_info['split_path'] = json_path
+
+        from datasets.Lizard.lizard_dataset_creation import LizardDataset
+        
+        dataset = LizardDataset(lmdb_path, 
+                                lmdb_path, 
+                                uq_map_path, 
+                                prediction_path, 
+                                'abc', 
+                                **extra_info)
+        dataset.num_classes = 7
+        datasets[noise_level] = dataset
+    return datasets
+
+def create_wormbodies_datasets(variation, uq_method):
+    """Create LIDC datasets for both noise levels."""
+    datasets = {}
+    noise_levels = ['0_00', '1_00']
+    
+    for noise_level in noise_levels:
+        extra_info = {
+            'task': 'fgbg',
+            'variation': variation,
+            'model_noise': 0,
+            'data_noise': noise_level,
+            'uq_method': uq_method,
+            'decomp': 'pu',
+            'spatial': None,
+            'metadata': False,
+            'split_path': None, 
+            'split': ['test'],
+        }
+        
+        # Construct the path to the potential new split file
+        # dynamic_split_filename = f"{extra_info['task']}_lidc_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        # dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # # Check if the dynamic split file exists
+        # use_dynamic_split = os.path.exists(dynamic_split_path)
+        # if use_dynamic_split:
+        #     print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # # If it's the '0_00' noise level and the dynamic file exists, override the none split path
+        # if noise_level == '0_00' and use_dynamic_split:
+        #     extra_info['split_path'] = dynamic_split_path
+        
+        data_path = '/fast/AG_Kainmueller/data/'
+        uq_map_path = '/fast/AG_Kainmueller/data/UQ_maps/wormbodies/'
+        
+        from datasets.Wormbodies.wormbodies_dataset_creation import wormbodies_dataset
+        
+        dataset = wormbodies_dataset(data_path, data_path, uq_map_path, uq_map_path, 'abc', **extra_info)
+        dataset.num_classes = 2
+        datasets[noise_level] = dataset
+    
+    return datasets
+
 def evaluate_correlation_across_datasets(all_datasets_dict, sample_size, num_workers, output_name="cross_dataset"):
     """
     Evaluate correlations across multiple datasets by concatenating all data.
@@ -931,6 +1026,16 @@ def run_cross_dataset_analysis(uq_method, sample_size=0, num_workers=16):
     datasets = create_weedsgalore_datasets(uq_method)
     all_datasets['weedsgalore'] = datasets
     
+    # Lizard
+    print("Creating Lizard datasets...")
+    datasets = create_lizard_datasets(uq_method)
+    all_datasets['lizard'] = datasets
+    
+    # Wormbodies
+    print("Creating Wormbodies datasets...")
+    datasets = create_wormbodies_datasets(uq_method)
+    all_datasets['wormbodies'] = datasets
+    
     # Run cross-dataset analysis
     print(f"\n=== Running cross-dataset correlation analysis ===")
     output_name = f"all_datasets_{uq_method}_pu"
@@ -1000,6 +1105,19 @@ if __name__ == "__main__":
         datasets = create_weedsgalore_datasets(args.uq_method)
         base_name = f"joint_noise_weedsgalore_crops_vs_weed_none_{args.uq_method}_pu"
         evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
+    
+    elif args.dataset == "lizard":
+        for task in ['instance', 'semantic']:
+            datasets = create_lizard_datasets(task, args.uq_method)
+            base_name = f"joint_noise_lizard_{task}_glas_set_{args.uq_method}_pu"
+            args.num_workers = 2
+            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
+    
+    elif args.dataset == "wormbodies":
+        for variation in ['nematodes', 'protists']:
+            datasets = create_wormbodies_datasets(variation, args.uq_method)
+            base_name = f"joint_noise_wormbodies_fgbg_{variation}_{args.uq_method}_pu"
+            evaluate_correlation_across_noise_levels(datasets, args.sample_size, args.num_workers, base_name, args.compute_individual)
         
     # Add other datasets as needed (weedsgalore, lizard...)
     # following the same pattern...

@@ -244,7 +244,7 @@ if __name__ == "__main__":
                     'data_noise': noise_level,
                     'uq_method' : args.uq_method,
                     'decomp' : 'pu',
-                    'spatial' : None,
+                    'spatial' : False,
                     'cons_thresh' : 2,
                     'metadata' : True,
                     'render_2d' : True,
@@ -288,10 +288,10 @@ if __name__ == "__main__":
                     'data_noise': noise_level,
                     'uq_method' : 'dropout',
                     'decomp' : 'pu',
-                    'spatial' : None,
-                    'metadata' : True,
+                    'spatial' : False,
+                    'metadata' : False,
                     'split_path' : None,
-                    'split' : ['test']
+                    'split' : ['test'],
                 }
                 
                 main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
