@@ -25,6 +25,7 @@ from datasets.Lizard.lizard_dataset_creation import LizardDataset
 from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import OptimizedGTA_CityscapesDataset
 from datasets.ADE20K.ade20k_dataset_creation import OptimizedADE20K_CityscapesDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import OptimizedWeedsGalore
+from datasets.Wormbodies.wormbodies_dataset_creation import wormbodies_dataset
 
 from evaluation.constants import BACKGROUND_FREE_STRATEGIES, AUROC_STRATEGIES
 
@@ -56,6 +57,9 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     
     if args.dataset_name.startswith(('arctique','lidc', 'lizard')):
         main_folder_name = "UQ_maps" if not args.spatial else "UQ_spatial"
+        
+        if args.dataset_name.startswith('lizard'):
+            base_path = base_path.joinpath(f'uncertainty_lizard_convnextv2_tiny_{args.model_noise}')
         uq_maps_path = base_path.joinpath(main_folder_name)
         
         metadata_path = base_path.joinpath("UQ_metadata") if args.metadata else None
@@ -70,13 +74,13 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
             placehold = 'Softmax'
             data_path = Path(args.label_path).joinpath(f'{cycle}/{placehold}/test_results/{folder}/') 
         elif args.dataset_name.startswith('lizard'): 
-            data_path = Path(args.label_path)
+            data_path = args.label_path
             
-    elif args.dataset_name.startswith(('gta', 'ade20k', 'weedsgalore')): 
+    elif args.dataset_name.startswith(('gta', 'ade20k', 'weedsgalore', 'wormbodies')): 
         data_path = Path(args.label_path)
         uq_maps_path = base_path
         
-        if args.dataset_name.startswith(('gta', 'weedsgalore')):
+        if args.dataset_name.startswith(('gta', 'weedsgalore', 'wormbodies')):
             preds_path = base_path
         else:
             preds_path = data_path
@@ -84,7 +88,7 @@ def setup_paths(args: argparse.Namespace) -> DataPaths:
     output_dir = Path.cwd().joinpath('output')
     output_dir.mkdir(exist_ok=True)
 
-    for path in [uq_maps_path, data_path, preds_path]: # Validate paths - we exclude for now preds_path
+    for path in [uq_maps_path, Path(data_path), preds_path]: # Validate paths - we exclude for now preds_path
         if not path.exists():
             raise FileNotFoundError(f"Path does not exist: {path}")
     metadata_path=metadata_path if metadata_path and metadata_path.exists() else None  
@@ -256,7 +260,7 @@ def rescale_maps(unc_maps, uq_method, task, dataset_name):
         map1 = unc_maps[...,0] / np.log(6)
         map2 = unc_maps[...,1] / np.log(3)
         return np.stack([map1, map2], axis=-1) 
-    elif task == 'fgbg' and dataset_name.startswith('lidc'):
+    elif task == 'fgbg' and dataset_name.startswith(('lidc', 'wormbodies')):
         return unc_maps/np.log(2) 
     else:
         raise ValueError('Undefined rescale factor for the chosen dataset/task')
@@ -872,6 +876,10 @@ def load_dataset_abstract_class(
         dataset_config = _get_ade20k_config(paths)
     elif dataset_name.startswith("weedsgalore"):
         dataset_config = _get_weeds_config(paths)
+    elif dataset_name.startswith("lizard"):
+        dataset_config = _get_lizard_config(paths)
+    elif dataset_name.startswith("wormbodies"):
+        dataset_config = _get_worms_config(paths)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} not implemented in optimized version")
     
@@ -922,6 +930,26 @@ def load_dataset_abstract_class(
     elif datasets is not None:
         return process_concatenated_datasets(datasets, noise_levels_to_process, task, dataset_name)
 
+def _get_lizard_config(paths: DataPaths) -> dict:
+    """Get configuration for Lizard dataset"""
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for Lizard dataset uses reference paths for all noise levels"""      
+        # Define split path to exlude tiles with exceeeding and wrong padding 
+        json_path = Path(paths.data).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+        extra_info['split_path'] = json_path
+        extra_info['split'] = ['test']
+        
+        return {
+            'image_path': paths.data,
+            'mask_path': paths.data,
+        }
+    
+    return {
+        'dataset_class': LizardDataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {}
+    }
 def _get_arctique_config(paths: DataPaths, task: str) -> dict:
     """Get configuration for Arctique dataset"""
     # Initialize shared mask cache
@@ -1105,7 +1133,7 @@ def _get_weeds_config(paths: DataPaths) -> dict:
     """Get configuration for Weedsgalore dataset"""
     
     def get_paths(noise: str, extra_info: dict) -> dict:
-        """Get paths for GTA dataset - uses reference paths for all noise levels"""
+        """Get paths for Wormbodies dataset - uses reference paths for all noise levels"""
         return {
             'image_path': paths.data,
             'mask_path': paths.data
@@ -1116,5 +1144,22 @@ def _get_weeds_config(paths: DataPaths) -> dict:
         'get_paths': get_paths,
         'extra_kwargs': {}
     }
+    
+def _get_worms_config(paths: DataPaths) -> dict:
+    """Get configuration for Wormbodies dataset"""
+    
+    def get_paths(noise: str, extra_info: dict) -> dict:
+        """Get paths for Wormbodies dataset - uses reference paths for all noise levels"""
+        return {
+            'image_path': paths.data,
+            'mask_path': paths.data
+        }
+    
+    return {
+        'dataset_class': wormbodies_dataset,
+        'get_paths': get_paths,
+        'extra_kwargs': {}
+    }
+    
     
     

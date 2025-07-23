@@ -148,19 +148,19 @@ class LizardDataset(Dataset_Class):
             
         assert any(s in self.split for s in {"test_id", "test_ood"})
         
+        # Filter the keys based on sample names
         if self.split_path:
             self.get_split()
             self.sample_names = self.include_sample_names if self.include_sample_names else self.include_tile_names
+            self._filter_lmdb_indices()
         else:
             self.include_sample_names = None
             self.include_tile_names = None
+            self._filter_lmdb_indices()
             self.get_sample_names_in_dataset()
         
         # rearrange mapping for comparison with Arctique 
         self.class_mapping = {0: 0, 1: 6, 2: 1, 3: 3, 4: 2, 5: 4, 6: 5} 
-
-        # Filter the keys based on sample names
-        self._filter_lmdb_indices()
             
     def get_split(self):
         # load split .json
@@ -401,7 +401,7 @@ def main():
     uq_map_path = map_path.joinpath(main_folder_name)
     prediction_path = map_path.joinpath('UQ_predictions')
     
-    # Deifne split path to exlude tiles with exceeeding and wrong padding 
+    # Define split path to exlude tiles with exceeeding and wrong padding 
     json_path = Path(lmdb_path).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
     extra_info['split_path'] = json_path
     

@@ -164,7 +164,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--variation', type=str, default='nuclei_intensity', 
-        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes'], help='OoD variation type'
+        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes', 'glas_set', 'protists', 'nematodes'], help='OoD variation type'
     )
     parser.add_argument(
         '--uq_path', type=str, 
@@ -174,12 +174,16 @@ def parse_arguments() -> argparse.Namespace:
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
+    # lizard: '/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/'
+    # wormbodies: '/fast/AG_Kainmueller/data/UQ_maps/wormbodies/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
     )
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
+    # lizard: '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
+    # wormbodies: '
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )
@@ -188,7 +192,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=['pu', 'au', 'eu'], help='Information theoretic decomposition component'
     )
     parser.add_argument(
-        '--dataset_name', type=str, default='arctique', choices=['arctique', 'lidc', 'lizard', 'gta', 'ade20k'], help='Dataset name'
+        '--dataset_name', type=str, default='arctique', choices=['arctique', 'lidc', 'lizard', 'gta', 'ade20k', 'wormbodies'], help='Dataset name'
     )
     parser.add_argument(
         '--spatial', type=str, choices=['high_eds', 'low_eds', 'high_moran', 'low_moran'], 

@@ -462,9 +462,7 @@ def create_single_auroc_barplot(
     colors = [_get_method_color(method, method_to_category[method], 
                                correlation_colors, barplot_colors_local) 
               for method in results['Aggregator']]
-    
-    print(strategies_dict_local['Spatial GMM'], barplot_colors_local['Spatial GMM'])
-    
+        
     # Create bar plot
     bars = ax.bar(
         results['Aggregator'],
