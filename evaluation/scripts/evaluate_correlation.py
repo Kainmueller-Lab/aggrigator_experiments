@@ -212,6 +212,7 @@ from datasets.LIDC.lidc_dataset_creation import LIDCDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
 from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_CityscapesDataset
+from datasets.Wormbodies.wormbodies_dataset_creation import wormbodies_dataset
 
 
 if __name__ == "__main__":
@@ -380,40 +381,45 @@ if __name__ == "__main__":
                 evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
+    
     if DATASET == "lizard":
-        if (am.patch_aggregation, 200) in focus_strategy_list:
-            print(f"NOTE: We remove patch aggregation with patch size 200 because uq maps are smaller than 200x200.")
-            focus_strategy_list.pop(focus_strategy_list.index((am.patch_aggregation, 200)))
+        for task in ['instance', 'semantic']:
+            for noise_level in ['0_00', '1_00']:
+                extra_info = {
+                    'task' : task,
+                    'variation' : 'glas_set',
+                    'model_noise' : 0,
+                    'data_noise': noise_level,
+                    'uq_method' : 'dropout',
+                    'decomp' : 'pu',
+                    'spatial' : None,
+                    'metadata' : True,
+                    'split_path' : None,
+                    'split' : ['test']
+                }
+                
+                main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
+                lmdb_path = '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
+                
+                # Define the uq_map and prediction paths based on the amsks' noise with which the model was trained        
+                map_path = Path(f'/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/uncertainty_lizard_convnextv2_tiny_{extra_info["model_noise"]}')
+                uq_map_path = map_path.joinpath(main_folder_name)
+                prediction_path = map_path.joinpath('UQ_predictions')
+                
+                # Deifne split path to exlude tiles with exceeeding and wrong padding 
+                json_path = Path(lmdb_path).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+                extra_info['split_path'] = json_path
+    
+                dataset = LizardDataset(lmdb_path, 
+                                            lmdb_path, 
+                                            uq_map_path, 
+                                            prediction_path, 
+                                            'abc',
+                                            **extra_info)
+                dataset_name = f"lizard_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
+                dataset.num_classes = 7
+                evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
-        spatial = False
-        main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-        lmdb_path = '/fast/AG_Kainmueller/data/Lizard/lizard_lmdb/'
-        # base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
-        extra_info = {
-            'task' : 'instance',
-            'variation' : 'glas',
-            'model_noise' : 0,
-            'data_noise': '0_00',
-            'uq_method' : args.uq_method,
-            'decomp' : 'pu',
-            'spatial' : None,
-            'metadata' : True,
-            'split_path' : None,
-            'split' : ['test']
-        }
-        
-        csv_path = Path(lmdb_path).parent.joinpath(f"splits/domain_shift_splits/lizard_domaingen_{extra_info['variation']}_test_split.csv")
-        extra_info['split_path'] = csv_path
-        
-        dataset = LizardDataset(lmdb_path, 
-                                    lmdb_path, 
-                                    lmdb_path, 
-                                    lmdb_path, 
-                                    'abc',
-                                    **extra_info)
-        dataset_name = f"lizard_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
-        dataset.num_classes = 7
-        evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
     if DATASET == "cityscapes":
@@ -483,3 +489,54 @@ if __name__ == "__main__":
         dataset_name = f"gta_0_00_{args.uq_method}_pu"
         dataset.num_classes = 32
         evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
+
+
+    if DATASET == "wormbodies":
+        for uq_method in ['dropout', 'softmax']:
+            for uq_type in ['pu']:
+                # ID data
+                image_path = "/fast/AG_Kainmueller/data/data_wormbodies/train"
+                mask_path = "/fast/AG_Kainmueller/data/data_wormbodies/train"
+                uq_map_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/{uq_method}/{uq_type}"
+                pred_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/{uq_method}/pred"
+
+                dataset = wormbodies_dataset(image_path=image_path, 
+                                            mask_path=mask_path, 
+                                            uq_map_path=uq_map_path, 
+                                            prediction_path=pred_path, 
+                                            semantic_mapping_path="")
+                dataset_name = f"wormbodies_0_00_{uq_method}_{uq_type}"
+                dataset.num_classes = 2
+                evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
+
+
+                # OOD data - Nematodes
+                image_path = "/fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/images/images_bw_np"
+                mask_path = "/fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/masks/binary"
+                uq_map_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/{uq_method}/{uq_type}"
+                pred_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/{uq_method}/pred"
+                dataset_name = f"wormbodies_nematodes_1_00_{uq_method}_{uq_type}"
+                
+                dataset = wormbodies_dataset(image_path=image_path, 
+                                            mask_path=mask_path, 
+                                            uq_map_path=uq_map_path, 
+                                            prediction_path=pred_path, 
+                                            semantic_mapping_path="")
+                dataset.num_classes = 2
+                evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)
+
+
+                # OOD data - Protists
+                image_path = "/fast/AG_Kainmueller/data/Protists/processed/resize/images/images_bw_np"
+                mask_path = "/fast/AG_Kainmueller/data/Protists/processed/resize/masks/binary"
+                uq_map_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/{uq_method}/{uq_type}"
+                pred_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/{uq_method}/pred"
+                dataset_name = f"wormbodies_protists_1_00_{uq_method}_{uq_type}"
+                
+                dataset = wormbodies_dataset(image_path=image_path, 
+                                            mask_path=mask_path, 
+                                            uq_map_path=uq_map_path, 
+                                            prediction_path=pred_path, 
+                                            semantic_mapping_path="")
+                dataset.num_classes = 2
+                evaluate_correlation(dataset, args.sample_size, args.num_workers, dataset_name)

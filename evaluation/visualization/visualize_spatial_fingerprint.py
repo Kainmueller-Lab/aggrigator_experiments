@@ -140,6 +140,8 @@ def get_dataset_root(dataset_name):
         return ('_').join(dataset_name.split('_')[:2])
     if dataset_name.startswith('lidc'):
         return ('_').join(dataset_name.split('_')[:3])
+    if dataset_name.startswith('lizard'):
+        return ('_').join(dataset_name.split('_')[:2])
     if dataset_name.startswith('ade20k'):
         return ('_').join(dataset_name.split('_')[:2])
     return dataset_name.split('_')[0]
@@ -162,7 +164,8 @@ def generate_color_palette(all_datasets, id_ood):
     ]
     
     root_to_base_color = {
-        'lizard': 'olive',
+        'lizard_instance': 'pink',
+        'lizard_semantic': 'brown',
         'weedsgalore': 'green',
         'arctique_instance': 'cyan',
         'arctique_semantic': 'skyblue',
@@ -170,7 +173,8 @@ def generate_color_palette(all_datasets, id_ood):
         'lidc_fgbg_texture': 'magenta',
         'ade20k_deeplabv3': 'orange',
         'ade20k_resnest': 'yellow',
-        'gta': 'red'
+        'gta': 'red',
+        'wormbodies': 'yellow'
     }
 
     # Step 3: assign base color or darker shade per variant
@@ -256,15 +260,24 @@ if __name__ == "__main__":
     arctique_semantic_ood = sorted(set(ds for ds in all_datasets if 'arctique_semantic' in ds))
     lidc_malignancy_ood = sorted(set(ds for ds in all_datasets if 'lidc_fgbg_malignancy' in ds))
     lidc_texture_ood = sorted(set(ds for ds in all_datasets if 'lidc_fgbg_texture' in ds))
+    lizard_semantic_ood = sorted(set(ds for ds in all_datasets if 'lizard_semantic' in ds))
+    lizard_instance_ood = sorted(set(ds for ds in all_datasets if 'lizard_instance' in ds))
     ade20k_ood = sorted(set(ds for ds in all_datasets if 'ade20k' in ds))
     gta_ood = sorted(set(ds for ds in all_datasets if 'gta' in ds))
+    wormbodies_nematodes_ood = sorted(set(ds for ds in all_datasets if ('wormbodies_nematodes' in ds or 'wormbodies_0_00' in ds)))
+    wormbodies_protists_ood = sorted(set(ds for ds in all_datasets if ('wormbodies_protists' in ds or 'wormbodies_0_00' in ds)))
 
     plots = {'artique_instance_ood': artique_instance_ood,
             'arctique_semantic_ood': arctique_semantic_ood,
             'lidc_malignancy_ood': lidc_malignancy_ood,
             'lidc_texture_ood': lidc_texture_ood,
+            'lizard_semantic_ood': lizard_semantic_ood,
+            'lizard_instance_ood': lizard_instance_ood,
             'ade20k_ood': ade20k_ood,
-            'gta_ood': gta_ood}
+            'gta_ood': gta_ood,
+            'wormbodies_nematodes_ood': wormbodies_nematodes_ood,
+            'wormbodies_protists_ood': wormbodies_protists_ood
+            }
     
     # Create color mapping: dataset name → visually consistent color
     dataset_to_color = generate_color_palette(all_datasets, id_ood=True)

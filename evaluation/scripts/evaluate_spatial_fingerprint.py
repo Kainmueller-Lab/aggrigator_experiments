@@ -19,7 +19,33 @@ def load_dataset_config(path):
     return config
 
 
+def get_measure_mass_ratios(sample, num_classes):
+        # Load uncertainty maps and masks from dataset
+        mask = sample['mask']
+        uq_array = sample['uq_map']
+        sample_name = sample['sample_name']
 
+        # Slice if 3D
+        if uq_array.ndim == 3:
+            mid_slice = uq_array.shape[0] // 2
+            uq_array = uq_array[mid_slice, :, :]
+            mask = mask[mid_slice, :, :]
+        
+        # Replace negative values with zero
+        # NOTE: Such values (close to zero) sometimes occur and need to be dealt with.
+        uq_array = np.where(uq_array < 0, 0, uq_array)
+        
+        # Normalize arrays by ln(K) where K is number of classes if UQ maps are not normalized in dataloader
+        if num_classes is not None:
+            uq_array = uq_array / np.log(num_classes) 
+        # uq_array = uq_array / np.log(dataset_info['num_classes'])
+
+        # Compute spatial decomposition for all spatial measures
+        spatial_measures = ["moran", "entropy", "eds"]
+        window_size = 3
+        uq_map = UncertaintyMap(array=uq_array, mask=None, name=sample_name)
+        measure_mass_ratios = {measure: spatial_decomposition(uq_map, window_size=window_size, spatial_measure=measure)[3] for measure in spatial_measures}
+        return (sample_name, measure_mass_ratios)
 
 
 def evaluate_spatial_fingerprint(dataset, sample_size, num_workers, dataset_name=None):
@@ -53,39 +79,11 @@ def evaluate_spatial_fingerprint(dataset, sample_size, num_workers, dataset_name
         print(f"NOTE: Normalizing UQ maps by ln(K) where K={dataset.num_classes} is the number of classes.")
     print("____________________")
 
-    def get_measure_mass_ratios(sample):
-        # Load uncertainty maps and masks from dataset
-        mask = sample['mask']
-        uq_array = sample['uq_map']
-        sample_name = sample['sample_name']
-
-        # Slice if 3D
-        if uq_array.ndim == 3:
-            mid_slice = uq_array.shape[0] // 2
-            uq_array = uq_array[mid_slice, :, :]
-            mask = mask[mid_slice, :, :]
-        
-        # Replace negative values with zero
-        # NOTE: Such values (close to zero) sometimes occur and need to be dealt with.
-        uq_array = np.where(uq_array < 0, 0, uq_array)
-        
-        # Normalize arrays by ln(K) where K is number of classes if UQ maps are not normalized in dataloader
-        if dataset.num_classes is not None:
-            uq_array = uq_array / np.log(dataset.num_classes) 
-        # uq_array = uq_array / np.log(dataset_info['num_classes'])
-
-        # Compute spatial decomposition for all spatial measures
-        spatial_measures = ["moran", "entropy", "eds"]
-        window_size = 3
-        uq_map = UncertaintyMap(array=uq_array, mask=None, name=sample_name)
-        measure_mass_ratios = {measure: spatial_decomposition(uq_map, window_size=window_size, spatial_measure=measure)[3] for measure in spatial_measures}
-        return (sample_name, measure_mass_ratios)
-
     # Decompose all UQ maps
     start = time.time()
     n_jobs = 16 if num_workers == 0 else num_workers # NOTE: Strangely this gets slower for larger num_workers.
     #measure_mass_ratios = [get_measure_mass_ratios(dataset[idx]) for idx in range(sample_size)]
-    measure_mass_ratios = Parallel(n_jobs=n_jobs, verbose=10)(delayed(get_measure_mass_ratios)(dataset[idx]) for idx in range(sample_size))
+    measure_mass_ratios = Parallel(n_jobs=n_jobs, verbose=10)(delayed(get_measure_mass_ratios)(dataset[idx], dataset.num_classes) for idx in range(sample_size))
     measure_mass_ratio_df = pd.DataFrame.from_dict(dict(measure_mass_ratios), orient='index')
     print(f"Computed spatial measure mass ratios: {time.time() - start} s")
 
@@ -115,6 +113,7 @@ from datasets.LIDC.lidc_dataset_creation import LIDCDataset
 from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
 from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_CityscapesDataset
+from datasets.Wormbodies.wormbodies_dataset_creation import wormbodies_dataset
 
 
 if __name__ == "__main__":
@@ -386,3 +385,54 @@ if __name__ == "__main__":
         dataset_name = f"gta_0_00_{args.uq_method}_pu"
         dataset.num_classes = 32
         evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+
+
+    if DATASET == "wormbodies":
+        for uq_method in ['dropout', 'softmax']:
+            for uq_type in ['pu']:
+                # ID data
+                image_path = "/fast/AG_Kainmueller/data/data_wormbodies/train"
+                mask_path = "/fast/AG_Kainmueller/data/data_wormbodies/train"
+                uq_map_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/{uq_method}/{uq_type}"
+                pred_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/{uq_method}/pred"
+
+                dataset = wormbodies_dataset(image_path=image_path, 
+                                            mask_path=mask_path, 
+                                            uq_map_path=uq_map_path, 
+                                            prediction_path=pred_path, 
+                                            semantic_mapping_path="")
+                dataset_name = f"wormbodies_0_00_{uq_method}_{uq_type}"
+                dataset.num_classes = 2
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+
+
+                # OOD data - Nematodes
+                image_path = "/fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/images/images_bw_np"
+                mask_path = "/fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/masks/binary"
+                uq_map_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/{uq_method}/{uq_type}"
+                pred_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/{uq_method}/pred"
+                
+                dataset = wormbodies_dataset(image_path=image_path, 
+                                            mask_path=mask_path, 
+                                            uq_map_path=uq_map_path, 
+                                            prediction_path=pred_path, 
+                                            semantic_mapping_path="")
+                dataset_name = f"wormbodies_nematodes_1_00_{uq_method}_{uq_type}"
+                dataset.num_classes = 2
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+
+
+                # OOD data - Protists
+                image_path = "/fast/AG_Kainmueller/data/Protists/processed/resize/images/images_bw_np"
+                mask_path = "/fast/AG_Kainmueller/data/Protists/processed/resize/masks/binary"
+                uq_map_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/{uq_method}/{uq_type}"
+                pred_path = f"/fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/{uq_method}/pred"
+                dataset_name = f"wormbodies_protists_1_00_{uq_method}_{uq_type}"
+                
+                dataset = wormbodies_dataset(image_path=image_path, 
+                                            mask_path=mask_path, 
+                                            uq_map_path=uq_map_path, 
+                                            prediction_path=pred_path, 
+                                            semantic_mapping_path="")
+                dataset.num_classes = 2
+                evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
