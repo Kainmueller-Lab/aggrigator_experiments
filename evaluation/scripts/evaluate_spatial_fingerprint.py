@@ -110,7 +110,7 @@ import argparse
 from datasets.ADE20K.ade20k_dataset_creation import ADE20K_CityscapesDataset
 from datasets.Arctique.arctique_dataset_creation import OptimizedArctiqueDataset, SharedMaskCache
 from datasets.LIDC.lidc_dataset_creation import LIDCDataset
-from datasets.Weedsgalore.weedsgalore_dataset_creation import weedsgalore_dataset
+from datasets.Weedsgalore.weedsgalore_dataset_creation import OptimizedWeedsGalore
 from datasets.Lizard.lizard_dataset_creation import LizardDataset
 from datasets.GTA_CityScapes.gta_cityscapes_dataset_creation import GTA_CityscapesDataset
 from datasets.Wormbodies.wormbodies_dataset_creation import wormbodies_dataset
@@ -214,18 +214,32 @@ if __name__ == "__main__":
 
 
     if DATASET == "weedsgalore":
-        image_path = "/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/"
-        uq_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/crops_vs_weed/dropout/pu/"
-        pred_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/crops_vs_weed/dropout/pred/"
-        metadata_file = "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/crops_vs_weed/dropout/metadata.json"
-        dataset = weedsgalore_dataset(image_path=image_path, 
-                                 mask_path=image_path, 
-                                 uq_map_path=uq_folder, 
-                                 prediction_path=pred_folder, 
-                                 semantic_mapping_path="", 
-                                 metadata_file = metadata_file)
-        dataset_name = f"weedsgalore_dropout_pu"
-        evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
+        for uq_method in ['dropout', 'softmax']:
+            image_path = "/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/"
+            uq_path =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/"
+
+            extra_info = {
+                    'task' : 'crops_vs_weed',
+                    'variation' : None,
+                    'model_noise' : 0,
+                    'data_noise': '0_00',
+                    'uq_method' : uq_method,
+                    'decomp' : 'pu',
+                    'spatial' : False,
+                    'metadata' : True,
+                    'split_path' : None,
+                    'split' : None
+                }
+                    
+            dataset = OptimizedWeedsGalore(image_path, 
+                                        image_path, 
+                                        uq_path, 
+                                        uq_path, 
+                                        'abc',
+                                        load_images=True,
+                                        **extra_info)
+            dataset_name = f"weedsgalore_{uq_method}_pu"
+            evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
 
 
 
