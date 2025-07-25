@@ -4,15 +4,9 @@ import toml
 import os
 import matplotlib.pyplot as plt
 import argparse
-import anndata  
-import scanpy as sc  
-import umap.umap_ as umap
-import shutil
 from scipy.stats import beta, norm
 from sklearn.preprocessing import PowerTransformer, QuantileTransformer, StandardScaler
 from sklearn.mixture import GaussianMixture
-from sklearn.decomposition import PCA
-from scipy.stats import norm 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
 import json
@@ -213,6 +207,23 @@ def get_or_create_split(id_full_df: pd.DataFrame, split_dir: str, base_filename:
 
     return train_indices, test_indices
 
+def get_or_create_ood_split(ood_full_df: pd.DataFrame, split_dir: str, base_filename: str):
+    """
+    Gets or creates a 50/50 split for OOD data to ensure a balanced evaluation set.
+    """
+    ood_split_path = os.path.join(split_dir, f"{base_filename}_ood_split.json")
+    if os.path.exists(ood_split_path):
+        print(f"Found existing OOD split file. Loading from:\n  - {ood_split_path}")
+        with open(ood_split_path, 'r') as f: ood_eval_indices = json.load(f)
+    else:
+        print("No existing OOD split found. Creating a new 15/75 split for OOD data.")
+        indices = ood_full_df.index.astype(str).to_list()
+        # We only need one half of the data for evaluation
+        _, ood_eval_indices = train_test_split(indices, test_size=0.05, random_state=42)
+        with open(ood_split_path, 'w') as f: json.dump(ood_eval_indices, f, indent=4)
+        print(f"Saved new OOD split to:\n  - {ood_split_path}")
+    return ood_eval_indices
+
 def find_best_gmm(fingerprints: pd.DataFrame, max_components: int = 11, model_type: str = ""):
     """Tests different numbers of GMM components and finds the best one using BIC."""
     data = fingerprints.to_numpy()
@@ -261,29 +272,21 @@ def run_gmm_ensemble_ood_detection(train_df: pd.DataFrame, test_df: pd.DataFrame
     
     gmm_ensemble = []
     train_data_np = train_df.to_numpy()
+    # In run_gmm_ensemble_ood_detection:
+    print("Finding a single best n_components for the whole ensemble...")
+    # Find best n on the full training data
+    best_n_for_ensemble = find_best_gmm(train_df, max_components=max_components)
 
+    gmm_ensemble = []
+    train_data_np = train_df.to_numpy()
+    
     for i in range(n_models):
         print(f"  - Training model {i+1}/{n_models}...")
         indices = np.random.choice(len(train_data_np), size=len(train_data_np), replace=True)
         bootstrap_sample = train_data_np[indices]
-        
-        # --- BIC logic to find the best n_components ---
-        bics = []
-        component_range = range(1, max_components + 1)
-        
-        # Test each n_components value and store its BIC
-        for n_components in component_range:
-            gmm_bic_test = GaussianMixture(n_components=n_components, random_state=i, n_init=10)
-            gmm_bic_test.fit(bootstrap_sample)
-            bics.append(gmm_bic_test.bic(bootstrap_sample))
-            
-        # Select the number of components with the lowest BIC
-        optimal_n_components = component_range[np.argmin(bics)]
-        print(f"    > Optimal components found: {optimal_n_components} (min BIC: {np.min(bics):.2f})")
-        # --- End of BIC logic ---
-
-        # Train the final model for the ensemble with the optimal n_components
-        final_gmm = GaussianMixture(n_components=optimal_n_components, random_state=i, n_init=10)
+              
+        # Use the fixed number of components
+        final_gmm = GaussianMixture(n_components=best_n_for_ensemble, random_state=i, n_init=10)
         final_gmm.fit(bootstrap_sample)
         gmm_ensemble.append(final_gmm)
     
@@ -416,156 +419,6 @@ def preprocess_features(train_df, test_df, ood_df, model_type="features", res_di
 
     return train_processed, test_processed, ood_processed 
 
-def plot_pca_2d_visualization(id_data, ood_data, res_dir, base_filename, model_type):
-    """
-    Plots the first two PCA components for visualization.
-    """
-    if id_data is None or id_data.shape[1] < 2:
-        print(f"Skipping PCA plot for {model_type}: Not enough PCA components.")
-        return
-
-    plt.figure(figsize=(10, 8))
-    if id_data is not None and not id_data.empty:
-        plt.scatter(id_data.iloc[:, 0], id_data.iloc[:, 1], c='blue', label='In-Distribution (Test)', alpha=0.6)
-    if ood_data is not None and not ood_data.empty:
-        plt.scatter(ood_data.iloc[:, 0], ood_data.iloc[:, 1], c='red', label='Out-of-Distribution (OOD)', alpha=0.6)
-    plt.title(f'PCA of {model_type} Fingerprints for {base_filename}')
-    plt.xlabel('Principal Component 1'); plt.ylabel('Principal Component 2')
-    plt.legend(); plt.grid(True)
-
-    vis_dir = os.path.join(res_dir, 'pca_2d_visualization') 
-    os.makedirs(vis_dir, exist_ok=True)
-    plot_filename = os.path.join(vis_dir, f"{base_filename}_{model_type}_pca.png")
-    plt.savefig(plot_filename)
-    plt.close()
-    print(f"Saved PCA visualization to: {plot_filename}")
-
-def plot_umap_2d_visualization(id_data_pca, ood_data_pca, res_dir, base_filename, model_type):
-    """
-    Applies UMAP to PCA-transformed data and plots a 2D visualization.
-    """
-    print(f"Generating UMAP visualization for {model_type}...")
-    if (id_data_pca is None or id_data_pca.empty) and (ood_data_pca is None or ood_data_pca.empty):
-        print(f"Skipping UMAP plot for {model_type}: No data provided.")
-        return
-
-    if id_data_pca is not None and ood_data_pca is not None:
-        combined_data = pd.concat([id_data_pca, ood_data_pca])
-    elif id_data_pca is not None:
-        combined_data = id_data_pca
-    else:
-        combined_data = ood_data_pca
-
-    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
-    embedding = reducer.fit_transform(combined_data)
-    embedding_df = pd.DataFrame(embedding, index=combined_data.index, columns=['UMAP1', 'UMAP2'])
-
-    plt.figure(figsize=(10, 8))
-    if id_data_pca is not None:
-        id_indices = id_data_pca.index
-        plt.scatter(embedding_df.loc[id_indices, 'UMAP1'], embedding_df.loc[id_indices, 'UMAP2'],
-                    c='blue', label='In-Distribution (Test)', alpha=0.6, s=15)
-    if ood_data_pca is not None:
-        ood_indices = ood_data_pca.index
-        plt.scatter(embedding_df.loc[ood_indices, 'UMAP1'], embedding_df.loc[ood_indices, 'UMAP2'],
-                    c='red', label='Out-of-Distribution (OOD)', alpha=0.6, s=15)
-    plt.title(f'UMAP Visualization of {model_type} Fingerprints for {base_filename}')
-    plt.xlabel('UMAP Dimension 1'); plt.ylabel('UMAP Dimension 2')
-    plt.legend(); plt.grid(True)
-
-    vis_dir = os.path.join(res_dir, 'umap_2d_visualization')
-    os.makedirs(vis_dir, exist_ok=True)
-    plot_filename = os.path.join(vis_dir, f"{base_filename}_{model_type}_umap.png")
-    plt.savefig(plot_filename)
-    plt.close()
-    print(f"Saved UMAP visualization to: {plot_filename}")
-
-def plot_scanpy_pca_visualization(id_data_raw, ood_data_raw, res_dir, base_filename, pca_components, model_type):
-    """
-    Generates a PCA plot using the direct scanpy pipeline to replicate notebook results.
-    This is for VISUALIZATION ONLY, as it processes combined ID and OOD data.
-    """
-    print(f"\n--- Generating visualization for {model_type} using the direct `scanpy` method ---")
-
-    # Ensure data exists
-    if id_data_raw is None or ood_data_raw is None:
-        print("Skipping scanpy plot: Missing ID or OOD data.")
-        return
-
-    # --- Ensure indices are unique before processing ---
-    id_data_raw.index = id_data_raw.index.astype(str)
-    ood_data_raw.index = ood_data_raw.index.astype(str)
-    
-    # Add a prefix to OOD indices to guarantee they don't clash with ID indices
-    ood_data_raw.index = "ood_" + ood_data_raw.index
-
-    # 1. Replicate the notebook's normalization process exactly
-    # Learn transformation from the full ID dataset
-    id_transformed = id_data_raw.copy()
-    transform_params = {}
-    for col in id_transformed.columns:
-        # ... (rest of the function is exactly the same as before)
-        data = np.clip(id_transformed[col].to_numpy(), a_min=1e-10, a_max=1 - 1e-10)
-        probit_data = norm.ppf(data)
-        mean, std = probit_data.mean(), probit_data.std()
-        transform_params[col] = (mean, std)
-        id_transformed[col] = (probit_data - mean) / (std + 1e-9)
-
-    # Apply the same transformation to the OOD data
-    ood_transformed = ood_data_raw.copy()
-    for col in ood_transformed.columns:
-        if col in transform_params:
-            mean, std = transform_params[col]
-            data = np.clip(ood_transformed[col].to_numpy(), a_min=1e-10, a_max=1 - 1e-10)
-            probit_data = norm.ppf(data)
-            ood_transformed[col] = (probit_data - mean) / (std + 1e-9)
-
-    # 2. Combine all transformed data (This will now work)
-    all_fingerprints_transformed = pd.concat([id_transformed, ood_transformed])
-
-    # 3. Create the AnnData object
-    adata = anndata.AnnData(all_fingerprints_transformed)
-    # The sample_type logic now becomes simpler and more robust
-    adata.obs['sample_type'] = ['ood' if idx.startswith('ood_') else 'id' for idx in adata.obs_names]
-    
-    # Ensure float32 dtype, as is standard in scanpy
-    adata.X = adata.X.astype(np.float32)
-
-    # 4. Run scanpy's PCA
-    sc.pp.pca(adata, n_comps=pca_components, svd_solver='arpack', zero_center=False)
-    print("Scanpy PCA computed.")
-
-    # 4. Define filename and paths
-    scanpy_filename_suffix = f"_{base_filename}_{model_type}_scanpy_pca.png"
-    source_path = os.path.join('figures', f'pca{scanpy_filename_suffix}')
-    vis_dir = os.path.join(res_dir, 'pca_2d_visualization')
-    os.makedirs(vis_dir, exist_ok=True)
-    destination_path = os.path.join(vis_dir, f"{base_filename}_{model_type}_scanpy_pca.png")
-
-    try:
-        # 5. Plot using scanpy, saving with only the unique suffix
-        sc.pl.pca(
-            adata,
-            color='sample_type',
-            title=f'Normalized and dim-reduced features ({model_type})',
-            save=scanpy_filename_suffix,
-            show=False
-        )
-        
-        # 6. Move the file from the scanpy default dir to our desired dir
-        shutil.move(source_path, destination_path)
-        print(f"Saved and moved scanpy PCA visualization to: {destination_path}")
-
-    except FileNotFoundError:
-        print(f"Error: Could not find the saved scanpy plot at '{source_path}'. The plot might not have been generated.")
-    
-    finally:
-        # 7. Clean up the temporary 'figures' directory created by scanpy
-        if os.path.exists('figures'):
-            shutil.rmtree('figures')
-            print("Cleaned up temporary 'figures' directory.")
-        plt.close()
-
 def run_preprocessing_comparison(feature_type, id_train_df, id_test_df, ood_df, p2_n_ratio_threshold):
     """Compares different preprocessing methods for a given feature set."""
     print(f"\n--- [Comparison] Testing on: {feature_type.upper()} FEATURES ---")
@@ -650,6 +503,7 @@ def run_full_comparison(data, p2_n_ratio_threshold, res_dir, base_filename):
 def run_analysis_pipeline(paths: dict, base_filename: str):
     P2_N_RATIO_THRESHOLD = 0.5
     REG_COVAR = 1e-2 # Centralize regularization parameter
+    epsilon = 1e-10
     
     id_spatial_raw = load_spatial_fingerprints(paths['id_spatial'], base_filename)
     ood_spatial_raw = load_spatial_fingerprints(paths['ood_spatial'], base_filename)
@@ -678,10 +532,13 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
     os.makedirs(save_dir, exist_ok=True)
     train_indices, test_indices = get_or_create_split(split_basis_df, save_dir, base_filename)
     
-    # id_train_spatial = id_spatial_raw.loc[train_indices] if id_spatial_raw is not None else None
-    # id_test_spatial = id_spatial_raw.loc[test_indices] if id_spatial_raw is not None else None
-    # id_train_magnitude = id_magnitude_raw.loc[train_indices] if id_magnitude_raw is not None else None
-    # id_test_magnitude = id_magnitude_raw.loc[test_indices] if id_magnitude_raw is not None else None
+    if 'nematodes' in base_filename or 'protists' in base_filename:
+        ood_split_basis_df = ood_spatial_raw if ood_spatial_raw is not None else ood_magnitude_raw
+        if ood_split_basis_df is not None and not ood_split_basis_df.empty:
+            ood_eval_indices = get_or_create_ood_split(ood_split_basis_df, save_dir, base_filename)
+            print(f"Subsampling OOD data to {len(ood_eval_indices)} points for balanced evaluation.")
+            if ood_spatial_raw is not None: ood_spatial_raw = ood_spatial_raw.loc[ood_eval_indices]
+            if ood_magnitude_raw is not None: ood_magnitude_raw = ood_magnitude_raw.loc[ood_eval_indices]
 
     data_dict = {
         'id_train_spatial': id_spatial_raw.loc[train_indices] if id_spatial_raw is not None else None,
@@ -695,197 +552,97 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
     data_dict['id_test_all'] = pd.concat([data_dict['id_test_spatial'], data_dict['id_test_magnitude']], axis=1) if data_dict['id_test_spatial'] is not None and data_dict['id_test_magnitude'] is not None else None
     data_dict['ood_all'] = pd.concat([data_dict['ood_spatial'], data_dict['ood_magnitude']], axis=1).dropna() if data_dict['ood_spatial'] is not None and data_dict['ood_magnitude'] is not None else None
 
-    final_results_df = pd.DataFrame()
-    auroc_scores_collection = {}
     res_dir = os.path.join(os.getcwd(), 'spatial', 'results')
     os.makedirs(res_dir, exist_ok=True)
     
-    # --- MAIN ANALYSIS (using default Beta transformer) ---
-    for ftype in ['spatial', 'magnitude', 'all']:
-        if data_dict[f'id_train_{ftype}'] is not None:
-            print(f"\n--- MAIN ANALYSIS FOR {ftype.upper()} FEATURES ---")
-            train_proc, test_proc, ood_proc = preprocess_features(data_dict[f'id_train_{ftype}'], data_dict[f'id_test_{ftype}'], data_dict[f'ood_{ftype}'],
-                                                                  model_type=ftype, res_dir=res_dir, base_filename=base_filename)
-            
-            p, n = train_proc.shape[1], len(train_proc)
-            if (p**2 / n) > P2_N_RATIO_THRESHOLD:
-                results = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
-            else:
-                n_components = find_best_gmm(train_proc, model_type=ftype)
-                gmm = build_id_gmm_model(train_proc, n_components)
-                id_test_scores = calculate_nll_scores(test_proc, gmm[0], train_proc)
-                ood_scores = calculate_nll_scores(ood_proc, gmm[0], train_proc) if ood_proc is not None else pd.DataFrame()
-                results = pd.concat([id_test_scores, ood_scores])
-
-            max_score = results['ood_score_nll_zero_floored'].max()
-            final_results_df[f'ood_score_normalized_{ftype}'] = (results['ood_score_nll_zero_floored'] / (max_score + 1e-9)).clip(0, 1)
-            if 'is_ood' not in final_results_df and 'is_ood' in results:
-                final_results_df = final_results_df.merge(results[['is_ood']], left_index=True, right_index=True, how='left')
+    all_auroc_results = pd.DataFrame(index=['beta', 'quantile', 'standardize', 'identity'])
     
+    # --- CORE ANALYSIS LOOP ---
+    for method in ['beta', 'quantile', 'standardize', 'identity']:
+        print(f"\n\n{'='*25} PROCESSING WITH METHOD: {method.upper()} {'='*25}")
+        
+        all_indices = split_basis_df.loc[test_indices].index.union(ood_spatial_raw.index if ood_spatial_raw is not None else pd.Index([]))
+        final_results_df = pd.DataFrame(index=all_indices)
+        auroc_scores_for_method = {}
 
-    # # --- 1. Spatial Model ---
-    # if id_train_spatial is not None:
-    #     # id_train_spat_pca, id_test_spat_pca, ood_spat_pca = id_train_spatial, id_test_spatial, ood_spatial_raw
-    #     id_train_spat_pca, id_test_spat_pca, ood_spat_pca, _ = preprocess_features(
-    #         id_train_spatial, id_test_spatial, ood_spatial_raw, model_type="spatial",
-    #         res_dir=res_dir, base_filename=base_filename
-    #     )
-    #     model = build_id_gmm_model(id_train_spat_pca, find_best_gmm(id_train_spat_pca, model_type="spatial_pca"), model_type="spatial_pca")
-    #     id_test_scores = calculate_nll_scores(id_test_spat_pca, model[0], id_train_spat_pca); id_test_scores['is_ood'] = 0
-    #     ood_scores = calculate_nll_scores(ood_spat_pca, model[0], id_train_spat_pca) if ood_spat_pca is not None else pd.DataFrame()
-    #     if not ood_scores.empty: ood_scores['is_ood'] = 1
-        
-    #     results = pd.concat([id_test_scores, ood_scores])
-    #     max_nll = results['ood_score_nll_zero_floored'].max()
-    #     final_results_df['ood_score_normalized_spatial'] = (results['ood_score_nll_zero_floored'] / (max_nll + 1e-9)).clip(0, 1)
-    #     final_results_df['is_ood'] = results['is_ood']
-
-    # # --- 2. Magnitude Model (with custom preprocessing and adaptive GMM / SVM) ---
-    # id_train_magnitude_pca, id_test_magnitude_pca, ood_magnitude_pca = None, None, None
-    # if id_train_magnitude is not None:
-    #     p = id_train_magnitude.shape[1]
-    #     n = id_train_magnitude.shape[0]
-    #     p2_n_ratio = (p**2) / n
-    #     print(f"\n--- Magnitude Model Analysis ---")
-    #     print(f"Features (p): {p}, Train Samples (n): {n}, p²/n Ratio: {p2_n_ratio:.4f}")
-
-    #     id_train_magnitude_pca, id_test_magnitude_pca, ood_magnitude_pca, _ = preprocess_features(
-    #         id_train_magnitude, id_test_magnitude, ood_magnitude_raw, model_type="magnitude"
-    #     )
-        
-    #     # Re-evaluate p based on processed data
-    #     p_proc = id_train_magnitude_pca.shape[1]
-    #     p2_n_ratio_proc = (p_proc**2) / n
-        
-    #     if p2_n_ratio_proc > P2_N_RATIO_THRESHOLD:
-    #         print(f"WARNING: p²/n ratio ({p2_n_ratio:.4f}) is high. Switching to GMM Ensemble.")
-    #         results = run_gmm_ensemble_ood_detection(id_train_magnitude_pca, id_test_magnitude_pca, ood_magnitude_pca)
-    #     else:
-    #         print(f"p²/n ratio ({p2_n_ratio_proc:.4f}) is acceptable. Using GMM.")
-    #         model = build_id_gmm_model(id_train_magnitude_pca, find_best_gmm(id_train_magnitude_pca, model_type="magnitude_pca"), model_type="magnitude_pca")
-    #         id_test_scores = calculate_nll_scores(id_test_magnitude_pca, model[0], id_train_magnitude_pca)
-    #         ood_scores = calculate_nll_scores(ood_magnitude_pca, model[0], id_train_magnitude_pca) if ood_magnitude_pca is not None else pd.DataFrame()
-    #         if not ood_scores.empty: ood_scores['is_ood'] = 1
-    #         results = pd.concat([id_test_scores, ood_scores])
-        
-    #         # --- PLOT PCA & UMAP VISUALIZATIONS ---
-    #         # plot_pca_2d_visualization(id_test_magnitude_pca, ood_magnitude_pca, res_dir, base_filename, model_type="magnitude")
-    #         # plot_umap_2d_visualization(id_test_magnitude_pca, ood_magnitude_pca, res_dir, base_filename, model_type="magnitude")
-    #         # --- END PLOTS ---
-        
-    #     max_score = results['ood_score_nll_zero_floored'].max()
-    #     final_results_df = final_results_df.merge(
-    #         pd.DataFrame({'ood_score_normalized_magnitude': (results['ood_score_nll_zero_floored'] / (max_score + 1e-9)).clip(0, 1)}),
-    #         left_index=True, right_index=True, how='left'
-    #     )
-    
-    # # --- 3. Fused Model (Spatial + Magnitude -> Preprocess -> GMM) ---
-    # if id_train_spatial is not None and id_train_magnitude is not None:
-    #     # Concatenate RAW features first
-    #     id_train_all_raw = pd.concat([id_train_spatial, id_train_magnitude], axis=1)
-    #     id_test_all_raw = pd.concat([id_test_spatial, id_test_magnitude], axis=1)
-
-    #     ood_all_raw = None
-    #     if ood_spatial_raw is not None and ood_magnitude_raw is not None:
-    #         common_ood_indices = ood_spatial_raw.index.intersection(ood_magnitude_raw.index)
-    #         if not common_ood_indices.empty:
-    #             ood_all_raw = pd.concat([ood_spatial_raw.loc[common_ood_indices], ood_magnitude_raw.loc[common_ood_indices]], axis=1)
-                
-    #     p = id_train_all_raw.shape[1]
-    #     n = id_train_all_raw.shape[0]
-    #     p2_n_ratio = (p**2) / n
-    #     print(f"\n--- Fused Model Analysis ---")
-    #     print(f"Features (p): {p}, Train Samples (n): {n}, p²/n Ratio: {p2_n_ratio:.4f}")
-
-    #     # A bis) Apply the rigorous pipeline for the real model and its visualization
-    #     id_train_all_pca, id_test_all_pca, ood_all_pca, pca_n_components = preprocess_features(
-    #         id_train_all_raw, id_test_all_raw, ood_all_raw, model_type="all_fused"
-    #     )
-
-    #     # Add visualizations for the fused data
-    #     # plot_pca_2d_visualization(id_test_all_pca, ood_all_pca, res_dir, base_filename, model_type="all_fused")
-    #     # plot_umap_2d_visualization(id_test_all_pca, ood_all_pca, res_dir, base_filename, model_type="all_fused")
-        
-    #     # --- VISUALIZATION BLOCK ---
-    #     # A) Use direct scanpy method for the explanatory plot
-    #     # We use the full ID and OOD sets here to perfectly replicate the notebook
-    #     full_id_all_raw = pd.concat([id_spatial_raw, id_magnitude_raw], axis=1).dropna()
-    #     full_ood_fused = None
-    #     if ood_spatial_raw is not None and ood_magnitude_raw is not None:
-    #         full_ood_fused = pd.concat([ood_spatial_raw, ood_magnitude_raw], axis=1).dropna()
-    #     plot_scanpy_pca_visualization(full_id_all_raw, full_ood_fused, res_dir, base_filename, pca_n_components, model_type="all_fused")
-        
-    #     # Your original, correct plots
-    #     # plot_pca_2d_visualization(id_test_all_pca, ood_all_pca, res_dir, base_filename, model_type="all_fused_rigorous")
-    #     # plot_umap_2d_visualization(id_test_all_pca, ood_all_pca, res_dir, base_filename, model_type="all_fused_rigorous")
-    #     # --- END VISUALIZATION BLOCK ---
-        
-    #     p_proc = id_train_all_pca.shape[1]
-    #     p2_n_ratio_proc = (p_proc**2) / n
-
-    #     if p2_n_ratio_proc > P2_N_RATIO_THRESHOLD:
-    #         print(f"WARNING: p²/n ratio ({p2_n_ratio_proc:.4f}) is high. Switching to GMM Ensemble.")
-    #         results = run_gmm_ensemble_ood_detection(id_train_all_pca, id_test_all_pca, ood_all_pca)
-    #     else:
-    #         print(f"p²/n ratio ({p2_n_ratio_proc:.4f}) is acceptable. Using GMM.")
-    #         # Build GMM on the processed fused data
-    #         model = build_id_gmm_model(id_train_all_pca, find_best_gmm(id_train_all_pca, model_type="all_fused_pca"), model_type="all_fused_pca")
-    #         id_test_scores = calculate_nll_scores(id_test_all_pca, model[0], id_train_all_pca)
-    #         ood_scores = calculate_nll_scores(ood_all_pca, model[0], id_train_all_pca) if ood_all_pca is not None and not ood_all_pca.empty else pd.DataFrame()
-    #         if not ood_scores.empty: ood_scores['is_ood'] = 1
-    #         results = pd.concat([id_test_scores, ood_scores])
-        
-    #     max_score = results['ood_score_nll_zero_floored'].max()
-    #     final_results_df = final_results_df.merge(
-    #         pd.DataFrame({'ood_score_normalized_all': (results['ood_score_nll_zero_floored'] / (max_score + 1e-9)).clip(0, 1)}),
-    #         left_index=True, right_index=True, how='left'
-    #     )
-        
-    #     # --- Run Preprocessing Comparison ---
-    #     if ood_all_raw is not None:
-    #         run_preprocessing_comparison(id_train_all_raw, id_test_all_raw, ood_all_raw, P2_N_RATIO_THRESHOLD, res_dir, base_filename)
-    
-    if final_results_df.empty:
-        print("\nAnalysis complete, but no results were generated.")
-        return
-
-    results_filename = os.path.join(res_dir, f"{base_filename}_scores.csv")
-    final_results_df.to_csv(results_filename)
-    print(f"\nSaved combined scores to:\n  - {results_filename}")
-
-    if 'is_ood' in final_results_df.columns and 1 in final_results_df['is_ood'].unique():
-        y_true = final_results_df['is_ood'].dropna()
         for ftype in ['spatial', 'magnitude', 'all']:
-            score_col = f'ood_score_normalized_{ftype}'
-            if score_col in final_results_df.columns:
-                valid_indices = final_results_df[score_col].notna() & y_true.index.isin(final_results_df.index)
-                auroc_scores_collection[f'auroc_{ftype}'] = calculate_and_plot_roc(y_true[valid_indices], final_results_df.loc[valid_indices, score_col], res_dir, base_filename, ftype)
-        pd.DataFrame([auroc_scores_collection]).to_csv(os.path.join(res_dir, f"{base_filename}_auroc_scores.csv"), index=False)
+            if any(key.endswith(ftype) for key in data_dict.keys()) and data_dict[f'id_train_{ftype}'] is not None:
+                print(f"\n--- Analyzing {ftype.upper()} Features (Method: {method.upper()}) ---")
+                
+                # --- Preprocessing ---
+                id_train_df = data_dict[f'id_train_{ftype}']
+                id_test_df = data_dict[f'id_test_{ftype}']
+                ood_df = data_dict[f'ood_{ftype}']
 
-    # --- FULL PREPROCESSING COMPARISON ---
-    run_full_comparison(data_dict, P2_N_RATIO_THRESHOLD, res_dir, base_filename)
+                if method == 'beta':
+                    train_proc, test_proc, ood_proc = preprocess_features(id_train_df, id_test_df, ood_df, model_type=f"{ftype}_{method}", res_dir=res_dir, base_filename=base_filename)
+                else: # For Quantile, Standardize, and Identity, apply the squeeze first
+                    id_train_squeezed = (1 - 2 * epsilon) * (id_train_df - 0.5) + 0.5
+                    id_test_squeezed = (1 - 2 * epsilon) * (id_test_df - 0.5) + 0.5
+                    ood_squeezed = (1 - 2 * epsilon) * (ood_df - 0.5) + 0.5 if ood_df is not None else None
 
-    # if 'is_ood' in final_results_df.columns and 1 in final_results_df['is_ood'].unique():
-    #     print("\n--- Generating AUROC and ROC Curve Plots ---")
-    #     y_true = final_results_df['is_ood']
+                    if method == 'quantile':
+                        transformer = QuantileTransformer(output_distribution='normal', random_state=42)
+                        # FIX: Use the squeezed data
+                        train_proc = pd.DataFrame(transformer.fit_transform(id_train_squeezed), index=id_train_df.index, columns=id_train_df.columns)
+                        test_proc = pd.DataFrame(transformer.transform(id_test_squeezed), index=id_test_df.index, columns=id_test_df.columns)
+                        ood_proc = pd.DataFrame(transformer.transform(ood_squeezed), index=ood_df.index, columns=ood_df.columns) if ood_squeezed is not None else None        
+                    elif method == 'standardize':
+                        transformer = StandardScaler()
+                        # FIX: Use the squeezed data
+                        train_proc = pd.DataFrame(transformer.fit_transform(id_train_squeezed), index=id_train_df.index, columns=id_train_df.columns)
+                        test_proc = pd.DataFrame(transformer.transform(id_test_squeezed), index=id_test_df.index, columns=id_test_df.columns)
+                        ood_proc = pd.DataFrame(transformer.transform(ood_squeezed), index=ood_df.index, columns=ood_df.columns) if ood_squeezed is not None else None  
+                    elif method == 'identity':
+                        # NEW: Handle the identity case. The "processed" data is just the squeezed data.
+                        train_proc = id_train_squeezed
+                        test_proc = id_test_squeezed
+                        ood_proc = ood_squeezed
+                   
+                # --- OOD Detection ---
+                p, n = train_proc.shape[1], len(train_proc)
+                if (p**2 / n) > P2_N_RATIO_THRESHOLD:
+                    results = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
+                else:
+                    n_components = find_best_gmm(train_proc, model_type=ftype)
+                    gmm = build_id_gmm_model(train_proc, n_components)
+                    id_test_scores = calculate_nll_scores(test_proc, gmm[0], train_proc)
+                    id_test_scores['is_ood'] = 0
+                    ood_scores = pd.DataFrame()
+                    if ood_proc is not None and not ood_proc.empty:
+                        ood_scores = calculate_nll_scores(ood_proc, gmm[0], train_proc)
+                        ood_scores['is_ood'] = 1
+                    results = pd.concat([id_test_scores, ood_scores])
+                    
+                max_score = results['ood_score_nll_zero_floored'].max()
+                final_results_df[f'ood_score_normalized_{ftype}'] = (results['ood_score_nll_zero_floored'] / (max_score + 1e-9)).clip(0, 1)
+                if 'is_ood' not in final_results_df and 'is_ood' in results:
+                    final_results_df = final_results_df.merge(results[['is_ood']], left_index=True, right_index=True, how='left')
         
-    #     for model_type in ['spatial', 'magnitude', 'all']:
-    #         score_col = f'ood_score_normalized_{model_type}'
-    #         if score_col in final_results_df.columns:
-    #             valid_indices = final_results_df[score_col].notna()
-    #             score = calculate_and_plot_roc(
-    #                 y_true.loc[valid_indices], final_results_df.loc[valid_indices, score_col],
-    #                 res_dir, base_filename, model_type
-    #             )
-    #             auroc_scores_collection[f'auroc_{model_type}'] = score
+        # --- Save detailed scores for this method ---
+        score_filename = os.path.join(res_dir, f"{base_filename}_scores_{method}.csv")
+        final_results_df.to_csv(score_filename)
+        print(f"\nSaved combined scores for {method.upper()} method to: {score_filename}")
 
-    #     if auroc_scores_collection:
-    #         auroc_df = pd.DataFrame([auroc_scores_collection])
-    #         auroc_csv_filename = os.path.join(res_dir, f"{base_filename}_auroc_scores.csv")
-    #         auroc_df.to_csv(auroc_csv_filename, index=False)
-    #         print(f"\nSaved consolidated AUROC scores to:\n  - {auroc_csv_filename}")
-    # else:
-    #     print("\nSkipping AUROC calculation: No Out-of-Distribution data was processed.")
+        # --- Calculate and store AUROC scores for this method ---
+        if 'is_ood' in final_results_df.columns and final_results_df['is_ood'].sum() > 0:
+            y_true = final_results_df['is_ood'].dropna()
+            for ftype in ['spatial', 'magnitude', 'all']:
+                score_col = f'ood_score_normalized_{ftype}'
+                if score_col in final_results_df.columns:
+                    valid_indices = final_results_df[score_col].notna() & y_true.index.isin(final_results_df.index)
+                    if y_true[valid_indices].sum() > 0:
+                        model_roc_name = f"{ftype}_{method}"
+                        auroc_score = calculate_and_plot_roc(y_true[valid_indices], final_results_df.loc[valid_indices, score_col], res_dir, base_filename, model_roc_name)
+                        all_auroc_results.loc[method, f'auroc_{ftype}'] = auroc_score
+    
+    # --- Final Summary ---
+    print("\n\n" + "="*25 + " FINAL COMPARISON SUMMARY " + "="*25)
+    print(all_auroc_results)
+    print("="*69)
+    comp_csv_path = os.path.join(res_dir, f"{base_filename}_preprocessing_comparison.csv")
+    all_auroc_results.to_csv(comp_csv_path)
+    print(f"Saved final preprocessing comparison results to: {comp_csv_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run GMM OoD analysis on spatial, magnitude, and combined fingerprints.")
@@ -933,6 +690,32 @@ if __name__ == "__main__":
                 for k, v in analysis_paths_templates.items()
             }
             base_filename = f"{task}_{dataset_name}_{var}_pu"
+            run_analysis_pipeline(current_paths, base_filename)
+            
+    if dataset_name.startswith('lizard'):
+        main_loop_executed = True
+        original_task = config['dataset']['task']
+        original_variation = config['dataset']['variation']
+        for task in ['semantic', 'instance']:
+            print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()}")
+            current_paths = {k: v.replace(original_task, task) for k, v in analysis_paths_templates.items()}
+            base_filename = f"{task}_{dataset_name}_{original_variation}_pu"
+            run_analysis_pipeline(current_paths, base_filename)
+    
+    if dataset_name.startswith('wormbodies'):
+        main_loop_executed = True
+        original_task = config['dataset']['task']
+        original_variation = config['dataset']['variation']
+        for var in ['nematodes', 'protists']:
+            print(f"\n\n{'='*25} PROCESSING VARIATION: {var.upper()} {'='*25}")
+            current_paths = {
+                k: (
+                    v.replace(original_variation, var) if not (k.startswith('id') and k.endswith('spatial')) else v
+                )
+                for k, v in analysis_paths_templates.items()
+            }
+            print(current_paths)
+            base_filename = f"{original_task}_{dataset_name}_{var}_pu"
             run_analysis_pipeline(current_paths, base_filename)
 
     if not main_loop_executed:
