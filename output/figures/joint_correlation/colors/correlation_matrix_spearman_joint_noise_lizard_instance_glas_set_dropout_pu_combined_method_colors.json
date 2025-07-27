@@ -1,0 +1,78 @@
+{
+  "mean": {
+    "correlation_with_mean": 1.0,
+    "color": "#67001f"
+  },
+  "above_threshold_mean_0.3": {
+    "correlation_with_mean": 0.6025029427214135,
+    "color": "#d45d4b"
+  },
+  "above_threshold_mean_0.5": {
+    "correlation_with_mean": 0.4811546563508563,
+    "color": "#e7886c"
+  },
+  "above_threshold_mean_0.7": {
+    "correlation_with_mean": 0.397601033856,
+    "color": "#f4a683"
+  },
+  "above_threshold_mean_0.9": {
+    "correlation_with_mean": 0.2259772302591527,
+    "color": "#fbd4be"
+  },
+  "above_threshold_mean_0.95": {
+    "correlation_with_mean": 0.16437584499721739,
+    "color": "#fcdfce"
+  },
+  "above_quantile_mean_0.3": {
+    "correlation_with_mean": 0.9999530462291137,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.5": {
+    "correlation_with_mean": 0.9997025867929542,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.7": {
+    "correlation_with_mean": 0.9939933385812234,
+    "color": "#67001f"
+  },
+  "above_quantile_mean_0.9": {
+    "correlation_with_mean": 0.9384897048253553,
+    "color": "#7b0622"
+  },
+  "above_quantile_mean_fg_ratio": {
+    "correlation_with_mean": 0.3463407764301508,
+    "color": "#f6b293"
+  },
+  "patch_aggregation_10": {
+    "correlation_with_mean": 0.6459941922136696,
+    "color": "#cd4f45"
+  },
+  "patch_aggregation_20": {
+    "correlation_with_mean": 0.6951525245467649,
+    "color": "#c53e3c"
+  },
+  "patch_aggregation_40": {
+    "correlation_with_mean": 0.7490610573033611,
+    "color": "#bb2a33"
+  },
+  "patch_aggregation_80": {
+    "correlation_with_mean": 0.8567208925699492,
+    "color": "#9b1027"
+  },
+  "patch_aggregation_100": {
+    "correlation_with_mean": 0.8829383209720846,
+    "color": "#900d25"
+  },
+  "class_mean_w_equal_weights": {
+    "correlation_with_mean": 0.28266566691320644,
+    "color": "#f9c3a9"
+  },
+  "class_mean_weighted_by_occurrence": {
+    "correlation_with_mean": 0.2372040345700871,
+    "color": "#fbd0b9"
+  },
+  "gmm_normalized_score": {
+    "correlation_with_mean": -0.21551600726663547,
+    "color": "#cce2ee"
+  }
+}

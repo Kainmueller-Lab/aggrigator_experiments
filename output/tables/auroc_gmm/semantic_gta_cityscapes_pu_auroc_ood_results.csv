@@ -1,5 +1,5 @@
 Aggregator,AUROC,AUROC_std,Noise_Level
-GMM Normalized,1.0,0.0,1_00
+GMM Normalized,0.997976,0.0,1_00
 Equally-w. class avg.,0.886884,0.0,1_00
 Imbalance-w. class avg.,0.85284,0.0,1_00
 Mean,0.749528,0.0,1_00

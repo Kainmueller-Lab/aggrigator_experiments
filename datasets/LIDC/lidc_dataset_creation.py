@@ -11,6 +11,8 @@ from pathlib import Path
 from functools import lru_cache
 from typing import Optional, Tuple
 
+import sys
+sys.path.append('/fast/AG_Kainmueller/vguarin/aggrigator_experiments/')
 from datasets.dataset import Dataset_Class
 
 # ---- LIDC_IDRI Config. Functions ----
@@ -182,7 +184,7 @@ class LIDC_UQ_Dataset(Dataset):
         
         if self.return_2d_slices:
             image = image[:,:, image.shape[2] // 2] # Considering where most of the volume is concentrated 
-            consensus_mask = consensus_mask[:,:, image.shape[2] // 2]
+            consensus_mask = consensus_mask[:,:, consensus_mask.shape[2] // 2]
             
         if self.return_individual_masks:
             individual_masks = torch.tensor(individual_masks, dtype=torch.long)
@@ -335,7 +337,7 @@ class LIDCDataset(Dataset_Class):
                 
         data = {
             'image': self.get_image(idx),
-            'mask': self.get_mask(idx),
+            'mask': cons_mask,
             'individual_masks' : indiv_mask,
             'uq_map': self.get_uq_map(idx),
             'prediction': self.get_prediction(idx),
@@ -373,12 +375,12 @@ class LIDCDataset(Dataset_Class):
         image = image.unsqueeze(0)  # Add channel dimension
         
         if self.render_2d:
-            return image[:,:, image.shape[2] // 2] # Considering where most of the volume is concentrated 
+            return image[:,:,:,image.shape[2] // 2] # Considering where most of the volume is concentrated 
         return image
     
     def get_mask(self, idx):
         sample_name = self.get_sample_name(idx)
-            
+        
         # Load and create consensus mask
         if self.render_ind_masks:
             consensus_mask, individual_masks = self._create_consensus_mask(sample_name)
@@ -387,7 +389,7 @@ class LIDCDataset(Dataset_Class):
                   
         # Convert to tensors
         consensus_mask = torch.tensor(consensus_mask, dtype=torch.long)
-                   
+            
         if self.render_2d:
             consensus_mask = consensus_mask[:,:, consensus_mask.shape[2] // 2]
             

@@ -165,7 +165,7 @@ def _evaluate_gmm_strategy(
         return None
 
     # Construct the GMM scores filename and path
-    scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores.csv"
+    scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores_standardize.csv"
     scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
     
     if not os.path.exists(scores_filepath):
@@ -178,7 +178,7 @@ def _evaluate_gmm_strategy(
     gmm_scores_df = pd.read_csv(scores_filepath)
     gmm_scores_df.rename(columns={'Unnamed: 0': 'uq_map_name', 'is_ood': 'gt_label'}, inplace=True)
     gmm_scores_df = gmm_scores_df.astype({'uq_map_name': str, 'gt_label': int})
-    gmm_scores_to_merge = gmm_scores_df[['uq_map_name', 'gt_label', 'ood_score_normalized']]
+    gmm_scores_to_merge = gmm_scores_df[['uq_map_name', 'gt_label', 'ood_score_normalized_all']] # ood_score_normalized_magnitude, ood_score_normalized_spatial other possibiltiies
 
     # Create alignment dataframe from cached data
     alignment_df = pd.DataFrame({
@@ -193,7 +193,7 @@ def _evaluate_gmm_strategy(
         on=['uq_map_name', 'gt_label'],
         how='left'
     )
-    final_scores.rename(columns={'ood_score_normalized': 'gmm_score'}, inplace=True)
+    final_scores.rename(columns={'ood_score_normalized_all': 'gmm_score'}, inplace=True) # ood_score_normalized_magnitude, ood_score_normalized_spatial other possibiltiies
     final_scores.dropna(subset=['gmm_score'], inplace=True)
 
     if final_scores.empty:

@@ -310,12 +310,17 @@ def run_gmm_ensemble_ood_detection(train_df: pd.DataFrame, test_df: pd.DataFrame
     
     # 4. Calculate variance for diagnostics
     variance_scores = np.var(eval_scores_array, axis=0)
+    max_score = np.max(zero_floored_scores)
+    std_dev_normalized = np.sqrt(variance_scores) / (max_score + 1e-9)
 
     # 5. Build results DataFrame
     results_df = pd.DataFrame(index=all_eval_data.index)
     results_df['ood_score_nll_zero_floored'] = zero_floored_scores
     results_df['ood_score_variance'] = variance_scores
+    results_df['ood_score_std_dev_normalized'] = std_dev_normalized
+    
     print(f"Ensemble's average disagreement: {((results_df['ood_score_variance'].mean()) / (results_df['ood_score_variance'].max()) * 100):.4f}%")
+    print(f"Average normalized score uncertainty (Mean StdDev): {results_df['ood_score_std_dev_normalized'].mean():.4f}")
 
     results_df['is_ood'] = 0
     if ood_df is not None:
@@ -513,10 +518,12 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
     if id_spatial_raw.index.equals(ood_spatial_raw.index):
         print(f"Indices of '{paths['id_spatial']}' and '{paths['ood_spatial']}' are identical.")
         ood_spatial_raw.index = [int(f"{idx}1") for idx in ood_spatial_raw.index]
+        indices_were_modified = True
     
     if id_magnitude_raw.index.equals(ood_magnitude_raw.index):
         print(f"Indices of '{paths['id_magnitude']}' and '{paths['ood_magnitude']}' are identical.")
         ood_magnitude_raw.index = [int(f"{idx}1") for idx in ood_magnitude_raw.index]
+        indices_were_modified = True
 
     if id_spatial_raw is None and id_magnitude_raw is None:
         print("Skipping analysis: No In-Distribution data found.")
@@ -621,7 +628,32 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
         
         # --- Save detailed scores for this method ---
         score_filename = os.path.join(res_dir, f"{base_filename}_scores_{method}.csv")
-        final_results_df.to_csv(score_filename)
+        
+        print(f'INDICES WERE MODIFIED: {indices_were_modified}')
+        if indices_were_modified:
+            print("Reverting temporary index modification for CSV export...")
+            # Create a copy to modify
+            df_to_save = final_results_df.copy()
+
+            # Define a safe function to revert the index
+            def revert_index(idx):
+                s_idx = str(idx)
+                # Revert only if it's a multi-digit string ending in '1'
+                if len(s_idx) > 1 and s_idx.endswith('1'):
+                    # Check if the base part is a number to be safe
+                    if s_idx[:-1].isdigit():
+                        return int(s_idx[:-1])
+                # Otherwise, return the original index
+                return idx
+            
+            # Apply the function and save
+            df_to_save.index = df_to_save.index.map(revert_index)
+            df_to_save.to_csv(score_filename)
+        else:
+            # If no modification happened, save directly
+            final_results_df.to_csv(score_filename)
+            
+        # final_results_df.to_csv(score_filename)
         print(f"\nSaved combined scores for {method.upper()} method to: {score_filename}")
 
         # --- Calculate and store AUROC scores for this method ---

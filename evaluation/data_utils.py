@@ -5,6 +5,7 @@ import mahotas as mh
 import os
 import json
 import cv2
+import copy
 
 from dataclasses import dataclass
 from torch.utils.data import Dataset, DataLoader
@@ -936,10 +937,68 @@ def _get_lizard_config(paths: DataPaths) -> dict:
     def get_paths(noise: str, extra_info: dict) -> dict:
         """Get paths for Lizard dataset uses reference paths for all noise levels"""      
         # Define split path to exlude tiles with exceeeding and wrong padding 
-        json_path = Path(paths.data).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
-        extra_info['split_path'] = json_path
-        extra_info['split'] = ['test']
+        # json_path = Path(paths.data).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+        # extra_info['split_path'] = json_path
+        # extra_info['split'] = ['test']
         
+        # 1. Define path to the base corrected split file
+        corrected_split_path = Path("/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+    
+        # 2. Define the path for the potential dynamic spatial split file
+        dynamic_split_filename = f"{extra_info['task']}_lizard_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        dynamic_split_path = Path(os.getcwd()) / "spatial" / "splits" / dynamic_split_filename
+        
+        # Set the default path to the original file. This will be used if the dynamic file doesn't exist.
+        extra_info['split_path'] = str(corrected_split_path)
+        
+        # 3. Check if the dynamic split file exists.
+        if dynamic_split_path.exists():
+            print(f"Found dynamic spatial split file: {dynamic_split_path}")
+            
+            # --- THIS IS THE KEY CHANGE: Read the entire structure of both files ---
+
+            # 4. Load the full structure of the corrected split file
+            with open(corrected_split_path, 'r') as f:
+                full_corrected_data = json.load(f)
+
+            # Load the tile names from the dynamic split file (assumed to be a flat list)
+            with open(dynamic_split_path, 'r') as f:
+                dynamic_names = set(json.load(f))
+
+            # 5. Get the 'test_id' names from the corrected file and find the intersection
+            # We specifically target the 'test_id' key as requested.
+            original_id_test_names = set(full_corrected_data.get("test_id", []))
+            common_samples = sorted(list(original_id_test_names.intersection(dynamic_names)))
+            
+            print(f"Found {len(common_samples)} common samples for 'test_id' between corrected split ({len(original_id_test_names)}) and dynamic split ({len(dynamic_names)}).")
+
+            if not common_samples:
+                raise ValueError("No common 'test_id' samples found between the corrected and dynamic splits. Cannot proceed.")
+
+            # 6. Create the new intersection file in the specified directory
+            intersection_split_dir = Path("/fast/AG_Kainmueller/data/LizardRaw_new/archive/")
+            intersection_split_dir.mkdir(parents=True, exist_ok=True)
+            
+            intersection_filename = f"{dynamic_split_filename.replace('.json', '')}_intersection.json"
+            intersection_split_path = intersection_split_dir / intersection_filename
+            
+            # --- ANOTHER KEY CHANGE: Prepare the new data structure ---
+            # Create a copy of the original data to preserve 'train', 'val', 'test_ood', etc.
+            new_split_data = copy.deepcopy(full_corrected_data)
+            
+            # Replace ONLY the 'test_id' list with the intersected samples
+            new_split_data["test_id"] = common_samples
+            
+            print(f"Creating new intersection split file at: {intersection_split_path}")
+            
+            # Write the complete, modified data structure to the new file
+            with open(intersection_split_path, 'w') as f:
+                json.dump(new_split_data, f, indent=4)
+            
+            # 7. Update extra_info to use the new intersection file
+            extra_info['split_path'] = str(intersection_split_path)
+            extra_info['split'] = ['test']
+
         return {
             'image_path': paths.data,
             'mask_path': paths.data,
@@ -950,6 +1009,7 @@ def _get_lizard_config(paths: DataPaths) -> dict:
         'get_paths': get_paths,
         'extra_kwargs': {}
     }
+    
 def _get_arctique_config(paths: DataPaths, task: str) -> dict:
     """Get configuration for Arctique dataset"""
     # Initialize shared mask cache
@@ -993,6 +1053,7 @@ def _get_arctique_config(paths: DataPaths, task: str) -> dict:
         'get_paths': get_paths,
         'extra_kwargs': {'shared_masks': shared_masks}
     }
+    
 def _get_lidc_config(paths: DataPaths) -> dict:
     """Get configuration for LIDC dataset"""
     
@@ -1134,6 +1195,53 @@ def _get_weeds_config(paths: DataPaths) -> dict:
     
     def get_paths(noise: str, extra_info: dict) -> dict:
         """Get paths for Wormbodies dataset - uses reference paths for all noise levels"""
+        if extra_info['data_noise'] == "0_00":
+            ref_img_path = paths.data.joinpath('images', 'validation')
+            ref_msk_path = paths.data.joinpath('annotations', 'validation')
+
+            original_full_split_path = Path("/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test")
+            dynamic_gmm_split_filename = f"{extra_info['task']}_ade20k_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+            dynamic_gmm_split_path = Path(os.getcwd()) / "spatial" / "splits" / dynamic_gmm_split_filename
+            
+            if dynamic_gmm_split_path.exists():
+                print(f"Found dynamic GMM split file: {dynamic_gmm_split_path}")
+                
+                # Load names from the original full test set and STRIP the file extension.
+                with open(original_full_split_path, 'r') as f:
+                    # We split each line at the '.' and take the first part.
+                    original_names = {line.strip().split('.')[0] for line in f}
+
+                with open(dynamic_gmm_split_path, 'r') as f:
+                    # The JSON names are likely already clean, but using a set is good practice.
+                    gmm_names = set(json.load(f))
+                    
+                common_samples = sorted(list(original_names.intersection(gmm_names)))
+                
+                print(f"Found {len(common_samples)} common samples between original test set ({len(original_names)}) and GMM split ({len(gmm_names)}).")
+
+                if not common_samples:
+                    raise ValueError("No common samples found between the original and GMM splits. Cannot proceed.")
+
+                intersection_split_dir = original_full_split_path.parent
+                intersection_filename = "ADE20k_id_test_intersection"
+                intersection_split_path = intersection_split_dir / intersection_filename
+                
+                print(f"Creating new intersection split file at: {intersection_split_path}")
+                # Write the CLEAN names (without extension) to the new file
+                with open(intersection_split_path, 'w') as f:
+                    for name in common_samples:
+                        # Re-add the extension for the dataloader
+                        f.write(f"{name}.png\n")
+                
+                extra_info['split_path'] = str(intersection_split_path)
+
+            else:
+                print("Dynamic GMM split not found. Using original full test set.")
+                extra_info['split_path'] = str(original_full_split_path)
+        else:
+            ref_img_path = paths.data.joinpath('images', 'test_cityscapes')
+            ref_msk_path = paths.data.joinpath('annotations', 'test_cityscapes')
+            extra_info['split_path'] = None
         return {
             'image_path': paths.data,
             'mask_path': paths.data
@@ -1150,6 +1258,23 @@ def _get_worms_config(paths: DataPaths) -> dict:
     
     def get_paths(noise: str, extra_info: dict) -> dict:
         """Get paths for Wormbodies dataset - uses reference paths for all noise levels"""
+        if extra_info['data_noise'] == "0_00": 
+            # Construct the path to the new iid split file
+            dynamic_split_filename = f"{extra_info['task']}_wormbodies_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        else:
+            # Construct the path to the new ood split file
+            dynamic_split_filename = f"{extra_info['task']}_wormbodies_{extra_info['variation']}_{extra_info['decomp']}_ood_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the split path
+        if use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
+            
         return {
             'image_path': paths.data,
             'mask_path': paths.data

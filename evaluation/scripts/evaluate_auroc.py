@@ -183,7 +183,7 @@ def parse_arguments() -> argparse.Namespace:
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
     # lizard: '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
-    # wormbodies: '
+    # wormbodies: '/fast/AG_Kainmueller/data/wormbodies/
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )

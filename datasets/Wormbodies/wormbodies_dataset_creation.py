@@ -81,7 +81,10 @@ class wormbodies_dataset(Dataset_Class):
         self.prediction_path = self.prediction_path.joinpath('fg-bg', self.uq_method, 'pred')
 
         # Extract sample names
-        self.samples = [file.split(".")[0] for file in os.listdir(self.image_path)]
+        if self.split_path:
+            self.get_sample_names_from_split_file()
+        else:
+            self.get_sample_names_from_img_directory()
         self.file_ending = list(os.listdir(self.image_path))[0].split(".")[1] 
 
         # f = str(self.uq_map_path)
@@ -139,6 +142,19 @@ class wormbodies_dataset(Dataset_Class):
         """Return the prediction at the given index."""
         pred = np.load(self.prediction_path.joinpath(f"{self.get_sample_name(idx)}.npy"))
         return pred[0, :, :]
+    
+    def get_sample_names_from_split_file(self):
+        """Load sample names from directory listing."""
+        split_path = Path(self.split_path)
+        
+        print(f"Loading sample names from JSON split file: {split_path}")
+        with open(split_path, "r") as f:
+            names_from_json = json.load(f)  # Assuming the JSON file contains a flat list of filenames
+            self.samples = [str(name).split(".")[0] for name in names_from_json] # Ensure we strip any potential file extensions
+    
+    def get_sample_names_from_img_directory(self):
+        """Load sample names from split file."""
+        self.samples = [file.split(".")[0] for file in os.listdir(self.image_path)]
 
     def get_sample_name(self, idx):
         """Return the sample name at the given index."""
