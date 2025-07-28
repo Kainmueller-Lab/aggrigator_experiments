@@ -214,7 +214,7 @@ def remove_background_only_images(gt_list, pred_list, idx_task, task, dataset_na
     '''Excludes images containing only background (class 0) from ground truth and predictions for the AURC experiment.'''
     if dataset_name.startswith(('arctique', 'lizard')):
         mask = np.array([np.all(np.unique(gt[..., idx_task]) == 0) for gt in gt_list])
-    elif dataset_name.startswith(('lidc', 'weedsgalore')):
+    elif dataset_name.startswith(('lidc', 'weedsgalore', 'wormbodies')):
         mask = np.array([np.all(np.unique(gt) == 0) for gt in gt_list])
     elif dataset_name.startswith(('gta', 'ade20k')):
         mask = np.array([np.all(np.unique(gt) == 255) for gt in gt_list])
@@ -1194,54 +1194,7 @@ def _get_weeds_config(paths: DataPaths) -> dict:
     """Get configuration for Weedsgalore dataset"""
     
     def get_paths(noise: str, extra_info: dict) -> dict:
-        """Get paths for Wormbodies dataset - uses reference paths for all noise levels"""
-        if extra_info['data_noise'] == "0_00":
-            ref_img_path = paths.data.joinpath('images', 'validation')
-            ref_msk_path = paths.data.joinpath('annotations', 'validation')
-
-            original_full_split_path = Path("/fast/AG_Kainmueller/data/GTA_ValUES_splits/ADE20k_id_test")
-            dynamic_gmm_split_filename = f"{extra_info['task']}_ade20k_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
-            dynamic_gmm_split_path = Path(os.getcwd()) / "spatial" / "splits" / dynamic_gmm_split_filename
-            
-            if dynamic_gmm_split_path.exists():
-                print(f"Found dynamic GMM split file: {dynamic_gmm_split_path}")
-                
-                # Load names from the original full test set and STRIP the file extension.
-                with open(original_full_split_path, 'r') as f:
-                    # We split each line at the '.' and take the first part.
-                    original_names = {line.strip().split('.')[0] for line in f}
-
-                with open(dynamic_gmm_split_path, 'r') as f:
-                    # The JSON names are likely already clean, but using a set is good practice.
-                    gmm_names = set(json.load(f))
-                    
-                common_samples = sorted(list(original_names.intersection(gmm_names)))
-                
-                print(f"Found {len(common_samples)} common samples between original test set ({len(original_names)}) and GMM split ({len(gmm_names)}).")
-
-                if not common_samples:
-                    raise ValueError("No common samples found between the original and GMM splits. Cannot proceed.")
-
-                intersection_split_dir = original_full_split_path.parent
-                intersection_filename = "ADE20k_id_test_intersection"
-                intersection_split_path = intersection_split_dir / intersection_filename
-                
-                print(f"Creating new intersection split file at: {intersection_split_path}")
-                # Write the CLEAN names (without extension) to the new file
-                with open(intersection_split_path, 'w') as f:
-                    for name in common_samples:
-                        # Re-add the extension for the dataloader
-                        f.write(f"{name}.png\n")
-                
-                extra_info['split_path'] = str(intersection_split_path)
-
-            else:
-                print("Dynamic GMM split not found. Using original full test set.")
-                extra_info['split_path'] = str(original_full_split_path)
-        else:
-            ref_img_path = paths.data.joinpath('images', 'test_cityscapes')
-            ref_msk_path = paths.data.joinpath('annotations', 'test_cityscapes')
-            extra_info['split_path'] = None
+        """Get paths for GTA dataset - uses reference paths for all noise levels"""
         return {
             'image_path': paths.data,
             'mask_path': paths.data

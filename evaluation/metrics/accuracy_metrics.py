@@ -122,10 +122,12 @@ def acc_score(
     dataset_config = None 
     if shared_data["dataset_name"].startswith('lidc'):
         dataset_config = {'num_classes': 2, 'ignore_index': True, 'ignore_value': 0, 'average': 'micro'}
+    elif shared_data["dataset_name"].startswith('wormbodies'):
+        dataset_config = {'num_classes': 2, 'ignore_index': True, 'ignore_value': 0, 'average': 'micro'}
     elif shared_data["dataset_name"].startswith('weedsgalore'):
         dataset_config = {'num_classes': 3, 'ignore_index': True, 'ignore_value': 0, 'average': 'macro'}
     elif shared_data["dataset_name"].startswith('gta'):
-        dataset_config = {'num_classes': 19, 'ignore_index': True, 'ignore_value': 18, 'average': 'macro'}
+        dataset_config = {'num_classes': 19, 'ignore_index': True, 'ignore_value': 18, 'average': 'macro'} #index corresponding to class 255
     elif shared_data["dataset_name"].startswith('ade20k'):
         dataset_config = {'num_classes': 150, 'ignore_index': True, 'ignore_value': 0, 'average': 'macro'} #because of padding
             

@@ -219,7 +219,7 @@ def get_or_create_ood_split(ood_full_df: pd.DataFrame, split_dir: str, base_file
         print("No existing OOD split found. Creating a new 15/75 split for OOD data.")
         indices = ood_full_df.index.astype(str).to_list()
         # We only need one half of the data for evaluation
-        _, ood_eval_indices = train_test_split(indices, test_size=0.05, random_state=42)
+        _, ood_eval_indices = train_test_split(indices, test_size=0.1, random_state=42)
         with open(ood_split_path, 'w') as f: json.dump(ood_eval_indices, f, indent=4)
         print(f"Saved new OOD split to:\n  - {ood_split_path}")
     return ood_eval_indices
@@ -509,6 +509,7 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
     P2_N_RATIO_THRESHOLD = 0.5
     REG_COVAR = 1e-2 # Centralize regularization parameter
     epsilon = 1e-10
+    indices_were_modified = False
     
     id_spatial_raw = load_spatial_fingerprints(paths['id_spatial'], base_filename)
     ood_spatial_raw = load_spatial_fingerprints(paths['ood_spatial'], base_filename)
@@ -539,7 +540,7 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
     os.makedirs(save_dir, exist_ok=True)
     train_indices, test_indices = get_or_create_split(split_basis_df, save_dir, base_filename)
     
-    if 'nematodes' in base_filename or 'protists' in base_filename:
+    if 'nematodes' in base_filename or 'protists' in base_filename or 'maize' in base_filename:
         ood_split_basis_df = ood_spatial_raw if ood_spatial_raw is not None else ood_magnitude_raw
         if ood_split_basis_df is not None and not ood_split_basis_df.empty:
             ood_eval_indices = get_or_create_ood_split(ood_split_basis_df, save_dir, base_filename)
@@ -629,7 +630,6 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
         # --- Save detailed scores for this method ---
         score_filename = os.path.join(res_dir, f"{base_filename}_scores_{method}.csv")
         
-        print(f'INDICES WERE MODIFIED: {indices_were_modified}')
         if indices_were_modified:
             print("Reverting temporary index modification for CSV export...")
             # Create a copy to modify

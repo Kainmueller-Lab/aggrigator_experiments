@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader
 from PIL import Image
 import matplotlib.pyplot as plt
 
-#sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
-
+import sys
+sys.path.append("/fast/AG_Kainmueller/vguarin/aggrigator_experiments/")
 from datasets.dataset import Dataset_Class
 
 def inst_to_3c(gt_labels, lizard =  True):
@@ -45,8 +45,8 @@ class weedsgalore_dataset(Dataset_Class):
             if not os.path.exists(folder):
                 raise FileNotFoundError(f"File not found: {folder}")
 
-        self.image_path = Path(image_path)
-        self.mask_path = Path(mask_path)
+        # self.image_path = Path(image_path)
+        # self.mask_path = Path(mask_path)
         self.uq_map_path = Path(uq_map_path)
         self.prediction_path = Path(prediction_path)
         self.semantic_mapping_path = Path(semantic_mapping_path)
@@ -61,7 +61,22 @@ class weedsgalore_dataset(Dataset_Class):
         self.data_noise = kwargs.get('data_noise', None)
         self.metadata_flag = kwargs.get('metadata', False)
         self.split_path = kwargs.get('split_path', None)
-        self.split = kwargs.get('split', ['test'])
+        self.split = kwargs.get('split', ['val_test'])
+        if self.split != ['val_test']:
+            self.split = ['val_test']
+        
+        if self.data_noise == '0_00':
+            self.uq_map_path = self.uq_map_path.joinpath('rgb_val_test')
+            self.prediction_path = self.prediction_path.joinpath('rgb_val_test')
+            self.image_path = Path(image_path).joinpath('weedsgalore-dataset')
+            self.mask_path = Path(image_path).joinpath('weedsgalore-dataset')
+        elif self.data_noise == '1_00':
+            self.uq_map_path = self.uq_map_path.joinpath('rgb_ood')
+            self.prediction_path = self.prediction_path.joinpath('rgb_ood')
+            self.image_path  =  Path(image_path).joinpath('ood_data', 'crops_and_weed_processed')
+            self.mask_path  =  Path(image_path).joinpath('ood_data', 'crops_and_weed_processed')
+        else:
+            raise ValueError('Please, set the noise level to either 0_00 or 1_00 for weedsgalore.')
 
         if self.metadata_flag is True:
             self.metadata = self.uq_map_path.joinpath(self.task, self.uq_method, "metadata.json")
@@ -71,9 +86,14 @@ class weedsgalore_dataset(Dataset_Class):
         # extract information about the uq maps frorm their location. 
         # uq maps are expected to be saved in the following format: 
         #  "<basefolder>/weedsgalore/<input-type>_<split>/<task>/<uq_methods>/<deomposition>/"
+        
         str_idx = str(self.uq_map_path).find("weedsgalore")
         uq_info = str(self.uq_map_path)[str_idx+len("weedsgalore/"):].split("/")
-        self.input_type, self.split = uq_info[0].split("_")
+        if len(uq_info[0].split("_")) < 3:
+            self.input_type, self.split = uq_info[0].split("_")
+        else:
+            self.input_type, split_val, split_test = uq_info[0].split("_")
+            self.split = f'{split_val}_{split_test}'
         self.in_bands = 3 if self.input_type == "rgb" else 5
         self.num_classes = 6 if self.task == "semantic" else 3
 
@@ -101,30 +121,39 @@ class weedsgalore_dataset(Dataset_Class):
     
     def get_image(self, idx):
         """Return the image at the given index."""  
-        img_path = os.path.join(self.image_path, self.img_list[idx][:10], 'images', self.img_list[idx])
-        red_band = plt.imread(img_path + '_R.png')
-        green_band = plt.imread(img_path + '_G.png')
-        blue_band = plt.imread(img_path + '_B.png')
-        nir_band = plt.imread(img_path + '_NIR.png')
-        re_band = plt.imread(img_path + '_RE.png')
+        if self.data_noise == '0_00':
+            img_path = os.path.join(self.image_path, self.img_list[idx][:10], 'images', self.img_list[idx])
+            red_band = plt.imread(img_path + '_R.png')
+            green_band = plt.imread(img_path + '_G.png')
+            blue_band = plt.imread(img_path + '_B.png')
+            nir_band = plt.imread(img_path + '_NIR.png')
+            re_band = plt.imread(img_path + '_RE.png')
 
-        if self.in_bands == 3:
-            img = np.stack((red_band, green_band, blue_band))
-        elif self.in_bands == 5:
-            img = np.stack((red_band, green_band, blue_band, nir_band, re_band))
+            if self.in_bands == 3:
+                img = np.stack((red_band, green_band, blue_band))
+            elif self.in_bands == 5:
+                img = np.stack((red_band, green_band, blue_band, nir_band, re_band))
+        elif self.data_noise == '1_00':
+            img_path = os.path.join(self.image_path, 'images', f'{self.img_list[idx]}.npy')
+            img = np.load(img_path)
+            img = img.transpose(2,0,1)
         return img
 
     def get_mask(self, idx):
         """Return the mask at the given index."""
         # load semantic label
-        folder = 'semantics' if self.task != 'instance' else 'instances'
-        label_path = os.path.join(self.mask_path, self.img_list[idx][:10], folder, self.img_list[idx])
-        label = Image.open(label_path + '.png')
-        label = np.array(label)
+        if self.data_noise == '0_00':
+            folder = 'semantics' if self.task != 'instance' else 'instances'
+            label_path = os.path.join(self.mask_path, self.img_list[idx][:10], folder, self.img_list[idx])
+            label = Image.open(label_path + '.png')
+            label = np.array(label)
 
-        if self.task == "crops_vs_weed": 
-            label[label>1] = 2
-        
+            if self.task == "crops_vs_weed": 
+                label[label>1] = 2
+        elif self.data_noise == '1_00':
+            folder = 'semantics' if self.task != 'crops_vs_weed' else 'crops_vs_weed'
+            label_path = os.path.join(self.mask_path, 'masks', folder, f'{self.img_list[idx]}.npy')
+            label = np.load(label_path)
         return label 
 
     def get_uq_map(self, idx):
@@ -155,9 +184,15 @@ class weedsgalore_dataset(Dataset_Class):
     
     def get_sample_names_from_img_directory(self):
         """Load sample names from directory listing."""
-        with open(self.image_path.joinpath('splits', f'{self.split}.txt'), 'r') as file:
-            data = [line.rstrip('\n') for line in file]  # Assuming elements are numeric
-            self.img_list = np.array(data)
+        if self.data_noise == '0_00':
+            with open(self.image_path.joinpath('splits', f'{self.split}.txt'), 'r') as file:
+                data = [line.rstrip('\n') for line in file]  # Assuming elements are numeric
+                self.img_list = np.array(data)
+        elif self.data_noise == '1_00':
+            self.img_list = sorted(
+                [f.stem for f in self.image_path.joinpath('images').iterdir() if f.suffix == '.npy'],
+                key=lambda x: (x.split('-')[0], x)
+            )
 
     def get_semantic_mapping(self):
         """Return the semantic mapping dictionary."""
@@ -251,16 +286,16 @@ class OptimizedWeedsGalore_Properties(weedsgalore_dataset):
 # ---- Main Function to to test OptimizedWeedsGalore_Properties ----   
     
 def main():
-    image_path = "/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/"
+    image_path = "/fast/AG_Kainmueller/data/weedsgalore/"
     mask_path = image_path
-    uq_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/"
+    uq_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/"
     pred_folder = uq_folder
 
     extra_info = {
         'task' : 'crops_vs_weed',
-        'variation' : None,
+        'variation' : 'maize',
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '1_00',
         'uq_method' : 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
@@ -319,14 +354,19 @@ def main():
     label_colors = label_colors_sem if data_loader.task != 'instance' else label_colors_inst    
     
     # Main visualization
-    data = next(iter(loader))
+    loader_iter = iter(loader)      # create an iterator
+    index = 50
+    for i in range(index):
+        next(loader_iter)
+        if i == index-1:
+            data = next(loader_iter)
     image = data['image'].squeeze(0) # (C, H, W)
     
     mask = data['mask'].squeeze(0).cpu().numpy()  # (H, W)
     prediction = data['prediction'].squeeze(0).cpu().numpy() if data_loader.task != 'instance' else np.zeros_like(mask) # (H, W) 
     uq_map = data['uq_map'].squeeze(0).cpu().numpy() if data_loader.task != 'instance' else np.zeros_like(mask)
     sample_name = data['sample_name'][0]
-    
+        
     # Generate colored overlays
     if data_loader.task == 'instance': mask = inst_to_3c(mask, False)
     mask_rgb = label_to_rgb(mask, label_colors)
@@ -334,6 +374,7 @@ def main():
     
     # Create subplots
     fig, axs = plt.subplots(1, 4, figsize=(16, 5))
+    
     titles = ['Input Image', 'Ground Truth', 'Prediction', 'UQ Map']
     overlays = [None, mask_rgb, pred_rgb, uq_map]
     alphas = [1.0, 0.8, 0.8, 0.8]

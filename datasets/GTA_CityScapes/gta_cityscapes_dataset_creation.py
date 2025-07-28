@@ -351,7 +351,7 @@ class OptimizedGTA_CityscapesDataset(GTA_CityscapesDataset):
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
                  semantic_mapping_path, load_images=False, load_preds=True, 
-                 max_samples=500, random_sampling=True, seed=42, **kwargs):
+                 max_samples=300, random_sampling=True, seed=42, **kwargs):
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images

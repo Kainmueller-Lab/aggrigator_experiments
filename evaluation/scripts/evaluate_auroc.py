@@ -175,6 +175,7 @@ def parse_arguments() -> argparse.Namespace:
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
     # lizard: '/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/'
+    # weedsgalore: '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/'
     # wormbodies: '/fast/AG_Kainmueller/data/UQ_maps/wormbodies/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
@@ -183,7 +184,7 @@ def parse_arguments() -> argparse.Namespace:
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
     # lizard: '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
-    # wormbodies: '/fast/AG_Kainmueller/data/wormbodies/
+    # wormbodies: '/fast/AG_Kainmueller/data/'
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )

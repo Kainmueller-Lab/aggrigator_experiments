@@ -75,7 +75,7 @@ def parse_args():
     )
     parser.add_argument(
         '--variation', type=str, 
-        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes'], help='OoD variation type'
+        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes', 'protists', 'nematodes'], help='OoD variation type'
     )
     parser.add_argument(
         '--uq_path', type=str, 
@@ -86,7 +86,8 @@ def parse_args():
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
-    # weedsgalore '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/'
+    # weedsgalore: '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/'
+    # wormbodies: '/fast/AG_Kainmueller/data/UQ_maps/wormbodies/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
     )
@@ -94,7 +95,8 @@ def parse_args():
     # lizard:  '/fast/AG_Kainmueller/vguarin/synthetic_uncertainty/data/LizardData/' 
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
-    # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/'
+    # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/'
+    # wormbodies: '/fast/AG_Kainmueller/data/'
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )
@@ -104,7 +106,7 @@ def parse_args():
     )
     parser.add_argument(
         '--dataset_name', type=str, default='arctique', 
-        choices=['arctique', 'lidc', 'lizard', 'gta', 'ade20k', 'weedsgalore'], help='Dataset name'
+        choices=['arctique', 'lidc', 'lizard', 'gta', 'ade20k', 'weedsgalore', 'wormbodies'], help='Dataset name'
     )
     parser.add_argument(
         '--spatial', type=str, choices=['high_eds', 'low_eds', 'high_moran', 'low_moran'], 
@@ -177,6 +179,14 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     
     # Select appropriate strategies based on aggregator type and extract method names for plotting
     strategies, method_names = select_strategies(aggregator_type)
+    
+    # This makes it available to both the computation and plotting functions.
+    strategies.setdefault('Spatial', {})['GMM'] = (None, None)
+    
+    # This ensures method_names includes 'GMM' and is in the correct order.
+    method_names = []
+    for category, methods in strategies.items():
+        method_names.extend(methods.keys())
         
     # Define **kwargs dictionary for dataloaders
     extra_info = {
@@ -228,6 +238,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
             masks = cached_maps[uq_method]['real_masks']
             preds = cached_maps[uq_method]['masks']
             uq_maps = cached_maps[uq_method]['maps']
+            sample_names = cached_maps[uq_method]['sample_names']
                         
             if dataset_name.startswith('arctique'):
                 # Overleay colours 
@@ -302,6 +313,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
                 uq_maps,
                 masks,
                 preds,
+                sample_names, 
                 paths,
                 task,
                 model_noise,
@@ -311,7 +323,8 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
                 noise_levels,
                 strategies,
                 num_workers,
-                dataset_name
+                dataset_name,
+                ood
             )
             
             # Store results

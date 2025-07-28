@@ -707,10 +707,10 @@ def create_selective_risks_coverage_plot(
     color_variation = 'none' if not args.variation else args.variation
     color_noise = '1_00' if ood is True else '0_00'
     if args.dataset_name == 'ade20k':
-        color_file_path = (output_path / "figures" / "colors" / 
+        color_file_path = (output_path / "figures" / "joint_correlation" / "colors" / 
                           f"correlation_matrix_spearman_joint_noise_{args.dataset_name}_deeplabv3_{args.task}_{color_variation}_dropout_pu_{color_noise}_method_colors.json")
     else:
-        color_file_path = (output_path / "figures" / "colors" / 
+        color_file_path = (output_path / "figures" / "joint_correlation" / "colors" / 
                           f"correlation_matrix_spearman_joint_noise_{args.dataset_name}_{args.task}_{color_variation}_dropout_pu_{color_noise}_method_colors.json")
     
     # Load correlation-based colors
@@ -889,13 +889,13 @@ def _format_aurc_plot(legend_ncol: int = 5) -> None:
     legend = plt.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.3), 
                 ncol=legend_ncol, fontsize=8, columnspacing=1.0)
     frame = legend.get_frame()
-    frame.set_facecolor('#a39b9b')
+    frame.set_facecolor('#d9cece')
     
     plt.grid(False)
     
     # Remove top and right spines
     ax = plt.gca()
-    ax.set_facecolor('#a39b9b')
+    ax.set_facecolor('#d9cece')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
@@ -960,6 +960,8 @@ def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults,
             category = "Mean"
         elif method.startswith("Equally-w.") or method.startswith("Imbalance-w."):
             category = "Class Average"
+        elif method == "GMM": 
+            category = "Spatial"
         method_to_category[method] = category
     
     # Define strategies dictionary for legend
