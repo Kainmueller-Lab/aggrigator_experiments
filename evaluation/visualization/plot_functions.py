@@ -691,6 +691,9 @@ def create_selective_risks_coverage_plot(
         args: Command line arguments
         ood: bool. to select between id and ood
     """
+    # Define boolean to treat simulatenous evaluation on id and ood
+    return_one_only = True if args.data_mod != 'id_ood' else False
+    
     # Plot mean results
     x = aurc_res.coverages.flatten() # Flatten to 1D for plotting
     y = aurc_res.mean_selective_risks # Shape: [coverage points, num_strategies]
@@ -705,7 +708,14 @@ def create_selective_risks_coverage_plot(
     
     # Build color file path
     color_variation = 'none' if not args.variation else args.variation
-    color_noise = '1_00' if ood is True else '0_00'
+    
+    if ood and return_one_only:
+        color_noise = '1_00'
+    elif not ood and return_one_only:
+        color_noise = '0_00'
+    else:
+        color_noise = 'combined'
+        
     if args.dataset_name == 'ade20k':
         color_file_path = (output_path / "figures" / "joint_correlation" / "colors" / 
                           f"correlation_matrix_spearman_joint_noise_{args.dataset_name}_deeplabv3_{args.task}_{color_variation}_dropout_pu_{color_noise}_method_colors.json")
@@ -740,14 +750,14 @@ def create_selective_risks_coverage_plot(
                         color=color, alpha=alpha_fill_current)
     
     # Save data to CSV
-    _save_aurc_data(data_dict, output_path, args, ood)
+    _save_aurc_data(data_dict, output_path, args, ood, return_one_only)
     
     # Format and save plot
     _format_aurc_plot()
-    _save_aurc_plot(output_path, args, ood)
+    _save_aurc_plot(output_path, args, ood, return_one_only)
     
       # Create and save barplot
-    _create_aurc_barplot(method_names, aurc_res, output_path, args, ood, correlation_colors)
+    _create_aurc_barplot(method_names, aurc_res, output_path, args, ood, return_one_only, correlation_colors)
     
 def _get_method_styling(method_name: str, method_index: int, method_categories: List[str], 
                        first_occurrence: Dict[str, bool], correlation_colors: Dict[str, str],
@@ -842,12 +852,18 @@ def _normalize_aurc_string(s: str) -> str:
     """Normalize string for fuzzy matching in AURC context."""
     return s.lower().replace(' ', '').replace('-', '').replace('.', '').replace('_', '')
 
-def _save_aurc_data(data_dict: Dict, output_path: Path, args: argparse.Namespace, ood: bool) -> None:
+def _save_aurc_data(data_dict: Dict, output_path: Path, args: argparse.Namespace, ood: bool, return_one_only: bool) -> None:
     """Save AURC data to CSV file."""
     df = pd.DataFrame(data_dict)
     
     # Define output file paths
-    data_mod = 'ood' if ood is True else 'id'
+    if ood and return_one_only:
+        data_mod = 'ood'
+    elif not ood and return_one_only:
+        data_mod = 'id'
+    else:
+        data_mod = 'id_ood'
+        
     csv_file = output_path.joinpath(
         f'tables/aurc_{data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{data_mod}.csv'
     )
@@ -901,8 +917,8 @@ def _format_aurc_plot(legend_ncol: int = 5) -> None:
     
 
 def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults, 
-                        output_path: Path, args: argparse.Namespace, 
-                        ood: bool, correlation_colors: Dict[str, str]) -> None:
+                        output_path: Path, args: argparse.Namespace, ood: bool, 
+                        return_one_only: bool, correlation_colors: Dict[str, str]) -> None:
     """Create and save AURC barplot with methods sorted by AURC values."""
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -919,6 +935,12 @@ def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults,
     df_sorted = df.sort_values('AURC', ascending=True).reset_index(drop=True)
     
     data_mod = 'ood' if ood is True else 'id'
+    if ood and return_one_only:
+        data_mod = 'ood'
+    elif not ood and return_one_only:
+        data_mod = 'id'
+    else:
+        data_mod = 'id_ood'
     # Save results to CSV
     csv_name = f'{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}'
     if args.spatial: 
@@ -1011,7 +1033,7 @@ def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults,
                      correlation_colors, barplot_colors, legend_ncol=3)
     
     # Save barplot
-    _save_aurc_barplot(output_path, args, ood)
+    _save_aurc_barplot(output_path, args, data_mod)
 
 def _get_method_color(method_name: str, category: str, correlation_colors: Dict[str, str], 
                      barplot_colors: Dict[str, str]) -> str:
@@ -1098,9 +1120,15 @@ def _add_aurc_legend(ax, strategies_dict: Dict, method_to_category: Dict,
         ncol=legend_ncol
     )
 
-def _save_aurc_plot(output_path: Path, args: argparse.Namespace, ood: bool) -> None:
+def _save_aurc_plot(output_path: Path, args: argparse.Namespace, ood: bool, return_one_only: bool) -> None:
     """Save the AURC plot to file."""
-    data_mod = 'ood' if ood is True else 'id'
+    if ood and return_one_only:
+        data_mod = 'ood'
+    elif not ood and return_one_only:
+        data_mod = 'id'
+    else:
+        data_mod = 'id_ood'
+        
     output_file = output_path.joinpath(
         f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}.png'
     )
@@ -1113,9 +1141,8 @@ def _save_aurc_plot(output_path: Path, args: argparse.Namespace, ood: bool) -> N
     logger.info(f"Plot saved to: {output_file}")
     plt.close()  # Close figure to free memory
 
-def _save_aurc_barplot(output_path: Path, args: argparse.Namespace, ood: bool) -> None:
+def _save_aurc_barplot(output_path: Path, args: argparse.Namespace, data_mod: str) -> None:
     """Save the AURC barplot to file."""
-    data_mod = 'ood' if ood is True else 'id'
     output_file = output_path.joinpath(
         f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}_barplot.png'
     )

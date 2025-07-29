@@ -35,9 +35,8 @@ def variation_name():
 
 def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
-    data_mod = 'ood' if args.data_mod == 'ood' else 'id'
     csv_file = output_path.joinpath(
-        f'tables/aurc_{data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_id.csv'
+        f'tables/aurc_{args.data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_id.csv'
     )
     # Ensure directory exists
     csv_file.parent.mkdir(exist_ok=True, parents=True)
@@ -48,7 +47,6 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     else:
         print(f"{csv_file} does not exist yet.")
         
-    data_mod = 'ood' if args.data_mod == 'ood' else 'id'
     if args.variation == 'blood_cells':
         task = 'semantic' 
     elif args.variation == 'nuclei_intensity':
@@ -59,7 +57,7 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     aurc_csv_name = f'{task}_{args.dataset_name}_{args.variation}_{args.decomp}'
     if args.spatial: 
         aurc_csv_name += f'_{args.spatial}'
-    aurc_csv_file = output_path.joinpath(f'tables/aurc_{data_mod}/{aurc_csv_name}_aurc_{data_mod}_results.csv')
+    aurc_csv_file = output_path.joinpath(f'tables/aurc_{args.data_mod}/{aurc_csv_name}_aurc_{args.data_mod}_results.csv')
     
     if aurc_csv_file.exists():
         aurc_csv_file.open('w').close()  # Open in write mode to clear contents
@@ -75,14 +73,14 @@ def parse_args():
     )
     parser.add_argument(
         '--variation', type=str, 
-        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes', 'protists', 'nematodes'], help='OoD variation type'
+        choices=['nuclei_intensity', 'blood_cells', 'texture', 'malignancy', 'cityscapes', 'protists', 'nematodes', 'glas_set_sem', 'glas_set_inst', 'maize'], help='OoD variation type'
     )
     parser.add_argument(
         '--uq_path', type=str, 
         default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results'
     )
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
-    # lizard:  '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_lizard_convnextv2_tiny_3' 
+    # lizard:  '/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/'; old_one: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_lizard_convnextv2_tiny_3' 
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
@@ -92,7 +90,7 @@ def parse_args():
         '--label_path', type=str, help='Path to labels'
     )
     # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
-    # lizard:  '/fast/AG_Kainmueller/vguarin/synthetic_uncertainty/data/LizardData/' 
+    # lizard: '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'; old_one: '/fast/AG_Kainmueller/vguarin/synthetic_uncertainty/data/LizardData/' 
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
     # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/'
@@ -135,7 +133,7 @@ def parse_args():
     # ade20k: 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512'
     parser.add_argument(
         '--data_mod', type=str, default='id', 
-        help='Data Modality (e.g. ood or id)'
+        help='Data Modality (e.g. ood, id or id_ood)'
     )
     parser.add_argument(
         '--aggregator_type', type=str, default='non-pi', 
@@ -164,16 +162,30 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     num_workers = args.num_workers
     dataset_name = args.dataset_name
     variation = args.variation #if args.variation else 'LizardData'
+    real_task = None
+    
+    # Handle Lizard case in which variation is the same for both instance and semantic task and Arctique case in which variation is different between tasks
+    if variation.startswith('glas_set'):
+        variation_1, variation_2, real_task = variation.split('_')
+        args.variation = f"{variation_1}_{variation_2}"
+        real_task = 'semantic' if real_task == 'sem' else 'instance'
+    elif variation.startswith('blood_cells'):
+        real_task = 'semantic'
+    elif variation.startswith('nuclei_intensity'):
+        real_task = 'instance'
+    
+    # Define extra variables useful for evaluating aurc and saving files later
     ood = (args.data_mod == 'ood')
+    return_one_only = True if args.data_mod != 'id_ood' else False
     
     # define parameters along which to loop
     noise_levels = [noise.strip() for noise in args.image_noise.split(',')]
-    if len(noise_levels)>1:
-        warnings.warn(
-            "Select only one noise level for this downstream task. "
-        "Proceeding with the automatic selection based on the argument 'data_mod'..."
-        )
-        noise_levels = noise_levels[-1] if ood is True else noise_levels[0]
+    # if len(noise_levels)>1: # We will now treat the case of aurc for evaluation on both id and ood data
+    #     warnings.warn(
+    #         "Select only one noise level for this downstream task. "
+    #     "Proceeding with the automatic selection based on the argument 'data_mod'..."
+    #     )
+    #     noise_levels = noise_levels[-1] if ood is True else noise_levels[0]
         
     uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
     
@@ -199,6 +211,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         'split_path' : None,
         'split' : None,
         'model_checkpoint' : args.model_checkpoint, 
+        'real_task' : real_task,
     }
 
     concatenated_data = load_dataset_abstract_class(
@@ -208,7 +221,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         extra_info=extra_info,
         dataset_name=args.dataset_name,
         task=args.task,
-        return_one_only=True,
+        return_one_only=return_one_only,
         uq_methods=uq_methods,
         ood=ood,
     )
@@ -229,7 +242,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     
     for combo_key in combo_keys:
         # Convert concatenated data to cached maps format
-        cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key, args)
+        cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key, args, real_task)
         task = args.task
         print(f"Evaluating {task} task")
         
@@ -239,8 +252,9 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
             preds = cached_maps[uq_method]['masks']
             uq_maps = cached_maps[uq_method]['maps']
             sample_names = cached_maps[uq_method]['sample_names']
+            gt_labels = cached_maps[uq_method]['gt_labels']
                         
-            if dataset_name.startswith('arctique'):
+            if dataset_name.startswith('arctique') and return_one_only is True:
                 # Overleay colours 
                 label_colors_sem = {
                     0: [0, 0, 0],             # Background - black or transparent
@@ -314,17 +328,19 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
                 masks,
                 preds,
                 sample_names, 
+                gt_labels,
                 paths,
                 task,
                 model_noise,
                 uq_method,
                 decomp,
-                variation,
+                args.variation,
                 noise_levels,
                 strategies,
                 num_workers,
                 dataset_name,
-                ood
+                ood,
+                return_one_only,
             )
             
             # Store results

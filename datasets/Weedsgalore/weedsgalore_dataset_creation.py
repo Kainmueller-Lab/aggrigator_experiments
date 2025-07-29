@@ -322,6 +322,7 @@ def main():
                         pin_memory=True
                         )
     data = next(iter(loader))
+    print(data_loader.__len__())
     print(data['image'].shape,
           data['mask'].shape, 
           data['uq_map'].shape, 

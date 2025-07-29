@@ -639,7 +639,7 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
             def revert_index(idx):
                 s_idx = str(idx)
                 # Revert only if it's a multi-digit string ending in '1'
-                if len(s_idx) > 1 and s_idx.endswith('1'):
+                if len(s_idx) > 3 and s_idx.endswith('1'):
                     # Check if the base part is a number to be safe
                     if s_idx[:-1].isdigit():
                         return int(s_idx[:-1])

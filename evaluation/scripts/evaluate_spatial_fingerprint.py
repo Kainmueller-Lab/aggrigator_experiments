@@ -10,6 +10,7 @@ from joblib import Parallel, delayed
 
 from aggrigator.uncertainty_maps import UncertaintyMap
 from aggrigator.spatial_decomposition import spatial_decomposition # NOTE: This is only available on the develop branch of the aggrigator repo. Use "pip install -e ." to install the package.
+# from spatial_decomposition import UncertaintyMap, spatial_decomposition
 
 
 
@@ -214,16 +215,17 @@ if __name__ == "__main__":
 
 
     if DATASET == "weedsgalore":
-        for uq_method in ['dropout', 'softmax']:
-            image_path = "/fast/AG_Kainmueller/data/weedsgalore/weedsgalore-dataset/"
-            uq_path =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/rgb_train/"
+        noise_levels = ['0_00', '1_00']
+        for nl in noise_levels: #uq_method in ['dropout', 'softmax']:
+            image_path = "/fast/AG_Kainmueller/data/weedsgalore/"
+            uq_path =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/"
 
             extra_info = {
                     'task' : 'crops_vs_weed',
-                    'variation' : None,
+                    'variation' : 'maize',
                     'model_noise' : 0,
-                    'data_noise': '0_00',
-                    'uq_method' : uq_method,
+                    'data_noise': nl, #'0_00',
+                    'uq_method' : args.uq_method,
                     'decomp' : 'pu',
                     'spatial' : False,
                     'metadata' : True,
@@ -236,9 +238,9 @@ if __name__ == "__main__":
                                         uq_path, 
                                         uq_path, 
                                         'abc',
-                                        load_images=True,
+                                        load_images=False,
                                         **extra_info)
-            dataset_name = f"weedsgalore_{uq_method}_pu"
+            dataset_name = f"weedsgalore_{extra_info['task']}_{extra_info['variation']}_{extra_info['data_noise']}_{extra_info['uq_method']}_{extra_info['decomp']}"
             evaluate_spatial_fingerprint(dataset, args.sample_size, args.num_workers, dataset_name)
 
 

@@ -24,11 +24,13 @@ from fd_shifts.analysis.metrics import StatsCache
 def _load_and_align_gmm_scores(
     sample_names: List[str],
     gt_list_processed: List[np.ndarray], # Using processed GT to ensure length matches
+    gt_labels: Optional[np.ndarray],
     dataset_name: str,
     task: str,
     variation: str,
     decomp: str,
-    ood: bool 
+    ood: bool,
+    return_one_only: bool,
 ) -> Optional[np.ndarray]:
     """
     Loads, aligns, and returns the pre-computed GMM scores.
@@ -37,6 +39,7 @@ def _load_and_align_gmm_scores(
         sample_names: The list of sample names for the current batch.
         gt_list_processed: The list of ground truth masks after filtering, for alignment.
         dataset_name, task, variation, decomp: Parameters to construct the GMM scores filename.
+        ood, return_one_only: Boolean to perform evaluation on id or ood or both simultaneously
 
     Returns:
         A NumPy array of GMM scores perfectly aligned with the input lists, or None if it fails.
@@ -46,59 +49,69 @@ def _load_and_align_gmm_scores(
     scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
     
     if not os.path.exists(scores_filepath):
-        print("Warning: GMM scores file not found, skipping GMM AURC calculation.")
+        print(f"Warning: GMM scores file not found at {scores_filepath}, skipping GMM AURC calculation.")
         return None
 
     print("----Loading and aligning GMM scores for AURC----")
     
-    # Load and prepare GMM scores
     gmm_scores_df = pd.read_csv(scores_filepath)
-    
-    # --- Filter the DataFrame based on the ood status BEFORE merging ---
-    target_ood_label = 1 if ood else 0
-    print(f"Filtering GMM scores for {'OoD' if ood else 'ID'} samples (is_ood == {target_ood_label}).")
-    gmm_scores_df = gmm_scores_df[gmm_scores_df['is_ood'] == target_ood_label].copy()
-    
-    if gmm_scores_df.empty:
-        print(f"Warning: No GMM scores found in the file for is_ood == {target_ood_label}. Skipping GMM.")
-        return None
-        
     gmm_scores_df.rename(columns={'Unnamed: 0': 'uq_map_name', 'ood_score_normalized_all': 'gmm_score'}, inplace=True)
     gmm_scores_df['uq_map_name'] = gmm_scores_df['uq_map_name'].astype(str)
-    gmm_scores_to_merge = gmm_scores_df[['uq_map_name', 'gmm_score']]
-    
-    # Check if the list contains tensors before trying to call .item()
+
     if sample_names and isinstance(sample_names[0], torch.Tensor):
-        print("Detected sample_names as Tensors. Converting to strings.")
         processed_sample_names = [str(name.item()) for name in sample_names]
     else:
-        # If they are not tensors, just ensure they are strings
         processed_sample_names = [str(name) for name in sample_names]
 
-    # Create alignment dataframe from the current batch data
     alignment_df = pd.DataFrame({'uq_map_name': processed_sample_names})
-
-    # Perform a left merge to align GMM scores with the current batch order
-    final_scores = pd.merge(
-        alignment_df,
-        gmm_scores_to_merge,
-        on='uq_map_name',
-        how='left'
-    )
     
-    # Check if the number of rows matches the number of samples
+    if return_one_only:
+        # --- PATH 1: Load only ID or only OoD scores ---
+        target_ood_label = 1 if ood else 0
+        print(f"Mode: Single Modality. Filtering GMM scores for is_ood == {target_ood_label}.")
+        
+        # Filter the source DataFrame before merging
+        gmm_scores_to_merge = gmm_scores_df[gmm_scores_df['is_ood'] == target_ood_label].copy()
+        
+        # Merge only on the sample name
+        final_scores = pd.merge(
+            alignment_df,
+            gmm_scores_to_merge[['uq_map_name', 'gmm_score']],
+            on='uq_map_name',
+            how='left'
+        )
+    else:
+        # --- PATH 2: Load both ID and OoD, requiring a composite key ---
+        print("Mode: Mixed Modality. Aligning on name and OoD status.")
+        if gt_labels is None:
+            raise ValueError("gt_labels must be provided when return_one_only is False.")
+        
+        # Add the OoD status from the current batch to our alignment frame
+        alignment_df['is_ood'] = gt_labels
+        
+        # Use the FULL GMM dataframe and merge on the composite key
+        final_scores = pd.merge(
+            alignment_df,
+            gmm_scores_df[['uq_map_name', 'is_ood', 'gmm_score']],
+            on=['uq_map_name', 'is_ood'], # This is the composite key
+            how='left'
+        )
+
+    # Now, check the result of the merge
     if len(final_scores) != len(gt_list_processed):
-         print(f"Warning: Mismatch in sample count after merging GMM scores. Expected {len(gt_list_processed)}, got {len(final_scores)}. GMM scores will be skipped.")
+         print(f"CRITICAL WARNING: Length mismatch after merge. Expected {len(gt_list_processed)}, got {len(final_scores)}. GMM scores will be skipped.")
          return None
          
-    # Handle any samples that were in the batch but not in the GMM file
-    final_scores.dropna(subset=['gmm_score'], inplace=True)
+    # Handle any samples that were in the batch but truly not in the GMM file
+    # This should be a small number, if any.
+    if final_scores['gmm_score'].isnull().any():
+        nan_count = final_scores['gmm_score'].isnull().sum()
+        print(f"Warning: {nan_count} samples could not be matched to a GMM score and will be treated as NaN.")
+        # We return the full-length array with NaNs and let the calling function handle it. This preserves the array length.
     
-    if 'gmm_score' not in final_scores.columns or final_scores.empty:
-        print("Warning: GMM scores could not be aligned or are empty.")
-        return None
-        
-    print(f"Successfully aligned {len(final_scores)} GMM scores.")
+    print(f"Successfully prepared {len(final_scores)} GMM scores for alignment.")
+    
+    # Return the full-length numpy array, which may contain NaNs
     return final_scores['gmm_score'].to_numpy()
 
 def process_strategy(
@@ -169,6 +182,7 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
         gt_list: List[np.ndarray], 
         pred_list: List[np.ndarray],
         sample_names: List[str],
+        gt_labels: np.ndarray, 
         paths: Path,  
         task: str, 
         model_noise: int, 
@@ -180,6 +194,7 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
         num_workers: int = 4,
         dataset_name: str = 'arctique',
         ood: bool = False,
+        return_one_only: bool = True,
     ) -> None:
     """
     Calculate selective risk-coverage curves for different aggregation strategies.
@@ -198,7 +213,8 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
         strategies: aggregation strategies dictionary
         num_workers: no. of workers for parallel processing 
         dataset_name: selected dataset
-        ood: boolean for data_mod
+        ood: boolean for data_mod to perform evaluaiton on id or ood
+        return_one_only: boolean to perform evaluation on id or ood only
     """
     
     idx_task = 1 if task == 'semantic' else 2 
@@ -217,11 +233,20 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     sample_names = [name for i, name in enumerate(sample_names) if i not in ind_to_rem]
     uq_maps = [map for i, map in enumerate(uq_maps) if i not in ind_to_rem]
     
+    gt_labels = gt_labels if ind_to_rem is None else np.delete(gt_labels, ind_to_rem) # Filter gt_labels too!
     gt_list_shared = _process_gt_masks(gt_list, idx_task, dataset_name)
 
     # --- Load and align GMM scores before the main loop ---
     aligned_gmm_scores = _load_and_align_gmm_scores(
-        sample_names, gt_list_shared, dataset_name, task, variation, decomp, ood
+        sample_names, 
+        gt_list_shared, 
+        gt_labels, 
+        dataset_name, 
+        task, 
+        variation,
+        decomp, 
+        ood, 
+        return_one_only
     )
 
     # Initialize arrays for storing results

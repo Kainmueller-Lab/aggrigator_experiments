@@ -261,6 +261,10 @@ def rescale_maps(unc_maps, uq_method, task, dataset_name):
         map1 = unc_maps[...,0] / np.log(6)
         map2 = unc_maps[...,1] / np.log(3)
         return np.stack([map1, map2], axis=-1) 
+    elif task == 'panoptic' and dataset_name.startswith('lizard'):
+        map1 = unc_maps[...,0] / np.log(7)
+        map2 = unc_maps[...,1] / np.log(3)
+        return np.stack([map1, map2], axis=-1) 
     elif task == 'fgbg' and dataset_name.startswith(('lidc', 'wormbodies')):
         return unc_maps/np.log(2) 
     else:
@@ -327,7 +331,7 @@ def preload_uncertainty_maps(
         }
     return cached_maps
 
-def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str, args: argparse.Namespace = None) -> Dict:
+def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str, args: argparse.Namespace = None, real_task = None) -> Dict:
     """
     Convert concatenated_data format to cached_maps format for a specific combo key.
     
@@ -358,7 +362,7 @@ def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str
             
             # Create UncertaintyMap objects
             if uq_maps[0].ndim > 2:
-                if args.variation == 'blood_cells':
+                if args.variation == 'blood_cells' or real_task == 'semantic':
                     uncertainty_maps = []
                     for i in range(len(masks)):
                         uncertainty_map = UncertaintyMap(
@@ -368,7 +372,7 @@ def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str
                         )
                         uncertainty_maps.append(uncertainty_map)
                     args.task = 'semantic'
-                elif args.variation == 'nuclei_intensity':
+                elif args.variation == 'nuclei_intensity' or real_task == 'instance':
                     uncertainty_maps = []
                     for i in range(len(masks)):
                         uncertainty_map = UncertaintyMap(
@@ -746,7 +750,7 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                         # masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
                         # masks = masks[..., idx_task] if masks.ndim > 3 else masks #panoptic masks vs non-panoptic case
                         preds = batch['prediction'].numpy() if isinstance(batch['prediction'], torch.Tensor) else batch['prediction']
-                        if is_list_of_lists(noise_combinations) and preds.ndim > 3:
+                        if is_list_of_lists(noise_combinations) and preds.ndim > 3 and task != 'panoptic':
                             preds = preds[..., idx_task] #panoptic preds vs non-panoptic case
                         else:
                             preds 
@@ -758,7 +762,7 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                     
                     if 'mask' in batch:
                         masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
-                        if is_list_of_lists(noise_combinations) and masks.ndim > 3:
+                        if is_list_of_lists(noise_combinations) and masks.ndim > 3 and task != 'panoptic':
                             masks = masks[..., idx_task] #panoptic preds vs non-panoptic case
                         else:
                             masks 
@@ -945,11 +949,12 @@ def _get_lizard_config(paths: DataPaths) -> dict:
         corrected_split_path = Path("/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
     
         # 2. Define the path for the potential dynamic spatial split file
-        dynamic_split_filename = f"{extra_info['task']}_lizard_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        dynamic_split_filename = f"{extra_info['real_task']}_lizard_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
         dynamic_split_path = Path(os.getcwd()) / "spatial" / "splits" / dynamic_split_filename
         
         # Set the default path to the original file. This will be used if the dynamic file doesn't exist.
         extra_info['split_path'] = str(corrected_split_path)
+        extra_info['split'] = ['test']  
         
         # 3. Check if the dynamic split file exists.
         if dynamic_split_path.exists():
@@ -997,7 +1002,6 @@ def _get_lizard_config(paths: DataPaths) -> dict:
             
             # 7. Update extra_info to use the new intersection file
             extra_info['split_path'] = str(intersection_split_path)
-            extra_info['split'] = ['test']
 
         return {
             'image_path': paths.data,
@@ -1029,7 +1033,7 @@ def _get_arctique_config(paths: DataPaths, task: str) -> dict:
         """Get paths for Arctique dataset - uses reference paths for all noise levels"""
         if extra_info['data_noise'] == "0_00":
             # Construct the path to the potential new split file
-            dynamic_split_filename = f"{extra_info['task']}_arctique_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+            dynamic_split_filename = f"{extra_info['real_task']}_arctique_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
             dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
             
             # Check if the dynamic split file exists
@@ -1194,7 +1198,23 @@ def _get_weeds_config(paths: DataPaths) -> dict:
     """Get configuration for Weedsgalore dataset"""
     
     def get_paths(noise: str, extra_info: dict) -> dict:
-        """Get paths for GTA dataset - uses reference paths for all noise levels"""
+        """Get paths for Weedsgalore dataset - uses reference paths for all noise levels"""
+        if extra_info['data_noise'] == "0_00": 
+            # Construct the path to the new iid split file
+            dynamic_split_filename = f"{extra_info['task']}_weedsgalore_{extra_info['variation']}_{extra_info['decomp']}_test_split.json"
+        else:
+            # Construct the path to the new ood split file
+            dynamic_split_filename = f"{extra_info['task']}_weedsgalore_{extra_info['variation']}_{extra_info['decomp']}_ood_split.json"
+        dynamic_split_path = os.path.join(os.getcwd(), "spatial", "splits", dynamic_split_filename)
+        
+        # Check if the dynamic split file exists
+        use_dynamic_split = os.path.exists(dynamic_split_path)
+        if use_dynamic_split:
+            print(f"Found spatial split file. Using: {dynamic_split_path}")
+        
+        # If it's the '0_00' noise level and the dynamic file exists, override the split path
+        if use_dynamic_split:
+            extra_info['split_path'] = dynamic_split_path
         return {
             'image_path': paths.data,
             'mask_path': paths.data
