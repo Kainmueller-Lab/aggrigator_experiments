@@ -46,6 +46,8 @@ class AnalysisResults(NamedTuple):
     """Container for AURC analysis results."""
     mean_aurc: np.ndarray
     std_aurc: np.ndarray
+    mean_eaurc: np.ndarray
+    std_eaurc: np.ndarray
     coverages: np.ndarray
     mean_selective_risks: np.ndarray
     std_selective_risks: np.ndarray

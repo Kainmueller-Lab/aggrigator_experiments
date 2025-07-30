@@ -4,6 +4,10 @@ ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/outp
 id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_arctique_semantic_blood_cells_dropout_pu_0_00.csv'
 ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_arctique_semantic_blood_cells_dropout_pu_0_75.csv'
 
+[splits]
+id_json_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/splits/semantic_arctique_blood_cells_pu_test_split.json'
+ood_json_path_spatial = ''
+
 [dataset]
 task = 'semantic' #or 'instance'
 dataset_name = 'arctique'

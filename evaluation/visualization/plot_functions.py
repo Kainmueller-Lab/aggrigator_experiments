@@ -757,7 +757,7 @@ def create_selective_risks_coverage_plot(
     _save_aurc_plot(output_path, args, ood, return_one_only)
     
       # Create and save barplot
-    _create_aurc_barplot(method_names, aurc_res, output_path, args, ood, return_one_only, correlation_colors)
+    create_metric_reports(method_names, aurc_res, output_path, args, ood, return_one_only, correlation_colors)
     
 def _get_method_styling(method_name: str, method_index: int, method_categories: List[str], 
                        first_occurrence: Dict[str, bool], correlation_colors: Dict[str, str],
@@ -916,52 +916,94 @@ def _format_aurc_plot(legend_ncol: int = 5) -> None:
     ax.spines['right'].set_visible(False)
     
 
-def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults, 
-                        output_path: Path, args: argparse.Namespace, ood: bool, 
-                        return_one_only: bool, correlation_colors: Dict[str, str]) -> None:
-    """Create and save AURC barplot with methods sorted by AURC values."""
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Patch
-    
-    # Create DataFrame with method names and AURC values
-    df = pd.DataFrame({
-        'Aggregator': method_names,
-        'AURC': aurc_res.mean_aurc,
-        'AURC_std': aurc_res.std_aurc
-    })
-    
-    # Sort by AURC values (lowest to highest)
-    df_sorted = df.sort_values('AURC', ascending=True).reset_index(drop=True)
-    
-    data_mod = 'ood' if ood is True else 'id'
+def create_metric_reports(method_names: List[str], analysis_results: 'AnalysisResults',
+                          output_path: Path, args: argparse.Namespace, ood: bool,
+                          return_one_only: bool, correlation_colors: Dict[str, str]) -> None:
+    """
+    Creates and saves bar plots and CSV files for both AURC and E-AURC metrics.
+
+    This function acts as an orchestrator, calling a generic worker function
+    for each metric that needs to be processed.
+    """
+    # 1. Determine data modality string for file naming
     if ood and return_one_only:
         data_mod = 'ood'
     elif not ood and return_one_only:
         data_mod = 'id'
     else:
         data_mod = 'id_ood'
-    # Save results to CSV
+
+    # 2. Generate the report for AURC
+    print("-" * 20)
+    print("Generating report for AURC...")
+    _generate_single_metric_report(
+        metric_name='AURC',
+        mean_values=analysis_results.mean_aurc,
+        std_values=analysis_results.std_aurc,
+        method_names=method_names,
+        output_path=output_path,
+        args=args,
+        data_mod=data_mod,
+        correlation_colors=correlation_colors
+    )
+
+    # 3. Generate the report for E-AURC
+    print("-" * 20)
+    print("Generating report for E-AURC...")
+    _generate_single_metric_report(
+        metric_name='EAURC',
+        mean_values=analysis_results.mean_eaurc,
+        std_values=analysis_results.std_eaurc,
+        method_names=method_names,
+        output_path=output_path,
+        args=args,
+        data_mod=data_mod,
+        correlation_colors=correlation_colors
+    )
+    print("-" * 20)
+    
+def _generate_single_metric_report(metric_name: str, mean_values: List[float], std_values: List[float],
+                                   method_names: List[str], output_path: Path, args: argparse.Namespace,
+                                   data_mod: str, correlation_colors: Dict[str, str]) -> None:
+    """
+    Generates and saves a bar plot and CSV file for a single metric.
+    """
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+    
+    metric_name_lower = metric_name.lower()
+    
+    # 1. Create and sort the DataFrame
+    df = pd.DataFrame({
+        'Aggregator': method_names,
+        metric_name: mean_values,
+        f'{metric_name}_std': std_values
+    })
+    df_sorted = df.sort_values(metric_name, ascending=True).reset_index(drop=True)
+
+    # 2. Save results to a CSV file
     csv_name = f'{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}'
-    if args.spatial: 
+    if args.spatial:
         csv_name += f'_{args.spatial}'
-    csv_file = output_path.joinpath(f'tables/aurc_{data_mod}/{csv_name}_aurc_{data_mod}_results.csv')
     
-    # Check if the file exists to handle headers properly
-    file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
+    csv_dir = output_path.joinpath(f'tables/{metric_name_lower}_{data_mod}')
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    csv_file = csv_dir.joinpath(f'{csv_name}_{metric_name_lower}_{data_mod}_results.csv')
+
+    # Append to CSV, writing header only if the file is new or empty
+    header = not csv_file.exists() or csv_file.stat().st_size == 0
+    df_sorted.to_csv(csv_file, mode='a' if not header else 'w', index=False, header=header)
+    print(f"Data for {metric_name} appended to {csv_file}")
     
-    # Append to CSV (write header only if the file is empty)
-    df.to_csv(csv_file, mode='a', index=False, header=file_empty)
-    print(f"Data appended to {csv_file}")
-    
-    # Create new figure for barplot
+    # 3. Create new figure for barplot
     plt.figure(figsize=(6, 5))
     plt.rcParams['axes.grid'] = False
     ax = plt.gca()
     
     # Add title
     plt.suptitle(
-        f'iD failures measured by the AURC w.r.t. model confidence correctness.\n'
+        f'iD-OoD failures measured by the AURC w.r.t. model confidence correctness.\n'
         f'Task: {args.task}, Variation: {args.variation}',
         fontsize=16
     )
@@ -1017,8 +1059,8 @@ def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults,
     # Create bars
     bars = ax.bar(
         df['Aggregator'], #range(len(df_sorted)), 
-        df_sorted['AURC'], 
-        yerr=df['AURC_std'],
+        df_sorted[metric_name],
+        yerr=df_sorted[f'{metric_name}_std'],
         color=colors,
         capsize=4,
         zorder=3,
@@ -1032,8 +1074,8 @@ def _create_aurc_barplot(method_names: List[str], aurc_res: AnalysisResults,
     _add_aurc_legend(ax, strategies_dict, method_to_category, df_sorted, 
                      correlation_colors, barplot_colors, legend_ncol=3)
     
-    # Save barplot
-    _save_aurc_barplot(output_path, args, data_mod)
+    # 6. Save the final plot
+    _save_metric_barplot(output_path, args, data_mod, metric_name)
 
 def _get_method_color(method_name: str, category: str, correlation_colors: Dict[str, str], 
                      barplot_colors: Dict[str, str]) -> str:
@@ -1140,19 +1182,18 @@ def _save_aurc_plot(output_path: Path, args: argparse.Namespace, ood: bool, retu
     print(f"Plot saved to: {output_file}")
     logger.info(f"Plot saved to: {output_file}")
     plt.close()  # Close figure to free memory
+    
+def _save_metric_barplot(output_path: Path, args: argparse.Namespace, data_mod: str, metric_name: str) -> None:
+    """Saves the metric bar plot to the correct directory."""
+    metric_name_lower = metric_name.lower()
+    figure_dir = output_path.joinpath(f'figures/{metric_name_lower}_{data_mod}')
+    figure_dir.mkdir(parents=True, exist_ok=True)
 
-def _save_aurc_barplot(output_path: Path, args: argparse.Namespace, data_mod: str) -> None:
-    """Save the AURC barplot to file."""
-    output_file = output_path.joinpath(
-        f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}_barplot.png'
-    )
+    filename = f'{data_mod}_{metric_name_lower}_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}_barplot.png'
+    output_file = figure_dir.joinpath(filename)
     
-    # Ensure directory exists
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Adjust layout to prevent label cutoff
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"AURC Barplot saved to: {output_file}")
-    logger.info(f"AURC Barplot saved to: {output_file}")
-    plt.close()  # Close figure to free memory
+    print(f"{metric_name} Barplot saved to: {output_file}")
+    plt.close() # Close the figure to free up memory
 

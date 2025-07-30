@@ -282,6 +282,7 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     # Process strategies in parallel
     aurc_res = {
         'aurc': np.zeros((len(strategy_list))),
+        'eaurc': np.zeros((len(strategy_list))),
         'coverages': np.zeros((len(pred_list) + 1)),
         'selective_risks': np.zeros((len(pred_list) + 1, len(strategy_list)))
         }
@@ -316,6 +317,7 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
             
             evaluator = StatsCache(-aggr_unc_val[:, idx], aggr_acc[:, idx], 10)
             aurc_res['aurc'][idx] = evaluator.aurc/AURC_DISPLAY_SCALE
+            aurc_res['eaurc'][idx] = evaluator.eaurc/AURC_DISPLAY_SCALE
             selective_risks = _pad_selective_risks(evaluator.selective_risks, pred_list) #TODO - check why for threshold aggregations for softmax we get less selective risks values 
             aurc_res['selective_risks'][:, idx] = selective_risks
     aurc_res['coverages'] = evaluator.coverages

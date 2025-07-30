@@ -35,6 +35,7 @@ def variation_name():
 
 def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
+    # Check sleective risk-classification file's existence 
     csv_file = output_path.joinpath(
         f'tables/aurc_{args.data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_id.csv'
     )
@@ -53,7 +54,8 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         task = 'instance'
     else:
         task = args.task
-    # Save results to CSV
+        
+    # Check aurc barplots file's existence
     aurc_csv_name = f'{task}_{args.dataset_name}_{args.variation}_{args.decomp}'
     if args.spatial: 
         aurc_csv_name += f'_{args.spatial}'
@@ -64,6 +66,18 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"Cleared content of {aurc_csv_file}")
     else:
         print(f"{aurc_csv_file} does not exist yet.")
+    
+    # Check aurc barplots file's existence
+    eaurc_csv_name = f'{task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    if args.spatial: 
+        eaurc_csv_name += f'_{args.spatial}'
+    eaurc_csv_file = output_path.joinpath(f'tables/eaurc_{args.data_mod}/{aurc_csv_name}_eaurc_{args.data_mod}_results.csv')
+    
+    if eaurc_csv_file.exists():
+        eaurc_csv_file.open('w').close()  # Open in write mode to clear contents
+        print(f"Cleared content of {eaurc_csv_file}")
+    else:
+        print(f"{eaurc_csv_file} does not exist yet.")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Create accuracy-rejection curves for aggregators')
@@ -229,6 +243,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     # Store results for all methods
     all_results = {
         "aurc": [],
+        "eaurc": [],
         "coverages": None,
         "selective_risks": []
     }
@@ -347,10 +362,13 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
             all_results["coverages"] = results["coverages"]
             all_results["selective_risks"].append(results["selective_risks"])
             all_results["aurc"].append(results["aurc"])
+            all_results["eaurc"].append(results["eaurc"])
 
         # Calculate mean and std across all UQ methods
         mean_aurc = np.mean(np.array(all_results["aurc"]), axis=0)
         std_aurc = np.std(np.array(all_results["aurc"]), axis=0)
+        mean_eaurc =  np.mean(np.array(all_results["eaurc"]), axis=0)
+        std_eaurc = np.std(np.array(all_results["eaurc"]), axis=0)
         mean_selective_risks = np.mean(np.array(all_results["selective_risks"]), axis=0)
         std_selective_risks = np.std(np.array(all_results["selective_risks"]), axis=0)
         
@@ -358,6 +376,8 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         final_results = AnalysisResults(
             mean_aurc=mean_aurc,
             std_aurc=std_aurc,
+            mean_eaurc=mean_eaurc,
+            std_eaurc=std_eaurc,
             coverages=all_results["coverages"],
             mean_selective_risks=mean_selective_risks,
             std_selective_risks=std_selective_risks

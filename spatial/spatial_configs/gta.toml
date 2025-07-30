@@ -4,6 +4,10 @@ ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/outp
 id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_gta_semantic_cityscapes_dropout_pu_0_00.csv'
 ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_gta_semantic_cityscapes_dropout_pu_1_00.csv'
 
+[splits]
+id_json_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/splits/semantic_gta_cityscapes_pu_test_split.json'
+ood_json_path_spatial = ''
+
 [dataset]
 task = 'semantic'
 dataset_name = 'gta'

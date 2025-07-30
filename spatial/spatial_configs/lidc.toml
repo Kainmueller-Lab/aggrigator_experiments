@@ -4,6 +4,10 @@ ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/outp
 id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_lidc_fgbg_malignancy_dropout_pu_0_00.csv'
 ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_lidc_fgbg_malignancy_dropout_pu_1_00.csv'
 
+[splits]
+id_json_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/splits/fgbg_lidc_malignancy_pu_test_split.json'
+ood_json_path_spatial = ''
+
 [dataset]
 task = 'fgbg'
 dataset_name = 'lidc'
