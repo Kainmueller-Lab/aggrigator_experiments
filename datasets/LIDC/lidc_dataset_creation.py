@@ -453,7 +453,7 @@ class OptimizedLIDCDataset(LIDCDataset):
     """Memory-efficient version that can skip loading images"""
     
     def __init__(self, image_path, mask_path, uq_map_path, prediction_path, 
-                 semantic_mapping_path, load_images=False, load_preds=True, **kwargs):
+                 semantic_mapping_path, load_images=True, load_preds=True, **kwargs):
         super().__init__(image_path, mask_path, uq_map_path, prediction_path, 
                         semantic_mapping_path, **kwargs)
         self.load_images = load_images

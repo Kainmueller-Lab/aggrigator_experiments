@@ -356,11 +356,12 @@ def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str
             data = combo_data[combo_key]
             
             # Extract data
-            masks = data['mask']  # Shape: (N, H, W) or similar
+            masks = data.get('mask', None)  # Shape: (N, H, W) or similar
             uq_maps = data.get('uq_map', None)  # Shape: (N, H, W) or similar
-            gt_labels = data['gt_label']  # Shape: (N,)
-            real_masks = data['real_mask'] # Shape: (N, H, W) or similar
-            sample_names = data['sample_names']
+            gt_labels = data.get('gt_label', None)  # Shape: (N,)
+            real_masks = data.get('real_mask', None) # Shape: (N, H, W) or similar
+            sample_names = data.get('sample_names', None)
+            images = data.get('input', None)
             
             # Create UncertaintyMap objects
             if uq_maps[0].ndim > 2:
@@ -404,6 +405,7 @@ def create_cached_maps_from_concatenated(concatenated_data: Dict, combo_key: str
                 'real_masks': real_masks,
                 'metadata': None, # Add metadata if available
                 'sample_names': sample_names,
+                'input': images,
             }
     
     return cached_maps
@@ -736,6 +738,7 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
             all_uq_maps = []
             all_gt_labels = []
             all_real_msks = []
+            all_inputs = []
             all_sample_names = [] 
             
             for noise_level in noise_combo:
@@ -747,12 +750,18 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                 
                 # Extract all samples from this loader
                 for batch in loader:
-                    # Extract masks and uq_maps from batch
+                    # Extract masks, uq_maps and other variables from batch
+                    if 'image' in batch:
+                        images = batch['image'].numpy() if isinstance(batch['image'], torch.Tensor) else batch['image']
+                        for i in range(images.shape[0]):
+                            all_inputs.append(images[i])
+                        
                     if 'prediction' in batch: #previously 'mask'
                         # masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
                         # masks = masks[..., idx_task] if masks.ndim > 3 else masks #panoptic masks vs non-panoptic case
                         preds = batch['prediction'].numpy() if isinstance(batch['prediction'], torch.Tensor) else batch['prediction']
-                        if is_list_of_lists(noise_combinations) and preds.ndim > 3 and task != 'panoptic':
+                        # if is_list_of_lists(noise_combinations) and 
+                        if preds.ndim > 3 and task != 'panoptic':
                             preds = preds[..., idx_task] #panoptic preds vs non-panoptic case
                         else:
                             preds 
@@ -764,7 +773,8 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                     
                     if 'mask' in batch:
                         masks = batch['mask'].numpy() if isinstance(batch['mask'], torch.Tensor) else batch['mask']
-                        if is_list_of_lists(noise_combinations) and masks.ndim > 3 and task != 'panoptic':
+                        # if is_list_of_lists(noise_combinations) and
+                        if masks.ndim > 3 and task != 'panoptic':
                             masks = masks[..., idx_task] #panoptic preds vs non-panoptic case
                         else:
                             masks 
@@ -799,6 +809,7 @@ def concatenate_dataset_results(datasets: Dict[str, Dict[str, DataLoader]],
                     'uq_map': all_uq_maps, #np.concatenate(all_uq_maps, axis=0) if all_uq_maps else None,
                     'gt_label': np.concatenate(all_gt_labels, axis=0),
                     'real_mask': all_real_msks,
+                    'input': all_inputs,
                     'sample_names': all_sample_names
                 }
             else:
@@ -846,11 +857,15 @@ def process_concatenated_datasets(datasets, image_noises, task, dataset_name):
             # uq_maps_shape = data['uq_map'].shape if data['uq_map'] is not None else "None"
             masks_shape = f"{len(data['mask'])} x {data['mask'][0].shape}" if data['mask'] else "None"
             uq_maps_shape = f"{len(data['uq_map'])} x {data['uq_map'][0].shape}" if data['uq_map']  else "None"
+            images_shape = f"{len(data['input'])} x {data['input'][0].shape}" if data['input']  else "None"
+            real_masks_shape = f"{len(data['real_mask'])} x {data['real_mask'][0].shape}" if data['real_mask']  else "None"
             gt_labels_shape = data['gt_label'].shape
             
             print(f"  Combination {combo_key}:")
             print(f"    Predictions shape: {masks_shape}") # Masks
             print(f"    UQ maps shape: {uq_maps_shape}")
+            print(f"    Input shape: {images_shape}")
+            print(f"    GT masks shape: {real_masks_shape}")
             print(f"    GT labels shape: {gt_labels_shape}")
             print(f"    GT labels distribution: {np.bincount(data['gt_label'])}")
     return concatenated_data
