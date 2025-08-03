@@ -1,10 +1,12 @@
 
 import shutil
 import anndata
+import os 
 import scanpy as sc  
 import umap.umap_ as umap
 from scipy.stats import norm 
 from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 def plot_pca_2d_visualization(id_data, ood_data, res_dir, base_filename, model_type):
     """

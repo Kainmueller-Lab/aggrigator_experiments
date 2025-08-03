@@ -190,9 +190,9 @@ class wormbodies_dataset(Dataset_Class):
 def main():
     extra_info = {
         'task' : 'fgbg',
-        'variation' : 'protists', #'protists', 'nematodes'
+        'variation' : 'nematodes', #'protists', 'nematodes'
         'model_noise' : 0,
-        'data_noise': '0_00',
+        'data_noise': '1_00',
         'uq_method' : 'dropout',
         'decomp' : 'pu',
         'spatial' : None,
@@ -214,7 +214,7 @@ def main():
                                     'abc',
                                     **extra_info)
     print(data_loader.get_semantic_mapping())
-    print(data_loader.__len__())
+    # print(data_loader.__len__())
     
     loader = DataLoader(data_loader, 
                         batch_size=1, 
@@ -223,7 +223,10 @@ def main():
                         num_workers=4,
                         pin_memory=True
                         )
-    data = next(iter(loader))
+    iterator = iter(loader)
+    batch = next(iterator)
+    batch = next(iterator)
+    data = next(iterator)
     print(data['image'].shape,
           data['mask'].shape, #if task == 'instance', then mask[...,0] is instances and mask[...,1] is 3-class instance
           data['uq_map'].shape, #if task == 'instance', then uq_map[...,0] is 3-class instance

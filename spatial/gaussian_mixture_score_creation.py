@@ -9,7 +9,9 @@ from sklearn.preprocessing import PowerTransformer, QuantileTransformer, Standar
 from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import pairwise_distances
 import json
+import joblib
 
 class BetaCDFGaussianizer:
     """
@@ -224,6 +226,192 @@ def get_or_create_ood_split(ood_full_df: pd.DataFrame, split_dir: str, base_file
         print(f"Saved new OOD split to:\n  - {ood_split_path}")
     return ood_eval_indices
 
+def save_gmm_artifacts(gmm_model, res_dir, base_filename, model_type):
+    """
+    Saves the GMM model object and its parameters (weights, means, covariances).
+    Handles both single models and ensembles (lists of models).
+    """
+    print(f"  -> Saving GMM artifacts for model: {model_type}...")
+    
+    # Create a dedicated directory for the saved models
+    model_save_dir = os.path.join(res_dir, 'gmm_models')
+    os.makedirs(model_save_dir, exist_ok=True)
+
+    # Define base path for the output files
+    file_base_path = os.path.join(model_save_dir, f"{base_filename}_{model_type}")
+
+    # --- Save the full model object(s) using joblib ---
+    joblib_path = f"{file_base_path}_model.joblib"
+    joblib.dump(gmm_model, joblib_path)
+    
+    # --- Extract and save parameters to a .npz file ---
+    npz_path = f"{file_base_path}_params.npz"
+    if isinstance(gmm_model, list): # Handle ensemble
+        # Save parameters for each model in the ensemble
+        weights = np.array([gmm.weights_ for gmm in gmm_model], dtype=object)
+        means = np.array([gmm.means_ for gmm in gmm_model], dtype=object)
+        covariances = np.array([gmm.covariances_ for gmm in gmm_model], dtype=object)
+        np.savez(npz_path, weights=weights, means=means, covariances=covariances)
+    else: # Handle single model
+        np.savez(npz_path, weights=gmm_model.weights_, means=gmm_model.means_, covariances=gmm_model.covariances_)
+
+    print(f"     Saved model object to: {joblib_path}")
+    print(f"     Saved parameters to:   {npz_path}")
+    
+def save_gmm_geometry_info(gmm_model, train_df, res_dir, base_filename, model_type):
+    """
+    Calculates and saves key geometric properties of the GMM components, including
+    volume, location, and separation.
+    
+    This saves two files:
+    1. A CSV with per-component stats (determinant, distance to global mean, etc.).
+    2. A CSV with the pairwise distance matrix between all component means.
+    """
+    print(f"  -> Analyzing GMM component geometry for model: {model_type}...")
+    
+    analysis_dir = os.path.join(res_dir, 'gmm_analysis')
+    os.makedirs(analysis_dir, exist_ok=True)
+    
+    # --- File Paths ---
+    stats_csv_path = os.path.join(analysis_dir, f"{base_filename}_{model_type}_geometry_stats.csv")
+    dist_matrix_csv_path = os.path.join(analysis_dir, f"{base_filename}_{model_type}_mean_distances.csv")
+
+    # --- 1. Calculate Global Mean (Center of Mass) of the Training Data ---
+    global_mean = train_df.mean().to_numpy()
+
+    results = []
+
+    if isinstance(gmm_model, list): # Handle an ensemble of models
+        # Calculate ensemble-averaged statistics
+        n_components = gmm_model[0].n_components
+        
+        # Average the means across the ensemble to get representative locations
+        ensemble_means = np.mean([gmm.means_ for gmm in gmm_model], axis=0)
+
+        for i in range(n_components):
+            # Volume/Determinant stats
+            dets = np.array([np.linalg.det(gmm.covariances_[i]) for gmm in gmm_model])
+            safe_dets = np.maximum(0, dets)
+            relative_volumes = np.sqrt(safe_dets)
+
+            # Location stats
+            dist_to_global = np.linalg.norm(ensemble_means[i] - global_mean)
+
+            results.append({
+                'component_index': i,
+                'mean_determinant': np.mean(dets),
+                'mean_relative_volume': np.mean(relative_volumes),
+                'distance_to_global_mean': dist_to_global,
+                'mean_vector_str': np.array2string(ensemble_means[i], separator=','),
+                'n_features': gmm_model[0].means_.shape[1]
+            })
+        
+        # Use the ensemble-averaged means for pairwise distance calculation
+        means_for_distance_matrix = ensemble_means
+
+    else: # Handle a single model
+        n_features = gmm_model.means_.shape[1]
+        for i in range(gmm_model.n_components):
+            cov_matrix = gmm_model.covariances_[i]
+            determinant = np.linalg.det(cov_matrix)
+            relative_volume = np.sqrt(np.maximum(0, determinant))
+            
+            # Location stats
+            component_mean = gmm_model.means_[i]
+            dist_to_global = np.linalg.norm(component_mean - global_mean)
+            
+            results.append({
+                'component_index': i,
+                'determinant': determinant,
+                'relative_volume': relative_volume,
+                'distance_to_global_mean': dist_to_global,
+                'mean_vector_str': np.array2string(component_mean, separator=','),
+                'n_features': n_features
+            })
+            
+        # Use the model's means for pairwise distance calculation
+        means_for_distance_matrix = gmm_model.means_
+
+    # --- 2. Save the Per-Component Geometry Stats CSV ---
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(stats_csv_path, index=False)
+    print(f"     Saved component geometry stats to: {stats_csv_path}")
+
+    # --- 3. Calculate and Save the Pairwise Distance Matrix CSV ---
+    distance_matrix = pairwise_distances(means_for_distance_matrix)
+    dist_df = pd.DataFrame(
+        distance_matrix,
+        index=[f'component_{i}' for i in range(len(means_for_distance_matrix))],
+        columns=[f'component_{i}' for i in range(len(means_for_distance_matrix))]
+    )
+    dist_df.to_csv(dist_matrix_csv_path)
+    print(f"     Saved pairwise mean distance matrix to: {dist_matrix_csv_path}")
+
+def save_gmm_eigenvalue_info(gmm_model, res_dir, base_filename, model_type):
+    """
+    Calculates the eigenvalues for each GMM component's covariance matrix
+    and saves the analysis to a CSV file.
+    """
+    print(f"  -> Analyzing GMM component eigenvalues for model: {model_type}...")
+    
+    analysis_dir = os.path.join(res_dir, 'gmm_analysis')
+    os.makedirs(analysis_dir, exist_ok=True)
+    csv_path = os.path.join(analysis_dir, f"{base_filename}_{model_type}_eigenvalue_analysis.csv")
+
+    results = []
+
+    if isinstance(gmm_model, list): # Handle an ensemble of models
+        n_components = gmm_model[0].n_components
+        n_features = gmm_model[0].means_.shape[1]
+        
+        # Store all eigenvalues for statistical analysis
+        # Structure: {component_idx: {eigenvalue_idx: [values from all models]}}
+        eigenvalue_collection = {
+            i: {j: [] for j in range(n_features)} for i in range(n_components)
+        }
+
+        for gmm in gmm_model:
+            for i in range(gmm.n_components):
+                cov_matrix = gmm.covariances_[i]
+                # Use eigh for symmetric matrices; it's faster and more stable
+                eigenvalues = np.linalg.eigh(cov_matrix)[0]
+                # Sort eigenvalues descending to have a consistent order
+                sorted_eigenvalues = np.sort(eigenvalues)[::-1]
+                for j in range(n_features):
+                    eigenvalue_collection[i][j].append(sorted_eigenvalues[j])
+
+        # Calculate stats and format for CSV
+        for i in range(n_components):
+            for j in range(n_features):
+                eig_vals = np.array(eigenvalue_collection[i][j])
+                results.append({
+                    'component_index': i,
+                    'eigenvalue_index': j, # 0 is the largest, 1 is the second largest, etc.
+                    'mean_eigenvalue': np.mean(eig_vals),
+                    'std_dev_eigenvalue': np.std(eig_vals),
+                    'n_features': n_features
+                })
+
+    else: # Handle a single model
+        n_features = gmm_model.means_.shape[1]
+        for i in range(gmm_model.n_components):
+            cov_matrix = gmm_model.covariances_[i]
+            eigenvalues = np.linalg.eigh(cov_matrix)[0]
+            # Sort eigenvalues descending for consistency
+            sorted_eigenvalues = np.sort(eigenvalues)[::-1]
+            for j in range(n_features):
+                results.append({
+                    'component_index': i,
+                    'eigenvalue_index': j,
+                    'eigenvalue': sorted_eigenvalues[j],
+                    'n_features': n_features
+                })
+
+    # Create and save the DataFrame
+    results_df = pd.DataFrame(results)
+    results_df.to_csv(csv_path, index=False)
+    print(f"     Saved component eigenvalue analysis to: {csv_path}")
+
 def find_best_gmm(fingerprints: pd.DataFrame, max_components: int = 11, model_type: str = ""):
     """Tests different numbers of GMM components and finds the best one using BIC."""
     data = fingerprints.to_numpy()
@@ -326,7 +514,7 @@ def run_gmm_ensemble_ood_detection(train_df: pd.DataFrame, test_df: pd.DataFrame
     if ood_df is not None:
         results_df.loc[ood_df.index, 'is_ood'] = 1
             
-    return results_df
+    return results_df, gmm_ensemble
 
 def calculate_and_plot_roc(y_true, y_score, res_dir, base_filename, model_type):
     """
@@ -424,86 +612,86 @@ def preprocess_features(train_df, test_df, ood_df, model_type="features", res_di
 
     return train_processed, test_processed, ood_processed 
 
-def run_preprocessing_comparison(feature_type, id_train_df, id_test_df, ood_df, p2_n_ratio_threshold):
-    """Compares different preprocessing methods for a given feature set."""
-    print(f"\n--- [Comparison] Testing on: {feature_type.upper()} FEATURES ---")
-    results = {}
-    methods = ['beta', 'quantile', 'standardize', 'identity']
-    epsilon = 1e-10
+# def run_preprocessing_comparison(feature_type, id_train_df, id_test_df, ood_df, p2_n_ratio_threshold):
+#     """Compares different preprocessing methods for a given feature set."""
+#     print(f"\n--- [Comparison] Testing on: {feature_type.upper()} FEATURES ---")
+#     results = {}
+#     methods = ['beta', 'quantile', 'standardize', 'identity']
+#     epsilon = 1e-10
     
-    for method in methods:
-        print(f"  - Method: {method.upper()}")
+#     for method in methods:
+#         print(f"  - Method: {method.upper()}")
         
-        # --- PREPROCESSING LOGIC ---
-        if method == 'beta':
-            transformer = BetaCDFGaussianizer()
-            train_proc = transformer.fit(id_train_df).transform(id_train_df)
-            test_proc = transformer.transform(id_test_df)
-            ood_proc = transformer.transform(ood_df) if ood_df is not None else None
-        else: # For Quantile, Standardize, and Identity, apply the squeeze first
-            id_train_squeezed = (1 - 2 * epsilon) * (id_train_df - 0.5) + 0.5
-            id_test_squeezed = (1 - 2 * epsilon) * (id_test_df - 0.5) + 0.5
-            ood_squeezed = (1 - 2 * epsilon) * (ood_df - 0.5) + 0.5 if ood_df is not None else None
+#         # --- PREPROCESSING LOGIC ---
+#         if method == 'beta':
+#             transformer = BetaCDFGaussianizer()
+#             train_proc = transformer.fit(id_train_df).transform(id_train_df)
+#             test_proc = transformer.transform(id_test_df)
+#             ood_proc = transformer.transform(ood_df) if ood_df is not None else None
+#         else: # For Quantile, Standardize, and Identity, apply the squeeze first
+#             id_train_squeezed = (1 - 2 * epsilon) * (id_train_df - 0.5) + 0.5
+#             id_test_squeezed = (1 - 2 * epsilon) * (id_test_df - 0.5) + 0.5
+#             ood_squeezed = (1 - 2 * epsilon) * (ood_df - 0.5) + 0.5 if ood_df is not None else None
 
-            if method == 'quantile':
-                transformer = QuantileTransformer(output_distribution='normal', random_state=42)
-                # FIX: Use the squeezed data
-                train_proc = pd.DataFrame(transformer.fit_transform(id_train_squeezed), index=id_train_df.index, columns=id_train_df.columns)
-                test_proc = pd.DataFrame(transformer.transform(id_test_squeezed), index=id_test_df.index, columns=id_test_df.columns)
-                ood_proc = pd.DataFrame(transformer.transform(ood_squeezed), index=ood_df.index, columns=ood_df.columns) if ood_squeezed is not None else None        
-            elif method == 'standardize':
-                transformer = StandardScaler()
-                # FIX: Use the squeezed data
-                train_proc = pd.DataFrame(transformer.fit_transform(id_train_squeezed), index=id_train_df.index, columns=id_train_df.columns)
-                test_proc = pd.DataFrame(transformer.transform(id_test_squeezed), index=id_test_df.index, columns=id_test_df.columns)
-                ood_proc = pd.DataFrame(transformer.transform(ood_squeezed), index=ood_df.index, columns=ood_df.columns) if ood_squeezed is not None else None  
-            elif method == 'identity':
-                # NEW: Handle the identity case. The "processed" data is just the squeezed data.
-                train_proc = id_train_squeezed
-                test_proc = id_test_squeezed
-                ood_proc = ood_squeezed
+#             if method == 'quantile':
+#                 transformer = QuantileTransformer(output_distribution='normal', random_state=42)
+#                 # FIX: Use the squeezed data
+#                 train_proc = pd.DataFrame(transformer.fit_transform(id_train_squeezed), index=id_train_df.index, columns=id_train_df.columns)
+#                 test_proc = pd.DataFrame(transformer.transform(id_test_squeezed), index=id_test_df.index, columns=id_test_df.columns)
+#                 ood_proc = pd.DataFrame(transformer.transform(ood_squeezed), index=ood_df.index, columns=ood_df.columns) if ood_squeezed is not None else None        
+#             elif method == 'standardize':
+#                 transformer = StandardScaler()
+#                 # FIX: Use the squeezed data
+#                 train_proc = pd.DataFrame(transformer.fit_transform(id_train_squeezed), index=id_train_df.index, columns=id_train_df.columns)
+#                 test_proc = pd.DataFrame(transformer.transform(id_test_squeezed), index=id_test_df.index, columns=id_test_df.columns)
+#                 ood_proc = pd.DataFrame(transformer.transform(ood_squeezed), index=ood_df.index, columns=ood_df.columns) if ood_squeezed is not None else None  
+#             elif method == 'identity':
+#                 # NEW: Handle the identity case. The "processed" data is just the squeezed data.
+#                 train_proc = id_train_squeezed
+#                 test_proc = id_test_squeezed
+#                 ood_proc = ood_squeezed
             
-        p_proc, n = train_proc.shape[1], len(train_proc)
-        if (p_proc**2 / n) > p2_n_ratio_threshold:
-            run_results = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
-        else:
-            n_components = find_best_gmm(train_proc, model_type=f"comparison_{feature_type}_{method}")
-            gmm = build_id_gmm_model(train_proc, n_components)
-            id_test_scores = calculate_nll_scores(test_proc, gmm[0], train_proc)
-            ood_scores = calculate_nll_scores(ood_proc, gmm[0], train_proc) if ood_proc is not None else pd.DataFrame()
-            run_results = pd.concat([id_test_scores, ood_scores])
-        if ood_df is not None:
-            run_results['is_ood'] = 0
-            run_results.loc[ood_proc.index, 'is_ood'] = 1
+#         p_proc, n = train_proc.shape[1], len(train_proc)
+#         if (p_proc**2 / n) > p2_n_ratio_threshold:
+#             run_results = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
+#         else:
+#             n_components = find_best_gmm(train_proc, model_type=f"comparison_{feature_type}_{method}")
+#             gmm = build_id_gmm_model(train_proc, n_components)
+#             id_test_scores = calculate_nll_scores(test_proc, gmm[0], train_proc)
+#             ood_scores = calculate_nll_scores(ood_proc, gmm[0], train_proc) if ood_proc is not None else pd.DataFrame()
+#             run_results = pd.concat([id_test_scores, ood_scores])
+#         if ood_df is not None:
+#             run_results['is_ood'] = 0
+#             run_results.loc[ood_proc.index, 'is_ood'] = 1
 
-        if 'is_ood' in run_results.columns and 1 in run_results['is_ood'].unique():
-            fpr, tpr, _ = roc_curve(run_results['is_ood'], run_results['ood_score_nll_zero_floored'])
-            results[method] = auc(fpr, tpr)
-    return results
+#         if 'is_ood' in run_results.columns and 1 in run_results['is_ood'].unique():
+#             fpr, tpr, _ = roc_curve(run_results['is_ood'], run_results['ood_score_nll_zero_floored'])
+#             results[method] = auc(fpr, tpr)
+#     return results
 
-def run_full_comparison(data, p2_n_ratio_threshold, res_dir, base_filename):
-    """Drives the comparison across all feature types."""
-    print("\n\n" + "="*25 + " PREPROCESSING COMPARISON " + "="*25)
-    full_comparison_results = pd.DataFrame(index=['beta', 'quantile', 'standardize', 'identity'])
+# def run_full_comparison(data, p2_n_ratio_threshold, res_dir, base_filename):
+#     """Drives the comparison across all feature types."""
+#     print("\n\n" + "="*25 + " PREPROCESSING COMPARISON " + "="*25)
+#     full_comparison_results = pd.DataFrame(index=['beta', 'quantile', 'standardize', 'identity'])
 
-    for feature_type in ['spatial', 'magnitude', 'all']:
-        if data[f'id_train_{feature_type}'] is not None and data[f'ood_{feature_type}'] is not None:
-            auroc_scores = run_preprocessing_comparison(
-                feature_type,
-                data[f'id_train_{feature_type}'],
-                data[f'id_test_{feature_type}'],
-                data[f'ood_{feature_type}'],
-                p2_n_ratio_threshold
-            )
-            full_comparison_results[f'auroc_{feature_type}'] = pd.Series(auroc_scores)
+#     for feature_type in ['spatial', 'magnitude', 'all']:
+#         if data[f'id_train_{feature_type}'] is not None and data[f'ood_{feature_type}'] is not None:
+#             auroc_scores = run_preprocessing_comparison(
+#                 feature_type,
+#                 data[f'id_train_{feature_type}'],
+#                 data[f'id_test_{feature_type}'],
+#                 data[f'ood_{feature_type}'],
+#                 p2_n_ratio_threshold
+#             )
+#             full_comparison_results[f'auroc_{feature_type}'] = pd.Series(auroc_scores)
 
-    print("\n" + "="*25 + " COMPARISON SUMMARY " + "="*25)
-    print(full_comparison_results)
-    print("="*69)
+#     print("\n" + "="*25 + " COMPARISON SUMMARY " + "="*25)
+#     print(full_comparison_results)
+#     print("="*69)
     
-    comp_csv_path = os.path.join(res_dir, f"{base_filename}_preprocessing_comparison.csv")
-    full_comparison_results.to_csv(comp_csv_path)
-    print(f"Saved full preprocessing comparison results to: {comp_csv_path}")
+#     comp_csv_path = os.path.join(res_dir, f"{base_filename}_preprocessing_comparison.csv")
+#     full_comparison_results.to_csv(comp_csv_path)
+#     print(f"Saved full preprocessing comparison results to: {comp_csv_path}")
 
 def run_analysis_pipeline(paths: dict, base_filename: str):
     P2_N_RATIO_THRESHOLD = 0.5
@@ -609,16 +797,23 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
                    
                 # --- OOD Detection ---
                 p, n = train_proc.shape[1], len(train_proc)
+                model_roc_name = f"{ftype}_{method}"
                 if (p**2 / n) > P2_N_RATIO_THRESHOLD:
-                    results = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
+                    results, gmm_ensemble = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
+                    save_gmm_artifacts(gmm_ensemble, res_dir, base_filename, model_roc_name)
+                    save_gmm_geometry_info(gmm_ensemble, train_proc, res_dir, base_filename, model_roc_name)
+                    save_gmm_eigenvalue_info(gmm_ensemble, res_dir, base_filename, model_roc_name)
                 else:
                     n_components = find_best_gmm(train_proc, model_type=ftype)
-                    gmm = build_id_gmm_model(train_proc, n_components)
-                    id_test_scores = calculate_nll_scores(test_proc, gmm[0], train_proc)
+                    gmm, _ = build_id_gmm_model(train_proc, n_components)
+                    save_gmm_artifacts(gmm, res_dir, base_filename, model_roc_name)
+                    save_gmm_geometry_info(gmm, train_proc, res_dir, base_filename, model_roc_name)
+                    save_gmm_eigenvalue_info(gmm, res_dir, base_filename, model_roc_name)
+                    id_test_scores = calculate_nll_scores(test_proc, gmm, train_proc)
                     id_test_scores['is_ood'] = 0
                     ood_scores = pd.DataFrame()
                     if ood_proc is not None and not ood_proc.empty:
-                        ood_scores = calculate_nll_scores(ood_proc, gmm[0], train_proc)
+                        ood_scores = calculate_nll_scores(ood_proc, gmm, train_proc)
                         ood_scores['is_ood'] = 1
                     results = pd.concat([id_test_scores, ood_scores])
                     

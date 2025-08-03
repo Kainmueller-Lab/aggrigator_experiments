@@ -3,147 +3,157 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Callable, Any, Tuple, Optional
 from sklearn.metrics import roc_curve, auc
+from scipy.stats import wilcoxon
+from itertools import combinations
 
 from aggrigator.uncertainty_maps import UncertaintyMap
 
 # ---- AUROC computation to assess an aggregator's ability to detect OoD images. ----
 
-# --- Old Helper Functions ---
-
-def compute_auroc_from_maps(
+def _compute_auroc_bootstrap(
     uncertainty_maps: List[UncertaintyMap],
     gt_labels: np.ndarray,
     aggregation_method: Callable,
     params: Any,
     category: str,
-    ignore_index: int
-    ) -> float:
+    ignore_index: int,
+    n_bootstraps: int = 1000,
+    ) -> List[float]:
     """
     Compute AUROC to assess an aggregator's ability to detect OoD images, by defining:
-    - True Positive Rate (TPR) as the proportion of correctly identified OoD images, 
-    i.e., the fraction of OoD samples whose aggregated uncertainty score exceeds a given threshold. 
-    - False Positive Rate (FPR) as the proportion of iD images incorrectly classified as OoD, 
-    i.e., the fraction of iD samples whose aggregated uncertainty score surpasses the same threshold. 
-     
-    Parameters
-    ----------
-    uncertainty_maps : List[UncertaintyMap]
-        List of uncertainty maps
-    gt_labels : np.ndarray
-        Ground truth labels (0 for in-distribution, 1 for out-of-distribution)
-    aggregation_method : Callable
-        Function to aggregate uncertainty values
-    params : Any
-        Parameters for aggregation method
-    category : str
-        Category of aggregation method (e.g., 'Threshold', 'Spatial')
-    
-    Returns
-    -------
-    float
-        AUROC value by computing TPRs and FPRs at differet thresholds via sklearn library
+    - True Positive Rate (TPR) as the proportion of correctly identified OoD images,
+    i.e., the fraction of OoD samples whose aggregated uncertainty score exceeds a given threshold.
+    - False Positive Rate (FPR) as the proportion of iD images incorrectly classified as OoD,
+    i.e., the fraction of iD samples whose aggregated uncertainty score surpasses the same threshold.
     """
-    
-    # Apply aggregation method based on category
+    n_samples = len(uncertainty_maps)
+    bootstrapped_aurocs = []
+
     if category == 'Context-aware':
-        uncertainty_values = np.array([
+        agg_values = np.array([
             aggregation_method(umap, params, ignore_index) for umap in uncertainty_maps
         ])
     else:
-        uncertainty_values = np.array([
+        agg_values = np.array([
             aggregation_method(umap, params) for umap in uncertainty_maps
         ])
-    
-    # Handle threshold methods
-    if category == 'Threshold': 
-        uncertainty_values = np.nan_to_num(uncertainty_values, nan=0)
-        mask = (uncertainty_values == -1) | (uncertainty_values == 0)
-        uncertainty_values[mask] = 0
 
-    # Calculate AUROC
-    fpr, tpr, _ = roc_curve(gt_labels, uncertainty_values)
-    roc_auc = auc(fpr, tpr)
-    return roc_auc
+    if category == 'Threshold':
+        agg_values = np.nan_to_num(agg_values, nan=0)
+        mask = (agg_values == -1) | (agg_values == 0)
+        agg_values[mask] = 0
+
+    for _ in range(n_bootstraps):
+        indices = np.random.choice(range(n_samples), size=n_samples, replace=True)
+        if len(np.unique(gt_labels[indices])) < 2:
+            continue
+
+        fpr, tpr, _ = roc_curve(gt_labels[indices], agg_values[indices])
+        bootstrapped_aurocs.append(auc(fpr, tpr))
+    return bootstrapped_aurocs
 
 
 def evaluate_aggregation_strategy(
     cached_maps: Dict,
-    # uq_methods: List[str],
     aggr_name: str,
     aggr_method: Callable,
     param: Any,
     category: str,
-    ignore_index: int
-    ) -> Dict:
+    ignore_index: int,
+    n_bootstraps: int
+) -> Tuple[List[Dict], Dict[str, List[float]]]:
     """
-    Evaluate an aggregation strategy across multiple UQ methods.
-    
-    Parameters
-    ----------
-    cached_maps : Dict
-        Preloaded uncertainty maps for each UQ method
-    uq_methods : List[str]
-        List of UQ methods to evaluate
-    aggr_name : str
-        Name of aggregation method
-    aggr_method : Callable
-        Aggregation method function
-    param : Any
-        Parameters for aggregation method
-    category : str
-        Category of aggregation method
-    
-    Returns
-    -------
-    Dict
-        Results with AUROC mean and standard deviation
+    Evaluate a single aggregation strategy. Since we run one UQ method at a time,
+    we don't need to key by UQ method.
     """
-    # Compute AUROC for each UQ method using preloaded maps
-    auroc_values = np.zeros(len(list(cached_maps.keys())))
+    auroc_stats_results = []
+    bootstrap_samples = {}
     
-    for idx, uq_method in enumerate(list(cached_maps.keys())):
-        uncertainty_maps = cached_maps[uq_method]['maps']
-        gt_labels = cached_maps[uq_method]['gt_labels']
-        auroc_values[idx] = compute_auroc_from_maps(
-            uncertainty_maps, gt_labels, aggr_method, param, category, ignore_index
-        )
+    # Since only one UQ method is processed at a time, we can take the first one.
+    uq_method = next(iter(cached_maps.keys()))
     
-    # Return results
-    return {
-        'Aggregator': aggr_name,
-        'AUROC': np.mean(auroc_values),
-        'AUROC_std': np.std(auroc_values),
-    }
+    uncertainty_maps = cached_maps[uq_method]['maps']
+    gt_labels = cached_maps[uq_method]['gt_labels']
+    
+    auroc_values = _compute_auroc_bootstrap(
+        uncertainty_maps, gt_labels, aggr_method, param, category, ignore_index, n_bootstraps
+    )
+
+    if auroc_values:
+        # CORRECTED: Create a flat structure {aggr_name: [samples]}
+        bootstrap_samples[aggr_name] = auroc_values
+        auroc_stats_results.append({
+            'Aggregator': aggr_name,
+            'AUROC': np.mean(auroc_values),
+            'AUROC_std': np.std(auroc_values),
+        })
+    else:
+        print(f"Warning: Could not compute AUROC for {aggr_name}. Skipping.")
+
+    return auroc_stats_results, bootstrap_samples
 
 
-# --- New Helper Functions ---
+def _perform_pairwise_wilcoxon_tests_on_aggregators(
+    bootstrap_samples_by_agg: Dict[str, List[float]],
+    noise_level: str
+) -> pd.DataFrame:
+    """
+    Performs one-sided pairwise Wilcoxon signed-rank tests to compare
+    all aggregation methods directly. Expects a flat dictionary.
+    """
+    p_value_results = []
+    aggr_names = list(bootstrap_samples_by_agg.keys())
+
+    for agg1_name, agg2_name in combinations(aggr_names, 2):
+        # This now works because every value in the dict is a list of floats.
+        samples1 = bootstrap_samples_by_agg[agg1_name]
+        samples2 = bootstrap_samples_by_agg[agg2_name]
+
+        min_len = min(len(samples1), len(samples2))
+        if min_len == 0:
+            continue
+
+        # Test H1: agg1 > agg2
+        _, p_greater = wilcoxon(samples1[:min_len], samples2[:min_len], alternative='greater', zero_method='zsplit')
+        # Test H1: agg2 > agg1
+        _, p_less = wilcoxon(samples1[:min_len], samples2[:min_len], alternative='less', zero_method='zsplit')
+
+        p_value_results.append({
+            'Noise_Level': noise_level,
+            'Comparison': f'{agg1_name}_vs_{agg2_name}',
+            f'p_value ({agg1_name} > {agg2_name})': p_greater,
+            f'p_value ({agg2_name} > {agg1_name})': p_less,
+        })
+
+    return pd.DataFrame(p_value_results)
+
 
 def _evaluate_standard_strategies(
     cached_maps: Dict,
     strategies: Dict,
     noise_level: str,
-    ignore_index: int
-) -> List[Dict]:
-    """
-    Evaluates all standard pixel-based aggregation strategies.
-    
-    Returns:
-        A list of result dictionaries.
-    """
-    auroc_data = []
+    ignore_index: int,
+    n_bootstraps: int
+) -> Tuple[List[Dict], Dict[str, List[float]]]:
+    """Evaluates all standard pixel-based aggregation strategies."""
+    all_auroc_stats = []
+    all_bootstrap_samples = {}
+
     for category, methods in strategies.items():
         for aggr_name, (aggr_method, param) in methods.items():
             try:
-                # print(f"----Processing aggregator function: {aggr_name}, in {category} category----")
-                result = evaluate_aggregation_strategy(
-                    cached_maps, aggr_name, aggr_method, param, category, ignore_index
+                stats_results, bootstrap_samples = evaluate_aggregation_strategy(
+                    cached_maps, aggr_name, aggr_method, param, category, ignore_index, n_bootstraps
                 )
-                result['Noise_Level'] = noise_level
-                auroc_data.append(result)
+                if stats_results:
+                    all_auroc_stats.extend(stats_results)
+                    # CORRECTED: .update() now works on two flat dictionaries
+                    all_bootstrap_samples.update(bootstrap_samples)
             except Exception as e:
-                print(f"Error processing method {aggr_method} for noise level {noise_level}: {e}")
+                print(f"Error processing method {aggr_name} for noise level {noise_level}: {e}")
                 continue
-    return auroc_data
+
+    return all_auroc_stats, all_bootstrap_samples
 
 
 def _evaluate_gmm_strategy(
@@ -152,64 +162,79 @@ def _evaluate_gmm_strategy(
     dataset_name: str,
     task: str,
     variation: str,
-    decomp: str
-) -> Optional[Dict]:
-    """
-    Loads, aligns, and evaluates the pre-computed GMM score.
-    
-    Returns:
-        A single result dictionary for the GMM score, or None if it cannot be computed.
-    """
+    decomp: str,
+    n_bootstraps: int
+) -> Optional[Tuple[List[Dict], Dict[str, List[float]]]]:
+    """Loads, aligns, and evaluates the pre-computed GMM score with bootstrapping."""
     first_uq_method = next(iter(cached_maps.keys()))
     if 'sample_names' not in cached_maps[first_uq_method]:
-        return None
+        return None, None
 
-    # Construct the GMM scores filename and path
     scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores_standardize.csv"
     scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
-    
+
     if not os.path.exists(scores_filepath):
         print("Warning: GMM scores file not found, skipping GMM AUROC calculation.")
-        return None
+        return None, None
 
     print("----Processing aggregator function: GMM Normalized Score, in Spatial category----")
-    
-    # Load and prepare GMM scores with a multi-column key
+
+    score_columns_to_merge = ['uq_map_name', 'gt_label', 'ood_score_normalized_all', 'ood_score_normalized_magnitude', 'ood_score_normalized_spatial']
     gmm_scores_df = pd.read_csv(scores_filepath)
     gmm_scores_df.rename(columns={'Unnamed: 0': 'uq_map_name', 'is_ood': 'gt_label'}, inplace=True)
     gmm_scores_df = gmm_scores_df.astype({'uq_map_name': str, 'gt_label': int})
-    gmm_scores_to_merge = gmm_scores_df[['uq_map_name', 'gt_label', 'ood_score_normalized_all']] # ood_score_normalized_magnitude, ood_score_normalized_spatial other possibiltiies
+    gmm_scores_to_merge = gmm_scores_df[score_columns_to_merge]
 
-    # Create alignment dataframe from cached data
     alignment_df = pd.DataFrame({
         'uq_map_name': cached_maps[first_uq_method]['sample_names'],
         'gt_label': cached_maps[first_uq_method]['gt_labels']
     }).astype({'uq_map_name': str, 'gt_label': int})
 
-    # Perform an explicit merge on the composite key
     final_scores = pd.merge(
-        alignment_df,
-        gmm_scores_to_merge,
-        on=['uq_map_name', 'gt_label'],
-        how='left'
+        alignment_df, gmm_scores_to_merge, on=['uq_map_name', 'gt_label'], how='left'
     )
-    final_scores.rename(columns={'ood_score_normalized_all': 'gmm_score'}, inplace=True) # ood_score_normalized_magnitude, ood_score_normalized_spatial other possibiltiies
-    final_scores.dropna(subset=['gmm_score'], inplace=True)
+    final_scores.rename(columns={
+        'ood_score_normalized_all': 'gmm_score',
+        'ood_score_normalized_magnitude': 'gmm_score_pix',
+        'ood_score_normalized_spatial': 'gmm_score_spat'}, inplace=True
+    )
+    final_scores.dropna(subset=['gmm_score', 'gmm_score_pix', 'gmm_score_spat'], inplace=True)
 
     if final_scores.empty:
-        return None
+        return None, None
 
-    # Compute AUROC
-    fpr, tpr, _ = roc_curve(final_scores['gt_label'], final_scores['gmm_score'])
-    roc_auc = auc(fpr, tpr)
-    
-    return {
-        'Aggregator': 'GMM Normalized',
-        'AUROC': roc_auc,
-        'AUROC_std': 0.0,
-        'Noise_Level': noise_level,
-    }
+    gmm_results = []
+    gmm_bootstrap_samples = {}
+    gmm_types = ['GMM', 'GMM_pixel', 'GMM_spatial']
+    gmm_score_columns = ['gmm_score', 'gmm_score_pix', 'gmm_score_spat']
 
+    for gmm_label, gmm_col in zip(gmm_types, gmm_score_columns):
+        gt_labels = final_scores['gt_label'].values
+        gmm_values = final_scores[gmm_col].values
+        n_samples = len(gt_labels)
+        bootstrapped_aurocs = []
+
+        for _ in range(n_bootstraps):
+            indices = np.random.choice(range(n_samples), size=n_samples, replace=True)
+            if len(np.unique(gt_labels[indices])) < 2:
+                continue
+            fpr, tpr, _ = roc_curve(gt_labels[indices], gmm_values[indices])
+            bootstrapped_aurocs.append(auc(fpr, tpr))
+
+        if not bootstrapped_aurocs:
+            print(f"Warning: Could not compute AUROC for {gmm_label}. Skipping.")
+            continue
+        
+        # This already has the correct, flat structure
+        gmm_bootstrap_samples[gmm_label] = bootstrapped_aurocs
+
+        gmm_results.append({
+            'Aggregator': gmm_label,
+            'AUROC': np.mean(bootstrapped_aurocs),
+            'AUROC_std': np.std(bootstrapped_aurocs),
+        })
+
+    return gmm_results, gmm_bootstrap_samples
 
 # --- Main Function ---
 
@@ -217,35 +242,43 @@ def evaluate_all_strategies(
     cached_maps: Dict,
     strategies: Dict,
     noise_level: str,
-    ignore_index: int, 
+    ignore_index: int,
     dataset_name: str,
     task: str,
     variation: str,
-    decomp: str
-) -> pd.DataFrame:
+    decomp: str,
+    n_bootstraps: int
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Evaluates all pixel-based and spatial aggregation strategies for a given noise level.
     """
     if not cached_maps:
         print(f"Warning: cached_maps dictionary is empty for noise level {noise_level}. No strategies will be evaluated.")
-        return pd.DataFrame()
-    
-    # Step 1: Evaluate all standard pixel-based aggregators
-    auroc_data = _evaluate_standard_strategies(
-        cached_maps, strategies, noise_level, ignore_index
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Step 1: Evaluate standard aggregators
+    auroc_stats, bootstrap_samples = _evaluate_standard_strategies(
+        cached_maps, strategies, noise_level, ignore_index, n_bootstraps
     )
-    
+
     # Step 2: Evaluate the GMM spatial aggregator
-    gmm_result = _evaluate_gmm_strategy(
-        cached_maps, noise_level, dataset_name, task, variation, decomp
+    gmm_results, gmm_bootstrap_samples = _evaluate_gmm_strategy(
+        cached_maps, noise_level, dataset_name, task, variation, decomp, n_bootstraps
     )
-    if gmm_result:
-        auroc_data.append(gmm_result)
-    
-    # Step 3: Combine and finalize the results
-    if not auroc_data:
-        return pd.DataFrame()
-        
-    df = pd.DataFrame(auroc_data)
-    df = df.sort_values('AUROC', ascending=False).reset_index(drop=True)
-    return df
+    if gmm_results:
+        auroc_stats.extend(gmm_results)
+        if gmm_bootstrap_samples:
+            bootstrap_samples.update(gmm_bootstrap_samples)
+
+    if not auroc_stats:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Step 3: Create the main results DataFrame
+    auroc_df = pd.DataFrame(auroc_stats)
+    auroc_df['Noise_Level'] = noise_level
+    auroc_df = auroc_df.sort_values('AUROC', ascending=False).reset_index(drop=True)
+
+    # Step 4: Perform pairwise Wilcoxon tests on the now-consistent bootstrap samples
+    p_values_df = _perform_pairwise_wilcoxon_tests_on_aggregators(bootstrap_samples, noise_level)
+
+    return auroc_df, p_values_df

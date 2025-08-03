@@ -26,18 +26,30 @@ def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: s
     csv_name = f'{task}_{dataset_name}_{variation}_{decomp}'
     if spatial: 
         csv_name += f'_{spatial}'
-    csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_auroc_ood_results.csv')
+        
+    # Define paths for both results and p-values
+    auroc_csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_auroc_ood_results.csv')
+    p_value_csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_p_values.csv')
     
     # Ensure directory exists
-    csv_file.parent.mkdir(exist_ok=True, parents=True)
-    if csv_file.exists():
-        csv_file.open('w').close()  # Open in write mode to clear contents
-        print(f"Cleared content of {csv_file}")
+    auroc_csv_file.parent.mkdir(exist_ok=True, parents=True)
+
+    # Clear AUROC results file
+    if auroc_csv_file.exists():
+        auroc_csv_file.open('w').close()
+        print(f"Cleared content of {auroc_csv_file}")
     else:
-        print(f"{csv_file} does not exist yet.")
+        print(f"{auroc_csv_file} does not exist yet.")
+
+    # Clear p-values file
+    if p_value_csv_file.exists():
+        p_value_csv_file.open('w').close()
+        print(f"Cleared content of {p_value_csv_file}")
+    else:
+        print(f"{p_value_csv_file} does not exist yet.")
 
 def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variation: str, dataset_name: str, 
-                      decomp: str, output_path: Path, spatial: str = None, ignore_index: int = 0) -> pd.DataFrame:
+                      decomp: str, output_path: Path, n_bootstraps: int, spatial: str = None, ignore_index: int = 0) -> pd.DataFrame:
     """Process all strategies for a single combo key."""
     print(f"Processing combo key: {combo_key}")
     
@@ -47,8 +59,8 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
     # Extract noise level from combo key (e.g., '0_00_0_25' -> '0_25')
     noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
     
-    # Evaluate all strategies
-    df = evaluate_all_strategies(
+    # Evaluate all strategies to get AUROC stats and p-values
+    auroc_df, p_values_df = evaluate_all_strategies(
         cached_maps, 
         AUROC_STRATEGIES, 
         noise_level, 
@@ -56,27 +68,36 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
         dataset_name=dataset_name,
         task=task,
         variation=variation,
-        decomp=decomp
+        decomp=decomp,
+        n_bootstraps=n_bootstraps
     )
-    print(df)
+    print("AUROC Results:\n", auroc_df)
+    if not p_values_df.empty:
+        print("P-Value Results:\n", p_values_df)
     
     # Save results to CSV
     csv_name = f'{task}_{dataset_name}_{variation}_{decomp}'
     if spatial: 
         csv_name += f'_{spatial}'
-    csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_auroc_ood_results.csv')
     
-    # Check if the file exists to handle headers properly
-    file_empty = not csv_file.exists() or csv_file.stat().st_size == 0
-    
-    # Append to CSV (write header only if the file is empty)
-    df.to_csv(csv_file, mode='a', index=False, header=file_empty)
-    print(f"Data appended to {csv_file}")
-    
-    return df
+    auroc_csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_auroc_ood_results.csv')
+    p_value_csv_file = output_path.joinpath(f'tables/auroc_gmm/{csv_name}_p_values.csv')
+
+    # Append AUROC results to CSV
+    auroc_file_empty = not auroc_csv_file.exists() or auroc_csv_file.stat().st_size == 0
+    auroc_df.to_csv(auroc_csv_file, mode='a', index=False, header=auroc_file_empty)
+    print(f"AUROC data appended to {auroc_csv_file}")
+
+    # Append p-value results to a separate CSV
+    if not p_values_df.empty:
+        p_value_file_empty = not p_value_csv_file.exists() or p_value_csv_file.stat().st_size == 0
+        p_values_df.to_csv(p_value_csv_file, mode='a', index=False, header=p_value_file_empty)
+        print(f"P-value data appended to {p_value_csv_file}")
+        
+    return auroc_df
 
 def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dataset_name: str, output_path: Path, decomp: str = "pu", 
-                         spatial: str = None, noise_levels: List[str] = None, ignore_index: int = 0) -> None:
+                         spatial: str = None, noise_levels: List[str] = None, ignore_index: int = 0, n_bootstraps: int = 500) -> None:
     """
     Create comparative bar plots of image-level AUROC values for different combo keys and UQ methods.
     
@@ -99,6 +120,8 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
         List of noise levels to generate combo keys
     ignore_index : int, optional
         Index to ignore in context-aware aggregation strategies
+    n_bootstraps : int, optional
+        Np. of bootstrap samples to use for cgenertaing confidence intervals
     """
     # Clear previous results
     clear_csv_file(output_path, task, dataset_name, variation, decomp, spatial)
@@ -121,7 +144,7 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
     for combo_key in combo_keys:
         df = process_combo_key(
             concatenated_data, combo_key, task, variation, dataset_name, 
-            decomp, output_path, spatial, ignore_index
+            decomp, output_path, n_bootstraps, spatial, ignore_index
         )
         results.append(df)
         
@@ -168,7 +191,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--uq_path', type=str, 
-        default='/home/vanessa/Documents/data/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results'
+        default='/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results'
     )
     # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
     # lidc: '/fast/AG_Kainmueller/data/ValUES/'
@@ -184,7 +207,7 @@ def parse_arguments() -> argparse.Namespace:
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
     # lizard: '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
-    # weedsgalore: '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/'
+    # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/'
     # wormbodies: '/fast/AG_Kainmueller/data/'
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
@@ -219,6 +242,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--model_checkpoint', type=str, default=None,
         help='Pretrained model to pass to extra_info[metadata][model_checkpoint]'
+    )
+    parser.add_argument(
+        '--n_bootstraps', type=int, default=500,
+        help='Number of bootstrap samples for AUROC calculation.'
     )
     # ade20k: 'deeplabv3_r50-d8_4xb4-160k_ade20k-512x512'
     return parser.parse_args()
@@ -256,6 +283,7 @@ def main():
         'split_path' : None,
         'split' : None,
         'model_checkpoint' : args.model_checkpoint, 
+        'real_task' : args.task
     }
             
     # Set paths and make sure output directory exists
@@ -282,7 +310,8 @@ def main():
         decomp=args.decomp,
         spatial=args.spatial,
         noise_levels=noise_levels,
-        ignore_index=ignore_index
+        ignore_index=ignore_index,
+        n_bootstraps=args.n_bootstraps
     )
 
 if __name__ == "__main__":

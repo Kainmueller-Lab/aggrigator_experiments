@@ -312,12 +312,12 @@ def create_auroc_barplot(
     barplot_colors_local = barplot_colors.copy()
     
     # Check if GMM score exists in the results to set the correct path
-    if not results[0].empty and 'GMM Normalized' in results[0]['Aggregator'].values:
+    if not results[0].empty and 'GMM' in results[0]['Aggregator'].values:
         print("GMM score found. Using joint_correlation color path and adding 'Spatial' category.")
         pre_color_path = output_path / "figures" / "joint_correlation" / "colors"
         
         # Dynamically add the new category for the legend
-        strategies_dict_local['Spatial GMM'] = {'GMM Normalized': (None, None)}
+        strategies_dict_local['Spatial GMM'] = {'GMM': (None, None)}
         barplot_colors_local['Spatial GMM'] = '#C0C0C0' # Default gray, will be replaced by JSON color if found
     else:
         print("GMM score not found. Using standard color path.")
@@ -434,15 +434,28 @@ def create_single_auroc_barplot(
     # --- DYNAMIC PATH AND STRATEGY LOGIC (mirrored from multi-plot function) ---
     strategies_dict_local = strategies_dict.copy()
     barplot_colors_local = barplot_colors.copy()
+    
+    gmm_methods_present = not results.empty and results['Aggregator'].str.startswith('GMM').any()
 
-    if not results.empty and 'GMM Normalized' in results['Aggregator'].values:
-        print("GMM score found. Using joint_correlation color path and adding 'Spatial' category.")
+    if gmm_methods_present:
+        print("GMM scores found. Using joint_correlation color path and adding 'Spatial' category.")
         pre_color_path = output_path / "figures" / "joint_correlation" / "colors"
-        strategies_dict_local['Spatial GMM'] = {'GMM Normalized': (None, None)}
-        barplot_colors_local['Spatial GMM'] = '#C0C0C0'
+        
+        # Add a single 'Spatial' category containing all GMM variants.
+        # This ensures they are grouped correctly for the legend.
+        strategies_dict_local['Spatial'] = {
+            'GMM': (None, None),
+            'GMM_pixel': (None, None),
+            'GMM_spatial': (None, None)
+        }
+        
+        # Assign a generic color for the 'Spatial' category itself (used for the legend).
+        # The specific bar colors for each method will be handled by _get_method_color.
+        barplot_colors_local['Spatial'] = '#7f7f7f'  # A neutral gray
     else:
-        print("GMM score not found. Using standard color path.")
+        print("GMM scores not found. Using standard color path.")
         pre_color_path = output_path / "figures" / "colors"
+
     # --- END DYNAMIC LOGIC ---
 
     color_file_path = _get_color_file_path(pre_color_path, dataset_name, task, variation)
@@ -526,6 +539,14 @@ def _create_method_category_mapping(strategies_dict: Dict) -> Dict[str, str]:
 def _get_method_color(method_name: str, category: str, correlation_colors: Dict[str, str], 
                      barplot_colors: Dict[str, str]) -> str:
     """Get color for a method, preferring correlation colors over category colors."""
+    
+    # This ensures they always get a specific pink color.
+    # We use distinct shades of pink to differentiate them.
+    if method_name == 'GMM_pixel':
+        return '#FF69B4'  # Hot Pink, similar to selective risk plots
+    if method_name == 'GMM_spatial':
+        return '#C71585'  # Medium Violet Red, a darker pink
+    
     if not correlation_colors:
         return _convert_color_to_hex(barplot_colors.get(category, '#C0C0C0'))
     
@@ -756,7 +777,7 @@ def create_selective_risks_coverage_plot(
     _format_aurc_plot()
     _save_aurc_plot(output_path, args, ood, return_one_only)
     
-      # Create and save barplot
+    # Create and save barplot
     create_metric_reports(method_names, aurc_res, output_path, args, ood, return_one_only, correlation_colors)
     
 def _get_method_styling(method_name: str, method_index: int, method_categories: List[str], 
@@ -781,6 +802,12 @@ def _get_method_styling(method_name: str, method_index: int, method_categories: 
     if method_name.startswith("Mean"):
         color = 'gray'
         linewidth = 2
+        return color, linestyle, alpha, linewidth, alpha_fill_current
+
+    if method_name.startswith("GMM"):
+        linestyle = ':'  # Use a dotted line to make GMM methods stand out
+        linewidth = 2  # Slightly thicker to be visible
+        # The color will still be loaded from correlation_colors if available
         return color, linestyle, alpha, linewidth, alpha_fill_current
     
     # Check if the method belongs to a category for special styling
@@ -1024,7 +1051,7 @@ def _generate_single_metric_report(metric_name: str, mean_values: List[float], s
             category = "Mean"
         elif method.startswith("Equally-w.") or method.startswith("Imbalance-w."):
             category = "Class Average"
-        elif method == "GMM": 
+        elif method.startswith("GMM"): 
             category = "Spatial"
         method_to_category[method] = category
     
@@ -1035,7 +1062,8 @@ def _generate_single_metric_report(metric_name: str, mean_values: List[float], s
         "Quantile": ["Quantile 0.6", "Quantile 0.75", "Quantile 0.9"],
         "Quantile fg.": ["Quantile fg. ratio"],
         "Class Average": ["Equally-w. class avg.", "Imbalance-w. class avg."],
-        "Mean": ["Mean"]
+        "Mean": ["Mean"], 
+        "Spatial": ["GMM", "GMM_pixel", "GMM_spatial"]
     }
     
     # Define barplot colors (fallback colors)

@@ -238,7 +238,7 @@ def per_tile_worker(cnt, gt_tile, pred_tile, match_euc_dist, class_names):
     fn = len(unpaired_true)
     
     try:
-        f1 = (2 * tp) / ((2 * tp) + fp + fn)
+        f1 = (2 * tp) / ((2 * tp) + fp + fn) #equivalent to the dice score in this computation
     except ZeroDivisionError:
         # this means neither on GT nor pred there is a nucleus
         f1 = np.nan

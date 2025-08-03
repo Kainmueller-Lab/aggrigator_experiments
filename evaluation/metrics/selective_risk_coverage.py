@@ -55,7 +55,11 @@ def _load_and_align_gmm_scores(
     print("----Loading and aligning GMM scores for AURC----")
     
     gmm_scores_df = pd.read_csv(scores_filepath)
-    gmm_scores_df.rename(columns={'Unnamed: 0': 'uq_map_name', 'ood_score_normalized_all': 'gmm_score'}, inplace=True)
+    gmm_scores_df.rename(columns={'Unnamed: 0': 'uq_map_name', 
+                                  'ood_score_normalized_all': 'gmm_score',
+                                  'ood_score_normalized_magnitude': 'gmm_score_pix',
+                                  'ood_score_normalized_spatial': 'gmm_score_spat',}, 
+                         inplace=True)
     gmm_scores_df['uq_map_name'] = gmm_scores_df['uq_map_name'].astype(str)
 
     if sample_names and isinstance(sample_names[0], torch.Tensor):
@@ -64,6 +68,8 @@ def _load_and_align_gmm_scores(
         processed_sample_names = [str(name) for name in sample_names]
 
     alignment_df = pd.DataFrame({'uq_map_name': processed_sample_names})
+    
+    score_columns_to_merge = ['uq_map_name', 'gmm_score', 'gmm_score_pix', 'gmm_score_spat']
     
     if return_one_only:
         # --- PATH 1: Load only ID or only OoD scores ---
@@ -76,7 +82,7 @@ def _load_and_align_gmm_scores(
         # Merge only on the sample name
         final_scores = pd.merge(
             alignment_df,
-            gmm_scores_to_merge[['uq_map_name', 'gmm_score']],
+            gmm_scores_to_merge[score_columns_to_merge],
             on='uq_map_name',
             how='left'
         )
@@ -92,7 +98,7 @@ def _load_and_align_gmm_scores(
         # Use the FULL GMM dataframe and merge on the composite key
         final_scores = pd.merge(
             alignment_df,
-            gmm_scores_df[['uq_map_name', 'is_ood', 'gmm_score']],
+            gmm_scores_df[['is_ood'] + score_columns_to_merge],
             on=['uq_map_name', 'is_ood'], # This is the composite key
             how='left'
         )
@@ -104,15 +110,19 @@ def _load_and_align_gmm_scores(
          
     # Handle any samples that were in the batch but truly not in the GMM file
     # This should be a small number, if any.
-    if final_scores['gmm_score'].isnull().any():
-        nan_count = final_scores['gmm_score'].isnull().sum()
-        print(f"Warning: {nan_count} samples could not be matched to a GMM score and will be treated as NaN.")
+    if final_scores[['gmm_score', 'gmm_score_pix', 'gmm_score_spat']].isnull().values.any():
+        nan_counts = final_scores[['gmm_score', 'gmm_score_pix', 'gmm_score_spat']].isnull().sum()
+        print(f"Warning: {nan_counts.to_dict()} samples could not be matched and will be NaN.")
         # We return the full-length array with NaNs and let the calling function handle it. This preserves the array length.
     
     print(f"Successfully prepared {len(final_scores)} GMM scores for alignment.")
     
-    # Return the full-length numpy array, which may contain NaNs
-    return final_scores['gmm_score'].to_numpy()
+    # Return the full-length numpy arrays, which may contain NaNs
+    return (
+        final_scores['gmm_score'].to_numpy(),
+        final_scores['gmm_score_pix'].to_numpy(),
+        final_scores['gmm_score_spat'].to_numpy()
+    )
 
 def process_strategy(
         strategy_data: Tuple[int, Callable, Any, Dict[str, Any]]
@@ -127,8 +137,8 @@ def process_strategy(
     strategy_idx, method, param, shared, category, method_name = strategy_data
     
     # --- Special handling for GMM placeholder ---
-    if method_name == 'GMM':
-        # Return a dummy array of zeros. This will be replaced later.
+    if method is None or method_name in ['GMM', 'GMM_pixel', 'GMM_spatial']:
+        # Return a dummy array of zeros. This will be replaced later by the main function.
         num_samples = len(shared['uq_maps'])
         return strategy_idx, np.zeros(num_samples)
     
@@ -236,17 +246,9 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     gt_labels = gt_labels if ind_to_rem is None else np.delete(gt_labels, ind_to_rem) # Filter gt_labels too!
     gt_list_shared = _process_gt_masks(gt_list, idx_task, dataset_name)
 
-    # --- Load and align GMM scores before the main loop ---
-    aligned_gmm_scores = _load_and_align_gmm_scores(
-        sample_names, 
-        gt_list_shared, 
-        gt_labels, 
-        dataset_name, 
-        task, 
-        variation,
-        decomp, 
-        ood, 
-        return_one_only
+    # --- Load all three aligned GMM score arrays before the main loop ---
+    aligned_gmm_scores, aligned_gmm_pixel_scores, aligned_gmm_spatial_scores = _load_and_align_gmm_scores(
+        sample_names, gt_list_shared, gt_labels, dataset_name, task, variation, decomp, ood, return_one_only
     )
 
     # Initialize arrays for storing results
@@ -256,7 +258,7 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     # Create list of strategies to process
     strategy_list = []
     idx = 0
-    gmm_strategy_idx = -1 # To store the index of the GMM strategy
+    gmm_strategy_indices = {} #Use a dictionary to store the index of each GMM strategy
     
     shared_data = {
         'uq_maps': uq_maps,
@@ -274,8 +276,10 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     
     for category, methods in strategies.items():
         for method_name, (method, param) in methods.items():
-            if method_name == 'GMM':
-                gmm_strategy_idx = idx # Found it!
+            # Check if the method is one of the GMM placeholders and store its index
+            if method_name in ['GMM', 'GMM_pixel', 'GMM_spatial']:
+                print(f"Found GMM placeholder strategy '{method_name}' at index {idx}.")
+                gmm_strategy_indices[method_name] = idx
             strategy_list.append((idx, method, param, shared_data, category, method_name))
             idx += 1
     
@@ -283,7 +287,7 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     aurc_res = {
         'aurc': np.zeros((len(strategy_list))),
         'eaurc': np.zeros((len(strategy_list))),
-        'coverages': np.zeros((len(pred_list) + 1)),
+        'coverages': [], #np.zeros((len(pred_list) + 1)),
         'selective_risks': np.zeros((len(pred_list) + 1, len(strategy_list)))
         }
     
@@ -293,16 +297,31 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
         for future in tqdm(futures, desc="Processing aggregation strategies"):
             idx, aggr_unc = future.result()
             
-            # --- Overwrite dummy GMM results with real, aligned scores ---
-            if idx == gmm_strategy_idx and aligned_gmm_scores is not None:
-                if len(aggr_unc) == len(aligned_gmm_scores):
-                    print(f"Overwriting dummy values with aligned GMM scores for strategy index {idx}.")
-                    aggr_unc = aligned_gmm_scores
-                else:
-                    print(f"Warning: Length mismatch between GMM scores ({len(aligned_gmm_scores)}) and predictions ({len(aggr_unc)}). Skipping GMM.")
-                    # Setting the GMM score to NaN so it's handled gracefully
-                    aggr_unc = np.full(len(aggr_unc), np.nan)
+            # --- verwrite dummy GMM results with the correct aligned scores ---
+            # Retrieve the method name corresponding to the current index
+            method_name = strategy_list[idx][-1]
+
+            # Create a mapping from placeholder names to their score arrays and indices
+            gmm_score_mapping = {
+                'GMM': (aligned_gmm_scores, gmm_strategy_indices.get('GMM')),
+                'GMM_pixel': (aligned_gmm_pixel_scores, gmm_strategy_indices.get('GMM_pixel')),
+                'GMM_spatial': (aligned_gmm_spatial_scores, gmm_strategy_indices.get('GMM_spatial')),
+            }
             
+            # If the current method is a GMM placeholder, replace its dummy data
+            if method_name in gmm_score_mapping:
+                scores_array, expected_idx = gmm_score_mapping[method_name]
+                if idx == expected_idx and scores_array is not None:
+                    if len(aggr_unc) == len(scores_array):
+                        print(f"Overwriting dummy values with aligned '{method_name}' scores for strategy index {idx}.")
+                        aggr_unc = scores_array
+                    else:
+                        print(f"Warning: Length mismatch for '{method_name}'. Skipping.")
+                        aggr_unc = np.full(len(aggr_unc), np.nan) # Set to NaN to ignore in metrics
+                elif scores_array is None:
+                     print(f"Warning: Scores for '{method_name}' were not loaded. Skipping.")
+                     aggr_unc = np.full(len(aggr_unc), np.nan)
+  
             aggr_acc_val = acc_score(
                 gt_list, 
                 [pred_list[i] for i in range(len(gt_list))], #np.stack(pred_list, axis=0), 
@@ -320,6 +339,9 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
             aurc_res['eaurc'][idx] = evaluator.eaurc/AURC_DISPLAY_SCALE
             selective_risks = _pad_selective_risks(evaluator.selective_risks, pred_list) #TODO - check why for threshold aggregations for softmax we get less selective risks values 
             aurc_res['selective_risks'][:, idx] = selective_risks
-    aurc_res['coverages'] = evaluator.coverages
+            aurc_res['coverages'].append(evaluator.coverages)
+    
+    aurc_res['coverages'] = aurc_res['coverages'][-3] #to avoid that excluded background-only pictures cause NaNs
+    # aurc_res['coverages'] = evaluator.coverages
     
     return aurc_res

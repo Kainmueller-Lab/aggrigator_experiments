@@ -35,9 +35,9 @@ def variation_name():
 
 def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
-    # Check sleective risk-classification file's existence 
+    # Check selective risk-classification file's existence 
     csv_file = output_path.joinpath(
-        f'tables/aurc_{args.data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_id.csv'
+        f'tables/aurc_{args.data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.real_task}_{args.variation}_{args.data_mod}.csv'
     )
     # Ensure directory exists
     csv_file.parent.mkdir(exist_ok=True, parents=True)
@@ -48,15 +48,8 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     else:
         print(f"{csv_file} does not exist yet.")
         
-    if args.variation == 'blood_cells':
-        task = 'semantic' 
-    elif args.variation == 'nuclei_intensity':
-        task = 'instance'
-    else:
-        task = args.task
-        
     # Check aurc barplots file's existence
-    aurc_csv_name = f'{task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    aurc_csv_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
     if args.spatial: 
         aurc_csv_name += f'_{args.spatial}'
     aurc_csv_file = output_path.joinpath(f'tables/aurc_{args.data_mod}/{aurc_csv_name}_aurc_{args.data_mod}_results.csv')
@@ -68,7 +61,7 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"{aurc_csv_file} does not exist yet.")
     
     # Check aurc barplots file's existence
-    eaurc_csv_name = f'{task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    eaurc_csv_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
     if args.spatial: 
         eaurc_csv_name += f'_{args.spatial}'
     eaurc_csv_file = output_path.joinpath(f'tables/eaurc_{args.data_mod}/{aurc_csv_name}_eaurc_{args.data_mod}_results.csv')
@@ -176,17 +169,15 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     num_workers = args.num_workers
     dataset_name = args.dataset_name
     variation = args.variation #if args.variation else 'LizardData'
-    real_task = None
+    real_task = args.real_task
     
-    # Handle Lizard case in which variation is the same for both instance and semantic task and Arctique case in which variation is different between tasks
-    if variation.startswith('glas_set'):
-        variation_1, variation_2, real_task = variation.split('_')
-        args.variation = f"{variation_1}_{variation_2}"
-        real_task = 'semantic' if real_task == 'sem' else 'instance'
-    elif variation.startswith('blood_cells'):
-        real_task = 'semantic'
-    elif variation.startswith('nuclei_intensity'):
-        real_task = 'instance'
+    # # Handle Lizard case in which variation is the same for both instance and semantic task and Arctique case in which variation is different between tasks
+    # if variation.startswith('glas_set'):
+    #     real_task = 'semantic' if real_task == 'sem' else 'instance'
+    # elif variation.startswith('blood_cells'):
+    #     real_task = 'semantic'
+    # elif variation.startswith('nuclei_intensity'):
+    #     real_task = 'instance'
     
     # Define extra variables useful for evaluating aurc and saving files later
     ood = (args.data_mod == 'ood')
@@ -208,6 +199,8 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     
     # This makes it available to both the computation and plotting functions.
     strategies.setdefault('Spatial', {})['GMM'] = (None, None)
+    strategies.setdefault('Spatial', {})['GMM_pixel'] = (None, None)
+    strategies.setdefault('Spatial', {})['GMM_spatial'] = (None, None)
     
     # This ensures method_names includes 'GMM' and is in the correct order.
     method_names = []
@@ -398,13 +391,21 @@ def main():
     
     if 'softmax' in args.uq_methods and args.decomp != 'pu':
         raise ValueError('Softmax uncertainty maps cannot be decomposed')
-        
-    # if not args.variation:
-    #     alt_names = variation_name()
-    #     args.variation = alt_names[args.dataset_name]
     
     #Set paths and make sure output directory exists
     paths = setup_paths(args)
+    
+    # Handle panoptic task selection for Lizard data
+    if args.variation.startswith('glas_set'):
+        variation_1, variation_2, real_task = args.variation.split('_')
+        args.variation = f"{variation_1}_{variation_2}"
+        args.real_task = 'semantic' if real_task == 'sem' else 'instance'
+    elif args.variation.startswith('blood_cells'):
+        args.real_task = 'semantic'
+    elif args.variation.startswith('nuclei_intensity'):
+        args.real_task = 'instance'
+    else:
+        args.real_task = args.task
     
     # Clean Excel file for plot
     clear_csv_file(paths.output, args)
