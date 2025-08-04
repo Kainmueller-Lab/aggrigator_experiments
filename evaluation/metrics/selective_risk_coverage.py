@@ -274,9 +274,11 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
         'ind_to_rem': ind_to_rem
     }
     
+    strategy_names_ordered = [] # To store names for DataFrame columns
     for category, methods in strategies.items():
         for method_name, (method, param) in methods.items():
             # Check if the method is one of the GMM placeholders and store its index
+            strategy_names_ordered.append(method_name)
             if method_name in ['GMM', 'GMM_pixel', 'GMM_spatial']:
                 print(f"Found GMM placeholder strategy '{method_name}' at index {idx}.")
                 gmm_strategy_indices[method_name] = idx
@@ -344,4 +346,12 @@ def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
     aurc_res['coverages'] = aurc_res['coverages'][-3] #to avoid that excluded background-only pictures cause NaNs
     # aurc_res['coverages'] = evaluator.coverages
     
-    return aurc_res
+    # *** CREATE REPRODUCIBILITY DATAFRAME ***
+    repro_df = None
+    if sample_names:
+        repro_df = pd.DataFrame(aggr_acc, columns=strategy_names_ordered)
+        converted_names = [name.item() if hasattr(name, 'item') else name for name in sample_names]
+        repro_df['uq_map_name'] = converted_names
+        repro_df['is_ood'] = gt_labels
+    
+    return aurc_res, repro_df

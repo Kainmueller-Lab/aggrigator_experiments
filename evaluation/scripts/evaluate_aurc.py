@@ -11,11 +11,14 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Any, Tuple, Dict, NamedTuple, Callable
 
-from evaluation.constants import (CLASS_NAMES_ARCTIQUE, 
-                       CLASS_NAMES_LIZARD, 
-                       AUROC_STRATEGIES, 
-                       BACKGROUND_FREE_STRATEGIES, 
-                       COLORS)
+from evaluation.constants import (
+    CLASS_NAMES_ARCTIQUE, 
+    CLASS_NAMES_LIZARD, 
+    AUROC_STRATEGIES, 
+    BACKGROUND_FREE_STRATEGIES, 
+    COLORS,
+    AGGREGATOR_NAME_MAPPING
+)
 from evaluation.metrics.selective_risk_coverage import compute_selective_risks_coverage
 from evaluation.data_utils import (DataPaths,
                                    AnalysisResults,
@@ -71,6 +74,14 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"Cleared content of {eaurc_csv_file}")
     else:
         print(f"{eaurc_csv_file} does not exist yet.")
+        
+    # --- Clear the reproducibility file ---
+    repro_csv_dir = output_path.joinpath('tables', 'eaurc_reproducibility_repo')
+    repro_csv_dir.mkdir(exist_ok=True, parents=True)
+    repro_csv_file = repro_csv_dir.joinpath(f'{eaurc_csv_name}.csv')
+    if repro_csv_file.exists():
+        repro_csv_file.unlink()
+        print(f"Cleared {repro_csv_file}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Create accuracy-rejection curves for aggregators')
@@ -240,6 +251,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         "coverages": None,
         "selective_risks": []
     }
+    all_repro_dfs = [] # *** INITIALIZE LIST FOR REPRODUCIBILITY DATA ***
     
     # Extract combo keys from concatenated_data
     first_uq_method = next(iter(concatenated_data.keys()))
@@ -251,6 +263,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
     for combo_key in combo_keys:
         # Convert concatenated data to cached maps format
         cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key, args, real_task)
+        combo_repro_chunks = []
         task = args.task
         print(f"Evaluating {task} task")
         
@@ -331,7 +344,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
                         
             # Analyze uncertainty and generate results
             print(f"Analyzing uncertainty using {aggregator_type} aggregation strategies with {uq_method}")
-            results = compute_selective_risks_coverage(
+            results, repro_df_chunk = compute_selective_risks_coverage(
                 uq_maps,
                 masks,
                 preds,
@@ -351,11 +364,34 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
                 return_one_only,
             )
             
+            if repro_df_chunk is not None:
+                combo_repro_chunks.append(repro_df_chunk)
+                
             # Store results
             all_results["coverages"] = results["coverages"]
             all_results["selective_risks"].append(results["selective_risks"])
             all_results["aurc"].append(results["aurc"])
             all_results["eaurc"].append(results["eaurc"])
+            
+            if combo_repro_chunks:
+                # Set the index for all chunks to allow for correct alignment and averaging
+                for i in range(len(combo_repro_chunks)):
+                    combo_repro_chunks[i].set_index(['uq_map_name', 'is_ood'], inplace=True)
+
+                # Concatenate and group by index to calculate the mean across UQ methods
+                averaged_chunk = pd.concat(combo_repro_chunks).groupby(level=[0, 1]).mean()
+                averaged_chunk.reset_index(inplace=True)
+                
+                # Now, add the temporary noise_level_id for the final deduplication step
+                if len(combo_key.split('_')) > 2:
+                    id_noise = combo_key.split('_')[-4] + '_' + combo_key.split('_')[-3] #combo_key.split('_vs_')[0]  
+                    ood_noise = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1] 
+                else: 
+                    id_noise = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1] #combo_key.split('_vs_')[1] if '_vs_' in combo_key else id_noise
+                    ood_noise = id_noise
+                averaged_chunk['noise_level_id'] = np.where(averaged_chunk['is_ood'] == 0, id_noise, ood_noise)
+                
+                all_repro_dfs.append(averaged_chunk)
 
         # Calculate mean and std across all UQ methods
         mean_aurc = np.mean(np.array(all_results["aurc"]), axis=0)
@@ -364,6 +400,22 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         std_eaurc = np.std(np.array(all_results["eaurc"]), axis=0)
         mean_selective_risks = np.mean(np.array(all_results["selective_risks"]), axis=0)
         std_selective_risks = np.std(np.array(all_results["selective_risks"]), axis=0)
+        
+        # *** CONSOLIDATE AND SAVE REPRODUCIBILITY DATA AFTER ALL LOOPS ***
+        if all_repro_dfs:
+            final_repro_df = pd.concat(all_repro_dfs)
+            final_repro_df.drop_duplicates(subset=['uq_map_name', 'noise_level_id'], keep='first', inplace=True)
+            final_repro_df.drop(columns=['noise_level_id'], inplace=True)
+            
+            # Rename columns using the provided mapping
+            final_repro_df.rename(columns=AGGREGATOR_NAME_MAPPING, inplace=True)
+            final_repro_df.set_index('uq_map_name', inplace=True)
+            
+            base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+            if args.spatial: base_name += f'_{args.spatial}'
+            repro_path = paths.output.joinpath(f'tables/eaurc_reproducibility_repo/{base_name}.csv')
+            final_repro_df.to_csv(repro_path)
+            print(f"Comprehensive AURC reproducibility data saved to {repro_path}")
         
         # Create final results structure for plotting
         final_results = AnalysisResults(

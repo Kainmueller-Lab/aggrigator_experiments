@@ -178,6 +178,8 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
         final_repro_df = pd.concat(all_repro_dfs) #.drop_duplicates(subset=['uq_map_name'], keep='first')
         final_repro_df.drop_duplicates(subset=['uq_map_name', 'noise_level_id'], keep='first', inplace=True)
         final_repro_df.drop(columns=['noise_level_id'], inplace=True)
+        
+        # Rename columns using the provided mapping
         final_repro_df.rename(columns=AGGREGATOR_NAME_MAPPING, inplace=True)
         final_repro_df.set_index('uq_map_name', inplace=True)
         
