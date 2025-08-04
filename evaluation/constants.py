@@ -149,5 +149,24 @@ BARPLOTS_COLORS = {
     'Patch': sns.light_palette("blue", n_colors=6)[3],
 }
 
+AGGREGATOR_NAME_MAPPING = {
+    'Mean': 'AVG',
+    'Quantile 0.6': 'AQA 0.60',
+    'Quantile 0.75': 'AQA 0.75',
+    'Quantile 0.9': 'AQA 0.90',
+    'Patch 10': 'PLM 10',
+    'Patch 20': 'PLM 20',
+    'Patch 50': 'PLM 50',
+    'Threshold 0.3': 'ATA 0.3',
+    'Threshold 0.5': 'ATA 0.5',
+    'Threshold 0.7': 'ATA 0.7',
+    'Quantile fg. ratio': 'QFR',
+    'Imbalance-w. class avg.': 'ICA',
+    'Equally-w. class avg.': 'BCA',
+    'GMM_pixel': 'GMM-Int',
+    'GMM_spatial': 'GMM-Spa',
+    'GMM': 'GMM-All',
+}
+
 tab20 = cm.get_cmap('tab20', 20)  # Get the tab20 colormap with 20 colors
 COLORS = [tab20(i) for i in range(13)]

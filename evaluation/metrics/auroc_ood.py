@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Callable, Any, Tuple, Optional
+from pathlib import Path
 from sklearn.metrics import roc_curve, auc
 from scipy.stats import wilcoxon
 from itertools import combinations
@@ -50,7 +51,7 @@ def _compute_auroc_bootstrap(
 
         fpr, tpr, _ = roc_curve(gt_labels[indices], agg_values[indices])
         bootstrapped_aurocs.append(auc(fpr, tpr))
-    return bootstrapped_aurocs
+    return bootstrapped_aurocs, agg_values
 
 
 def evaluate_aggregation_strategy(
@@ -69,18 +70,16 @@ def evaluate_aggregation_strategy(
     auroc_stats_results = []
     bootstrap_samples = {}
     
-    # Since only one UQ method is processed at a time, we can take the first one.
     uq_method = next(iter(cached_maps.keys()))
     
     uncertainty_maps = cached_maps[uq_method]['maps']
     gt_labels = cached_maps[uq_method]['gt_labels']
     
-    auroc_values = _compute_auroc_bootstrap(
+    auroc_values, agg_values = _compute_auroc_bootstrap(
         uncertainty_maps, gt_labels, aggr_method, param, category, ignore_index, n_bootstraps
     )
 
     if auroc_values:
-        # CORRECTED: Create a flat structure {aggr_name: [samples]}
         bootstrap_samples[aggr_name] = auroc_values
         auroc_stats_results.append({
             'Aggregator': aggr_name,
@@ -89,8 +88,9 @@ def evaluate_aggregation_strategy(
         })
     else:
         print(f"Warning: Could not compute AUROC for {aggr_name}. Skipping.")
+        return auroc_stats_results, bootstrap_samples, None
 
-    return auroc_stats_results, bootstrap_samples
+    return auroc_stats_results, bootstrap_samples, agg_values
 
 
 def _perform_pairwise_wilcoxon_tests_on_aggregators(
@@ -134,26 +134,28 @@ def _evaluate_standard_strategies(
     noise_level: str,
     ignore_index: int,
     n_bootstraps: int
-) -> Tuple[List[Dict], Dict[str, List[float]]]:
+) -> Tuple[List[Dict], Dict[str, List[float]], Dict[str, np.ndarray]]:
     """Evaluates all standard pixel-based aggregation strategies."""
     all_auroc_stats = []
     all_bootstrap_samples = {}
+    all_agg_values = {}
 
     for category, methods in strategies.items():
         for aggr_name, (aggr_method, param) in methods.items():
             try:
-                stats_results, bootstrap_samples = evaluate_aggregation_strategy(
+                stats_results, bootstrap_samples, agg_values = evaluate_aggregation_strategy(
                     cached_maps, aggr_name, aggr_method, param, category, ignore_index, n_bootstraps
                 )
                 if stats_results:
                     all_auroc_stats.extend(stats_results)
-                    # CORRECTED: .update() now works on two flat dictionaries
                     all_bootstrap_samples.update(bootstrap_samples)
+                    if agg_values is not None:
+                        all_agg_values[aggr_name] = agg_values
             except Exception as e:
                 print(f"Error processing method {aggr_name} for noise level {noise_level}: {e}")
                 continue
 
-    return all_auroc_stats, all_bootstrap_samples
+    return all_auroc_stats, all_bootstrap_samples, all_agg_values
 
 
 def _evaluate_gmm_strategy(
@@ -234,7 +236,7 @@ def _evaluate_gmm_strategy(
             'AUROC_std': np.std(bootstrapped_aurocs),
         })
 
-    return gmm_results, gmm_bootstrap_samples
+    return gmm_results, gmm_bootstrap_samples, final_scores
 
 # --- Main Function ---
 
@@ -247,7 +249,8 @@ def evaluate_all_strategies(
     task: str,
     variation: str,
     decomp: str,
-    n_bootstraps: int
+    n_bootstraps: int,
+    output_path : Path,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Evaluates all pixel-based and spatial aggregation strategies for a given noise level.
@@ -257,28 +260,48 @@ def evaluate_all_strategies(
         return pd.DataFrame(), pd.DataFrame()
 
     # Step 1: Evaluate standard aggregators
-    auroc_stats, bootstrap_samples = _evaluate_standard_strategies(
+    auroc_stats, bootstrap_samples, standard_agg_values = _evaluate_standard_strategies(
         cached_maps, strategies, noise_level, ignore_index, n_bootstraps
     )
 
     # Step 2: Evaluate the GMM spatial aggregator
-    gmm_results, gmm_bootstrap_samples = _evaluate_gmm_strategy(
+    gmm_results, gmm_bootstrap_samples, gmm_scores_df = _evaluate_gmm_strategy(
         cached_maps, noise_level, dataset_name, task, variation, decomp, n_bootstraps
     )
     if gmm_results:
         auroc_stats.extend(gmm_results)
         if gmm_bootstrap_samples:
             bootstrap_samples.update(gmm_bootstrap_samples)
+    
+   # Step 3: Create the reproducibility DataFrame for this specific comparison
+    repro_df = None
+    first_uq_method = next(iter(cached_maps.keys()))
+    sample_names = cached_maps[first_uq_method].get('sample_names', [])
+    gt_labels = cached_maps[first_uq_method].get('gt_labels', np.array([]))
+
+    if sample_names and gt_labels.size > 0 and standard_agg_values:
+        repro_df = pd.DataFrame(standard_agg_values)
+        converted_names = [str(name.item()) if hasattr(name, 'item') else name for name in sample_names]
+        repro_df['uq_map_name'] = converted_names
+        # repro_df['uq_map_name'] = sample_names
+        repro_df['is_ood'] = gt_labels
+
+        if gmm_scores_df is not None and not gmm_scores_df.empty:
+            gmm_to_merge = gmm_scores_df[['uq_map_name', 'gmm_score', 'gmm_score_pix', 'gmm_score_spat']].copy()
+            gmm_to_merge.rename(columns={
+                'gmm_score': 'GMM', 'gmm_score_pix': 'GMM_pixel', 'gmm_score_spat': 'GMM_spatial'
+            }, inplace=True)
+            repro_df = pd.merge(repro_df, gmm_to_merge, on='uq_map_name', how='left')
 
     if not auroc_stats:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Step 3: Create the main results DataFrame
+    # Step 4: Create the main results DataFrame
     auroc_df = pd.DataFrame(auroc_stats)
     auroc_df['Noise_Level'] = noise_level
     auroc_df = auroc_df.sort_values('AUROC', ascending=False).reset_index(drop=True)
 
-    # Step 4: Perform pairwise Wilcoxon tests on the now-consistent bootstrap samples
+    # Step 5: Perform pairwise Wilcoxon tests on the now-consistent bootstrap samples
     p_values_df = _perform_pairwise_wilcoxon_tests_on_aggregators(bootstrap_samples, noise_level)
 
-    return auroc_df, p_values_df
+    return auroc_df, p_values_df, repro_df

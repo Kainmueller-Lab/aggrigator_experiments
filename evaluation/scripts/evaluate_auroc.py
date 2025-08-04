@@ -16,7 +16,13 @@ from evaluation.data_utils import (
 )
 from evaluation.metrics.auroc_ood import evaluate_all_strategies
 from evaluation.visualization.plot_functions import setup_plot_style_auroc, create_auroc_barplot, create_single_auroc_barplot
-from evaluation.constants import AUROC_STRATEGIES, NOISE_LEVELS, NOISE_LEVELS_ARCTIQUE, BARPLOTS_COLORS
+from evaluation.constants import (
+    AUROC_STRATEGIES, 
+    NOISE_LEVELS, 
+    NOISE_LEVELS_ARCTIQUE, 
+    BARPLOTS_COLORS, 
+    AGGREGATOR_NAME_MAPPING,
+)
 
 # ---- Script to evaluate AUROC for OoD detection for various aggregation methods and create comparison plots
     
@@ -47,6 +53,13 @@ def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: s
         print(f"Cleared content of {p_value_csv_file}")
     else:
         print(f"{p_value_csv_file} does not exist yet.")
+        
+    # Clear the single reproducibility file
+    repro_csv_dir = output_path.joinpath('tables', 'auroc_reproducibility_repo')
+    repro_csv_dir.mkdir(exist_ok=True, parents=True)
+    repro_csv_file = repro_csv_dir.joinpath(f'{csv_name}.csv')
+    if repro_csv_file.exists(): repro_csv_file.unlink()
+    print("Cleared previous CSV files.")
 
 def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variation: str, dataset_name: str, 
                       decomp: str, output_path: Path, n_bootstraps: int, spatial: str = None, ignore_index: int = 0) -> pd.DataFrame:
@@ -60,7 +73,7 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
     noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
     
     # Evaluate all strategies to get AUROC stats and p-values
-    auroc_df, p_values_df = evaluate_all_strategies(
+    auroc_df, p_values_df, repro_df = evaluate_all_strategies(
         cached_maps, 
         AUROC_STRATEGIES, 
         noise_level, 
@@ -69,7 +82,8 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
         task=task,
         variation=variation,
         decomp=decomp,
-        n_bootstraps=n_bootstraps
+        n_bootstraps=n_bootstraps,
+        output_path=output_path, 
     )
     print("AUROC Results:\n", auroc_df)
     if not p_values_df.empty:
@@ -93,8 +107,13 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
         p_value_file_empty = not p_value_csv_file.exists() or p_value_csv_file.stat().st_size == 0
         p_values_df.to_csv(p_value_csv_file, mode='a', index=False, header=p_value_file_empty)
         print(f"P-value data appended to {p_value_csv_file}")
+    
+    if repro_df is not None:
+        id_noise_level = combo_key.split('_')[-4] + '_' + combo_key.split('_')[-3]
+        ood_noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
+        repro_df['noise_level_id'] = np.where(repro_df['is_ood'] == 0, id_noise_level, ood_noise_level)
         
-    return auroc_df
+    return auroc_df, repro_df
 
 def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dataset_name: str, output_path: Path, decomp: str = "pu", 
                          spatial: str = None, noise_levels: List[str] = None, ignore_index: int = 0, n_bootstraps: int = 500) -> None:
@@ -139,18 +158,34 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
     
     # Process each combo key
     results = []
+    all_repro_dfs = []
     processed_noise_levels = []
     
     for combo_key in combo_keys:
-        df = process_combo_key(
+        df, repro_df = process_combo_key(
             concatenated_data, combo_key, task, variation, dataset_name, 
             decomp, output_path, n_bootstraps, spatial, ignore_index
         )
         results.append(df)
-        
+        if repro_df is not None: all_repro_dfs.append(repro_df)
+    
         # Extract noise level for plotting
         noise_level = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1]
         processed_noise_levels.append(noise_level)
+    
+    # Save consolidated reproducibility data
+    if all_repro_dfs:
+        final_repro_df = pd.concat(all_repro_dfs) #.drop_duplicates(subset=['uq_map_name'], keep='first')
+        final_repro_df.drop_duplicates(subset=['uq_map_name', 'noise_level_id'], keep='first', inplace=True)
+        final_repro_df.drop(columns=['noise_level_id'], inplace=True)
+        final_repro_df.rename(columns=AGGREGATOR_NAME_MAPPING, inplace=True)
+        final_repro_df.set_index('uq_map_name', inplace=True)
+        
+        base_name = f'{task}_{dataset_name}_{variation}_{decomp}'
+        if spatial: base_name += f'_{spatial}'
+        repro_path = output_path.joinpath(f'tables/auroc_reproducibility_repo/{base_name}.csv')
+        final_repro_df.to_csv(repro_path)
+        print(f"Comprehensive reproducibility data saved to {repro_path}")
     
     # Create plots
     if len(results) == 1:
