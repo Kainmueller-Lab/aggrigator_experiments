@@ -67,7 +67,13 @@ We provide in-depth benchmarking on segmentation tasks across a variety of domai
 -  Natural and real-world scenes: urban street scenes (e.g., GTA, Cityscapes)
 -  Multispectral crop images (e.g., Weedsgalore)
 
-This diversity ensures robustness and generalizability of the evaluation results. To access the preprocessing and loading procedures for each dataset, refer to the `datasets` folder.
+This diversity ensures robustness and generalizability of the evaluation results. To access the preprocessing and loading procedures for each dataset, refer to the `datasets` folder. For instance, to compute the AUROC scores for the LIDC dataset, along with relative confidence intervals  (via bootstrapping) and one-sided Wilcoxon test p-values for statistical significance, run
+
+```bash
+python evaluation/scripts/evaluate_auroc.py \
+        --dataset <dataset_name> \
+        --aggregation <aggregation_method>
+```
 
 ---
 
