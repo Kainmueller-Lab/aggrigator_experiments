@@ -66,6 +66,7 @@ We provide in-depth benchmarking on segmentation tasks across a variety of domai
 -  Medical imaging: nuclei in pathology images, lung nodules, and microorganisms (e.g., Arctique, Lizard, LIDC, Wormbodies)
 -  Natural and real-world scenes: urban street scenes (e.g., GTA, Cityscapes)
 -  Multispectral crop images (e.g., Weedsgalore)
+
 This diversity ensures robustness and generalizability of the evaluation results. To access the preprocessing and loading procedures for each dataset, refer to the `datasets` folder.
 
 ---
