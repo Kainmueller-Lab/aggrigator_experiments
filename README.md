@@ -1,49 +1,96 @@
-# Aggrigator Experiments 🐊
+# Aggrigator Experiments 🐊 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Aggrigator** is a lightweight and modular Python library for aggregating uncertainty in deep learning workflows, especially useful for tasks like segmentation or per-pixel analysis.
+**Aggrigator** is a lightweight and modular Python library for aggregating uncertainty in deep-learning workflows, especially useful for tasks like segmentation or other per-pixel analyses.
 
-With an intuitive API and a suite of built-in strategies, Aggrigator lets you:
-- Reduce pixel-wise uncertainty maps into scalar scores for ranking or evaluation.
-- Apply patch-based, class-specific, or thresholded aggregation strategies.
-- Integrate spatial correlation metrics like Moran’s I or Geary’s C.
-- Compare strategies side-by-side with insightful summaries and plots.
+**This repository** accompanies the paper *“Better than Average: Shedding Light on the Impact of Aggregation Strategies for Segmentation Uncertainty.”*
 
-Designed to be modular, explainable, and research-friendly, this repository also includes the code used to reproduce the results presented in the original publication introducing the library. <br>
+---
 
-📖 For full documentation and contribution guidelines, see the [Aggrigator source code](https://github.com/Kainmueller-Lab/aggrigator) and and open an issue or pull request to get involved!
+## Installation
 
-
-## Prerequisites
-
-Setup the environment by running the following commands. Be careful to choose the right pytorch version for your installed CUDA Version.
+Create and activate the experiment environment (tested with **Python ≥ 3.10** and **CUDA 11.8 / 12.1**):
 
 ```bash
 micromamba env create -f environment.yml
 micromamba activate aggr_experiments
 ```
 
-```evaluation/scripts/evaluate_aurc.py``` relies on the [```fd-shifts```](https://github.com/IML-DKFZ/fd-shifts/tree/main) repository, which has a dependency on ```"numpy<2.0.0"```. However, Aggrigator requires ```"numpy>2.0.0"``` for optimal functionality. To avoid dependency conflicts, we recommend the following:
+> The full dependency lists live in [`pyproject.toml`](pyproject.toml) (run-time) and [`environment.yml`](environment.yml) (conda-solvable build).
 
-1. Clone the ```fd-shifts``` repository after setting up your environment.
-2. Edit the ```pyproject.toml``` file to replace ```"numpy>=1.22.2,<2.0.0"``` with ```"numpy>=2.0.0"```.
-3. Then, install ```fd-shifts``` from local cloning using
+`evaluation/scripts/evaluate_aurc.py` depends on the external **[fd-shifts](https://github.com/IML-DKFZ/fd-shifts)** repository which originally pins `numpy<2.0.0`.  Aggrigator works with `numpy ≥ 2.0.0`; therefore:
 
-```bash
-(aggr_experiments) pip install -e /path-to-local/fd-shifts
-```
-
-This modification is safe because the functions of ```fd-shifts``` used in this experiment are compatible with ```numpy>=2.0.0```. Once everything is installed and configured correctly, run the test suite to make sure all components work as expected:
+1. Clone **fd-shifts** after creating the environment.
+2. In its `pyproject.toml`, replace `"numpy>=1.22.2,<2.0.0"` with `"numpy>=2.0.0"`.
+3. Install the modified package:
 
 ```bash
-(aggr_experiments) pytest -v
+(aggr_experiments) pip install -e /path/to/local/fd-shifts
 ```
+
+---
+
+## Repository Map
+
+| Path | Purpose |
+|------|---------|
+| `datasets/` | Download, convert, and standardise the raw datasets used in the experiments (`*_dataset_creation.py`). |
+| `evaluation/` | Metric implementations (AUROC, AURC, Dice, etc.) and high-level evaluation scripts. |
+| `spatial/` | Implementation of the spatial fingerprint approach (Gaussian-mixture embeddings, score creation, visualisation). |
+| `reproducibility/` | Tiny helper scripts that reproduce the main paper tables/figures. |
+| `output/` | Generated figures (`.png`, `.html`) and CSV result tables. |
+| `tests/` | PyTest unit tests that guard core functionality. |
+| `environment.yml / pyproject.toml` | Conda & Poetry dependency specifications. |
+
+---
+
+## Environment Variables (`.env`)
+
+Some dataset creation and spatial scripts expect the variable `LAB_PATH` to point to your internal data storage. Create a `.env` file in the repo root (or export the variable in your shell):
+
+```dotenv
+# .env example
+LAB_PATH=/absolute/path/to/your/lab/storage
+```
+
+Load it via `source .env` or let tools such as *direnv* / *dotenv-cli* handle it automatically.
+
+---
 
 ## Evaluation
-To quantify the impact of choosing an aggregation method in one's use case, the repo offers answers to the following five questions:
+The repository addresses five practical questions:
 
-1. How similar are the aggregated uncertainty scores produced by the different aggregators? <br> cf. ```experiments/correlation_analyses/*.ipynb```
-2. When translating a UQ method into a real-world scenario, how does the aggregator affect its reliability? <br> cf. ```evaluation/scripts/evaluate_auroc.py``` & ```evaluation/scripts/evaluate_aurc.py```
-3. To what extent does parameter choice in non–parameter-free aggregators modify method reliability? <br> cf. 
-4. How can an aggregator impact on the selection of an optimal UQ model in benchmarking environments? <br> cf. 
-5. How can spatial measures improve the aggregation performance of context-free aggregators? <br> cf. ```evaluation/analyse_spatial_methods.py```
+1. **Similarity of uncertainty scores** – see `experiments/correlation_analyses/*.ipynb`.
+2. **Reliability in real-world scenarios** – run `evaluation/scripts/evaluate_auroc.py` and `evaluation/scripts/evaluate_aurc.py`.
+3. **Influence of parameters in non-parameter-free aggregators** – *coming soon*.
+4. **Effect on model ranking in benchmarks** – *coming soon*.
+5. **Spatial measures as context-aware aggregators** – see `evaluation/analyse_spatial_methods.py`.
 
+---
+
+## Reproducing the Main Results
+
+The scripts below recreate Figures 4 & 5 of the paper and write tables/plots to `reproducibility/`:
+
+```bash
+python reproducibility/auroc_table.py  --save_dir reproducibility
+python reproducibility/eaurc_table.py  --save_dir reproducibility
+```
+
+---
+
+## Citation
+If you use this code, please cite our work:
+
+```BibTeX
+@inproceedings{anon2024better,
+  title        = {Better than Average: Shedding Light on the Impact of Aggregation Strategies for Segmentation Uncertainty},
+  author       = {Anonymous},
+  year         = {2025}
+}
+```
+
+---
+
+## License
+
+This project is licensed under the **MIT License**.  See the [LICENSE](LICENSE) file for details.
