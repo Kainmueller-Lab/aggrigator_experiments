@@ -76,8 +76,8 @@ python evaluation/scripts/evaluate_auroc.py \
         --uq_path <path-lidc-uq-maps-preds> \
         --label_path <path-lidc-imgs-masks> \
         --dataset_name 'lidc' \
-        --image_noise '0_00,1_00' \
-        --uq_methods 'dropout' \
+        --image_noise <comma-separated-list-id-ood-noise> \
+        --uq_methods <comma-separated-uq-methods-noise> \
         --n_bootstraps 100 \ 
 ```
 
