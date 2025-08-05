@@ -19,7 +19,12 @@ from evaluation.constants import (
     COLORS,
     AGGREGATOR_NAME_MAPPING
 )
-from evaluation.metrics.selective_risk_coverage import compute_selective_risks_coverage
+from evaluation.metrics.selective_risk_coverage import (
+    compute_uncertainty_and_accuracy_scores,
+    _compute_bootstrapped_aurc_stats,
+    _perform_pairwise_wilcoxon_tests_on_eaurc,
+    # compute_selective_risks_coverage
+)
 from evaluation.data_utils import (DataPaths,
                                    AnalysisResults,
                                    setup_paths, 
@@ -158,278 +163,168 @@ def parse_args():
         help='Aggregator Property (e.g. proportion-invariant or non-pi)'
     )
     parser.add_argument('--num_workers', type=int, default=1, help='No. of workers for parallel processing' )
+    parser.add_argument('--n_bootstraps', type=int, default=500, help='Number of bootstrap samples for AURC/E-AURC calculation.')
     
     return parser.parse_args()
 
 # ---- Analysis Functions ----
 
 def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
-    """
-    Run the AURC evaluation pipeline.
-    
-    Args:
-        args: Command line arguments
-        output_path: Path to save output
-    """
-    
-    # Extract parameters from arguments
-    task = args.task
-    model_noise = args.model_noise
-    decomp = args.decomp
-    aggregator_type = args.aggregator_type
-    num_workers = args.num_workers
-    dataset_name = args.dataset_name
-    variation = args.variation #if args.variation else 'LizardData'
-    real_task = args.real_task
-    
-    # # Handle Lizard case in which variation is the same for both instance and semantic task and Arctique case in which variation is different between tasks
-    # if variation.startswith('glas_set'):
-    #     real_task = 'semantic' if real_task == 'sem' else 'instance'
-    # elif variation.startswith('blood_cells'):
-    #     real_task = 'semantic'
-    # elif variation.startswith('nuclei_intensity'):
-    #     real_task = 'instance'
-    
-    # Define extra variables useful for evaluating aurc and saving files later
+    """Run the AURC evaluation pipeline with bootstrapping and statistical tests."""
     ood = (args.data_mod == 'ood')
-    return_one_only = True if args.data_mod != 'id_ood' else False
-    
-    # define parameters along which to loop
+    return_one_only = args.data_mod != 'id_ood'
     noise_levels = [noise.strip() for noise in args.image_noise.split(',')]
-    # if len(noise_levels)>1: # We will now treat the case of aurc for evaluation on both id and ood data
-    #     warnings.warn(
-    #         "Select only one noise level for this downstream task. "
-    #     "Proceeding with the automatic selection based on the argument 'data_mod'..."
-    #     )
-    #     noise_levels = noise_levels[-1] if ood is True else noise_levels[0]
-        
     uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
     
-    # Select appropriate strategies based on aggregator type and extract method names for plotting
-    strategies, method_names = select_strategies(aggregator_type)
-    
-    # This makes it available to both the computation and plotting functions.
+    strategies, method_names = select_strategies(args.aggregator_type)
+    # Ensure GMM placeholders are always included for processing
     strategies.setdefault('Spatial', {})['GMM'] = (None, None)
     strategies.setdefault('Spatial', {})['GMM_pixel'] = (None, None)
     strategies.setdefault('Spatial', {})['GMM_spatial'] = (None, None)
-    
-    # This ensures method_names includes 'GMM' and is in the correct order.
-    method_names = []
-    for category, methods in strategies.items():
-        method_names.extend(methods.keys())
-        
-    # Define **kwargs dictionary for dataloaders
+    method_names_ordered = [name for cat in strategies.values() for name in cat.keys()]
+
     extra_info = {
-        'task' : args.task,
-        'variation' : args.variation,
-        'model_noise' : args.model_noise,
-        'decomp' : args.decomp,
-        'spatial' : args.spatial,
-        'metadata' : args.metadata,
-        'split_path' : None,
-        'split' : None,
-        'model_checkpoint' : args.model_checkpoint, 
-        'real_task' : real_task,
+        'task': args.task, 'variation': args.variation, 'model_noise': args.model_noise,
+        'decomp': args.decomp, 'spatial': args.spatial, 'metadata': args.metadata,
+        'split_path': None, 'split': None, 'model_checkpoint': args.model_checkpoint,
+        'real_task': args.real_task
     }
 
     concatenated_data = load_dataset_abstract_class(
-        paths=paths, 
-        image_noises=noise_levels,
-        num_workers=1,
-        extra_info=extra_info,
-        dataset_name=args.dataset_name,
-        task=args.task,
-        return_one_only=return_one_only,
-        uq_methods=uq_methods,
-        ood=ood,
+        paths=paths, image_noises=noise_levels, num_workers=1, extra_info=extra_info,
+        dataset_name=args.dataset_name, task=args.task, return_one_only=return_one_only,
+        uq_methods=uq_methods, ood=ood
     )
-        
-    # Store results for all methods
-    all_results = {
-        "aurc": [],
-        "eaurc": [],
-        "coverages": None,
-        "selective_risks": []
-    }
-    all_repro_dfs = [] # *** INITIALIZE LIST FOR REPRODUCIBILITY DATA ***
-    
-    # Extract combo keys from concatenated_data
+
     first_uq_method = next(iter(concatenated_data.keys()))
     combo_keys = list(concatenated_data[first_uq_method].keys())
-    
     print(f"Processing combo keys: {combo_keys}")
-    
-    
+
+    all_repro_dfs = [] 
+
     for combo_key in combo_keys:
-        # Convert concatenated data to cached maps format
-        cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key, args, real_task)
-        combo_repro_chunks = []
-        task = args.task
-        print(f"Evaluating {task} task")
+        print(f"\n--- Processing Combo Key: {combo_key} ---")
+        cached_maps = create_cached_maps_from_concatenated(concatenated_data, combo_key, args, args.real_task)
         
-        for idx, uq_method in enumerate(list(cached_maps.keys())):
-            print(f"\n=== Processing UQ method: {uq_method} ===")
-            masks = cached_maps[uq_method]['real_masks']
-            preds = cached_maps[uq_method]['masks']
-            uq_maps = cached_maps[uq_method]['maps']
-            sample_names = cached_maps[uq_method]['sample_names']
-            gt_labels = cached_maps[uq_method]['gt_labels']
-                        
-            if dataset_name.startswith('arctique') and return_one_only is True:
-                # Overleay colours 
-                label_colors_sem = {
-                    0: [0, 0, 0],             # Background - black or transparent
-                    1: [102, 0, 153],         # Epithelial - deep purple
-                    2: [0, 0, 255],           # Plasma Cells - blue
-                    3: [255, 255, 0],         # Lymphocytes - yellow
-                    4: [255, 105, 180],       # Eosinophils - reddish pink
-                    5: [0, 255, 0],           # Fibroblasts - green
-                }
-                
-                # Overleay colours 
-                label_colors_inst = {
-                    0: [0, 0, 0],             # Background - black or transparent
-                    1: [255, 105, 180],       # Border - reddish pink
-                    2: [0, 0, 0],             # Nucleus - black or transparent
-                }
-                
-                def label_to_rgb(label_map, label_colors):
-                    """Converts a (H, W) label map to an (H, W, 3) RGB overlay."""
-                    h, w = label_map.shape
-                    rgb = np.zeros((h, w, 3), dtype=np.uint8)
-                    for label, color in label_colors.items():
-                        mask = (label_map == label)
-                        rgb[mask] = color
-                    return rgb
+        all_uq_unc_scores, all_uq_acc_scores = [], []
+        # Temporary list for chunks from the CURRENT combo_key
+        combo_repro_chunks = []
 
-                # Main visualization
-                
-                if task.startswith('semantic'):
-                    mask = masks[0][...,1]  # (H, W)
-                    prediction = preds[0][...,1]  # (H, W)
-                    label_colors = label_colors_sem        
-                else:
-                    mask = masks[0][...,2] # (H, W) 
-                    prediction = preds[0][...,2]  # (H, W)
-                    label_colors = label_colors_inst
-                    
-                uq_map = uq_maps[0].array
-
-                # Generate colored overlays
-                mask_rgb = label_to_rgb(mask, label_colors)
-                pred_rgb = label_to_rgb(prediction, label_colors)
-
-                # Create subplots
-                fig, axs = plt.subplots(1, 3, figsize=(16, 5))
-                titles = ['Ground Truth', 'Prediction', 'UQ Map']
-                imgs = [mask_rgb, pred_rgb, uq_map]
-
-                for ax, title, img in zip(axs, titles, imgs):
-                    if title in ['Ground Truth', 'Prediction']:
-                        ax.imshow(img)
-                    elif title == 'UQ Map':
-                        ax.imshow(img, cmap='inferno')
-                    ax.set_title(title, fontsize=10)
-                    ax.axis('off')
-
-                fig.suptitle(f"Sample", fontsize=12)
-                plt.tight_layout()
-                plt.subplots_adjust(top=0.85)
-
-                output_dir = Path(__file__).parent
-                output_file = output_dir / f'debugging_{task}_sample_plot.png'
-                plt.savefig(output_file, bbox_inches='tight')
-                plt.close()
-                print(f"Overlay plot saved to {output_file}")
-                        
-            # Analyze uncertainty and generate results
-            print(f"Analyzing uncertainty using {aggregator_type} aggregation strategies with {uq_method}")
-            results, repro_df_chunk = compute_selective_risks_coverage(
-                uq_maps,
-                masks,
-                preds,
-                sample_names, 
-                gt_labels,
-                paths,
-                task,
-                model_noise,
-                uq_method,
-                decomp,
-                args.variation,
-                noise_levels,
-                strategies,
-                num_workers,
-                dataset_name,
-                ood,
-                return_one_only,
-            )
+        for uq_method in list(cached_maps.keys()):
+            print(f"\n=== Collecting scores for UQ method: {uq_method} ===")
             
+            unc_scores, acc_scores, repro_df_chunk = compute_uncertainty_and_accuracy_scores(
+                uq_maps=cached_maps[uq_method]['maps'],
+                gt_list=cached_maps[uq_method]['real_masks'],
+                pred_list=cached_maps[uq_method]['masks'],
+                sample_names=cached_maps[uq_method]['sample_names'],
+                gt_labels=cached_maps[uq_method]['gt_labels'],
+                paths=paths, task=args.task, model_noise=args.model_noise, uq_method=uq_method,
+                decomp=args.decomp, variation=args.variation, data_noise=noise_levels,
+                strategies=strategies, num_workers=args.num_workers, dataset_name=args.dataset_name,
+                ood=ood, return_one_only=return_one_only
+            )
+            all_uq_unc_scores.append(unc_scores)
+            all_uq_acc_scores.append(acc_scores)
             if repro_df_chunk is not None:
                 combo_repro_chunks.append(repro_df_chunk)
-                
-            # Store results
-            all_results["coverages"] = results["coverages"]
-            all_results["selective_risks"].append(results["selective_risks"])
-            all_results["aurc"].append(results["aurc"])
-            all_results["eaurc"].append(results["eaurc"])
-            
-            if combo_repro_chunks:
-                # Set the index for all chunks to allow for correct alignment and averaging
-                for i in range(len(combo_repro_chunks)):
-                    combo_repro_chunks[i].set_index(['uq_map_name', 'is_ood'], inplace=True)
-
-                # Concatenate and group by index to calculate the mean across UQ methods
-                averaged_chunk = pd.concat(combo_repro_chunks).groupby(level=[0, 1]).mean()
-                averaged_chunk.reset_index(inplace=True)
-                
-                # Now, add the temporary noise_level_id for the final deduplication step
-                if len(combo_key.split('_')) > 2:
-                    id_noise = combo_key.split('_')[-4] + '_' + combo_key.split('_')[-3] #combo_key.split('_vs_')[0]  
-                    ood_noise = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1] 
-                else: 
-                    id_noise = combo_key.split('_')[-2] + '_' + combo_key.split('_')[-1] #combo_key.split('_vs_')[1] if '_vs_' in combo_key else id_noise
-                    ood_noise = id_noise
-                averaged_chunk['noise_level_id'] = np.where(averaged_chunk['is_ood'] == 0, id_noise, ood_noise)
-                
-                all_repro_dfs.append(averaged_chunk)
-
-        # Calculate mean and std across all UQ methods
-        mean_aurc = np.mean(np.array(all_results["aurc"]), axis=0)
-        std_aurc = np.std(np.array(all_results["aurc"]), axis=0)
-        mean_eaurc =  np.mean(np.array(all_results["eaurc"]), axis=0)
-        std_eaurc = np.std(np.array(all_results["eaurc"]), axis=0)
-        mean_selective_risks = np.mean(np.array(all_results["selective_risks"]), axis=0)
-        std_selective_risks = np.std(np.array(all_results["selective_risks"]), axis=0)
         
-        # *** CONSOLIDATE AND SAVE REPRODUCIBILITY DATA AFTER ALL LOOPS ***
+        # --- RESTORED LOGIC ---
+        # Process the reproducibility chunks for the current combo_key
+        if combo_repro_chunks:
+            # Set the multi-index on each chunk for correct averaging
+            for i in range(len(combo_repro_chunks)):
+                combo_repro_chunks[i].set_index(['uq_map_name', 'is_ood'], inplace=True)
+
+            # Concatenate and average over UQ methods, keeping the multi-index
+            averaged_chunk = pd.concat(combo_repro_chunks).groupby(level=[0, 1]).mean().reset_index()
+            
+            # Create the crucial temporary noise_level_id for de-duplication
+            if len(combo_key.split('_')) > 2: # Handles 'id_vs_ood' keys like '0_00_1_00'
+                id_noise = combo_key.split('_')[0] + '_' + combo_key.split('_')[1]
+                ood_noise = combo_key.split('_')[2] + '_' + combo_key.split('_')[3]
+            else: # Handles single noise keys like '0_00'
+                id_noise = combo_key
+                ood_noise = combo_key
+            averaged_chunk['noise_level_id'] = np.where(averaged_chunk['is_ood'] == 0, id_noise, ood_noise)
+            
+            # Add the fully processed chunk to our master list
+            all_repro_dfs.append(averaged_chunk)
+
+        # Step 2: Average the raw scores across all UQ methods
+        final_unc_scores = np.mean(np.array(all_uq_unc_scores), axis=0)
+        final_acc_scores = np.mean(np.array(all_uq_acc_scores), axis=0) # Accuracy is the same, but this keeps shape consistent
+
+        # Step 3: Perform bootstrapping on the final, averaged scores
+        bootstrapped_stats, eaurc_bootstrap_samples = _compute_bootstrapped_aurc_stats(
+            final_unc_scores, final_acc_scores, method_names_ordered, args.n_bootstraps
+        )
+
+        # Step 4: Perform pairwise Wilcoxon tests on the E-AURC bootstrap samples
+        p_values_df = _perform_pairwise_wilcoxon_tests_on_eaurc(eaurc_bootstrap_samples)
+        
+        # Step 5: Save results to CSV
+        base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+        if args.spatial: base_name += f'_{args.spatial}'
+        
+        # Save main AURC/E-AURC results
+        results_df = pd.DataFrame({
+            'Aggregator': method_names_ordered,
+            'AURC': bootstrapped_stats['mean_aurc'],
+            'AURC_std': bootstrapped_stats['std_aurc'],
+            'EAURC': bootstrapped_stats['mean_eaurc'],
+            'EAURC_std': bootstrapped_stats['std_eaurc']
+        })
+        
+        # Sort the dataframe for display and plotting. This is the only place sorting happens.
+        results_df_sorted = results_df.sort_values('EAURC').reset_index(drop=True)
+        print("\n--- Sorted E-AURC Results ---")
+        print(results_df_sorted)
+        
+        # results_path = paths.output.joinpath(f'tables/aurc_{args.data_mod}/{base_name}_aurc_{args.data_mod}_results.csv')
+        # results_df.to_csv(results_path, index=False)
+        # print(f"\nAURC/E-AURC results saved to {results_path}")
+        # print(results_df)
+
+        # Save p-value results
+        p_values_path = paths.output.joinpath(f'tables/eaurc_{args.data_mod}/{base_name}_eaurc_{args.data_mod}_p_values.csv')
+        p_values_df.to_csv(p_values_path, index=False)
+        print(f"E-AURC p-value results saved to {p_values_path}")
+        print(p_values_df)
+        
+        # Step 7: Create plot with confidence intervals
+        final_results = AnalysisResults(
+            mean_aurc=np.array(results_df_sorted['AURC']),
+            std_aurc=np.array(results_df_sorted['AURC_std']),
+            mean_eaurc=np.array(results_df_sorted['EAURC']),
+            std_eaurc=np.array(results_df_sorted['EAURC_std']),
+            coverages=np.array(bootstrapped_stats['coverages'])[0],
+            # We need to reorder the selective risks to match the sorted dataframe
+            mean_selective_risks=np.array(bootstrapped_stats['mean_selective_risks'])[results_df_sorted.index].T,
+            std_selective_risks=np.array(bootstrapped_stats['std_selective_risks'])[results_df_sorted.index].T
+        )
+        # Pass the sorted method names to the plotting function
+        create_selective_risks_coverage_plot(
+            results_df_sorted['Aggregator'].tolist(), 
+            final_results, paths.output, args, ood
+        )
+        
+        # --- FINAL REPRODUCIBILITY DATA HANDLING (AFTER ALL COMBO KEYS ARE PROCESSED) ---
         if all_repro_dfs:
             final_repro_df = pd.concat(all_repro_dfs)
-            final_repro_df.drop_duplicates(subset=['uq_map_name', 'noise_level_id'], keep='first', inplace=True)
-            final_repro_df.drop(columns=['noise_level_id'], inplace=True)
             
-            # Rename columns using the provided mapping
+            # The critical de-duplication step using the temporary key
+            final_repro_df.drop_duplicates(subset=['uq_map_name', 'noise_level_id'], keep='first', inplace=True)
+            
+            # Clean up the dataframe for saving
+            final_repro_df.drop(columns=['noise_level_id', 'is_ood'], inplace=True)
             final_repro_df.rename(columns=AGGREGATOR_NAME_MAPPING, inplace=True)
-            final_repro_df.set_index('uq_map_name', inplace=True)
             
             base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
             if args.spatial: base_name += f'_{args.spatial}'
             repro_path = paths.output.joinpath(f'tables/eaurc_reproducibility_repo/{base_name}.csv')
-            final_repro_df.to_csv(repro_path)
-            print(f"Comprehensive AURC reproducibility data saved to {repro_path}")
-        
-        # Create final results structure for plotting
-        final_results = AnalysisResults(
-            mean_aurc=mean_aurc,
-            std_aurc=std_aurc,
-            mean_eaurc=mean_eaurc,
-            std_eaurc=std_eaurc,
-            coverages=all_results["coverages"],
-            mean_selective_risks=mean_selective_risks,
-            std_selective_risks=std_selective_risks
-        )
-        
-        # Create plot
-        create_selective_risks_coverage_plot(method_names, final_results, paths.output, args, ood)
+            final_repro_df.to_csv(repro_path, index=False)
+            print(f"\nComprehensive and de-duplicated reproducibility data saved to {repro_path}")
 
 def main():
     # Set up plot style

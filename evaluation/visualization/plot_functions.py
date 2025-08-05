@@ -777,8 +777,17 @@ def create_selective_risks_coverage_plot(
     _format_aurc_plot()
     _save_aurc_plot(output_path, args, ood, return_one_only)
     
+    # Reconstruct the sorted dataframe to pass to the reporting function
+    report_df = pd.DataFrame({
+        'Aggregator': method_names, # These are already sorted
+        'AURC': aurc_res.mean_aurc,
+        'AURC_std': aurc_res.std_aurc,
+        'EAURC': aurc_res.mean_eaurc,
+        'EAURC_std': aurc_res.std_eaurc
+    })
+    
     # Create and save barplot
-    create_metric_reports(method_names, aurc_res, output_path, args, ood, return_one_only, correlation_colors)
+    create_metric_reports(report_df, output_path, args, ood, return_one_only, correlation_colors)
     
 def _get_method_styling(method_name: str, method_index: int, method_categories: List[str], 
                        first_occurrence: Dict[str, bool], correlation_colors: Dict[str, str],
@@ -943,9 +952,14 @@ def _format_aurc_plot(legend_ncol: int = 5) -> None:
     ax.spines['right'].set_visible(False)
     
 
-def create_metric_reports(method_names: List[str], analysis_results: 'AnalysisResults',
-                          output_path: Path, args: argparse.Namespace, ood: bool,
-                          return_one_only: bool, correlation_colors: Dict[str, str]) -> None:
+def create_metric_reports(
+    results_df: pd.DataFrame, # Changed to accept the full dataframe
+    output_path: Path, 
+    args: argparse.Namespace, 
+    ood: bool,
+    return_one_only: bool, 
+    correlation_colors: Dict[str, str]
+) -> None:
     """
     Creates and saves bar plots and CSV files for both AURC and E-AURC metrics.
 
@@ -965,9 +979,7 @@ def create_metric_reports(method_names: List[str], analysis_results: 'AnalysisRe
     print("Generating report for AURC...")
     _generate_single_metric_report(
         metric_name='AURC',
-        mean_values=analysis_results.mean_aurc,
-        std_values=analysis_results.std_aurc,
-        method_names=method_names,
+        results_df=results_df.sort_values('AURC', ascending=True).reset_index(drop=True), # Sort by AURC for this report
         output_path=output_path,
         args=args,
         data_mod=data_mod,
@@ -979,9 +991,7 @@ def create_metric_reports(method_names: List[str], analysis_results: 'AnalysisRe
     print("Generating report for E-AURC...")
     _generate_single_metric_report(
         metric_name='EAURC',
-        mean_values=analysis_results.mean_eaurc,
-        std_values=analysis_results.std_eaurc,
-        method_names=method_names,
+        results_df=results_df.sort_values('EAURC', ascending=True).reset_index(drop=True), # Sort by E-AURC for this report
         output_path=output_path,
         args=args,
         data_mod=data_mod,
@@ -989,9 +999,13 @@ def create_metric_reports(method_names: List[str], analysis_results: 'AnalysisRe
     )
     print("-" * 20)
     
-def _generate_single_metric_report(metric_name: str, mean_values: List[float], std_values: List[float],
-                                   method_names: List[str], output_path: Path, args: argparse.Namespace,
-                                   data_mod: str, correlation_colors: Dict[str, str]) -> None:
+def _generate_single_metric_report(metric_name: str, 
+    results_df: pd.DataFrame, # Changed to accept the dataframe
+    output_path: Path, 
+    args: argparse.Namespace,
+    data_mod: str, 
+    correlation_colors: Dict[str, str]
+) -> None:
     """
     Generates and saves a bar plot and CSV file for a single metric.
     """
@@ -1001,15 +1015,10 @@ def _generate_single_metric_report(metric_name: str, mean_values: List[float], s
     
     metric_name_lower = metric_name.lower()
     
-    # 1. Create and sort the DataFrame
-    df = pd.DataFrame({
-        'Aggregator': method_names,
-        metric_name: mean_values,
-        f'{metric_name}_std': std_values
-    })
-    df_sorted = df.sort_values(metric_name, ascending=True).reset_index(drop=True)
+    # The dataframe is already sorted and correct
+    print(results_df[['Aggregator', metric_name, f'{metric_name}_std']])
 
-    # 2. Save results to a CSV file
+    # Save results to a CSV file
     csv_name = f'{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}'
     if args.spatial:
         csv_name += f'_{args.spatial}'
@@ -1018,9 +1027,8 @@ def _generate_single_metric_report(metric_name: str, mean_values: List[float], s
     csv_dir.mkdir(parents=True, exist_ok=True)
     csv_file = csv_dir.joinpath(f'{csv_name}_{metric_name_lower}_{data_mod}_results.csv')
 
-    # Append to CSV, writing header only if the file is new or empty
     header = not csv_file.exists() or csv_file.stat().st_size == 0
-    df_sorted.to_csv(csv_file, mode='a' if not header else 'w', index=False, header=header)
+    results_df.to_csv(csv_file, mode='a' if not header else 'w', index=False, header=header)
     print(f"Data for {metric_name} appended to {csv_file}")
     
     # 3. Create new figure for barplot
@@ -1041,7 +1049,7 @@ def _generate_single_metric_report(metric_name: str, mean_values: List[float], s
     
     # Create method to category mapping
     method_to_category = {}
-    for method in df_sorted['Aggregator']:
+    for method in results_df['Aggregator']:
         category = "Other"  # Default category
         for cat in method_categories:
             if method.startswith(cat):
@@ -1079,27 +1087,27 @@ def _generate_single_metric_report(metric_name: str, mean_values: List[float], s
     
     # Get colors for each method
     colors = []
-    for method in df_sorted['Aggregator']:
+    for method in results_df['Aggregator']:
         category = method_to_category[method]
         color = _get_method_color(method, category, correlation_colors, barplot_colors)
         colors.append(color)
     
     # Create bars
     bars = ax.bar(
-        df['Aggregator'], #range(len(df_sorted)), 
-        df_sorted[metric_name],
-        yerr=df_sorted[f'{metric_name}_std'],
+        results_df['Aggregator'], #range(len(df_sorted)), 
+        results_df[metric_name],
+        yerr=results_df[f'{metric_name}_std'],
         color=colors,
         capsize=4,
         zorder=3,
         )
     
     # Format bars and axes
-    _format_aurc_bars(ax, bars, df_sorted, show_values=True)
+    _format_aurc_bars(ax, bars, results_df, show_values=True)
     _format_aurc_axes(ax)
     
     # Add legend
-    _add_aurc_legend(ax, strategies_dict, method_to_category, df_sorted, 
+    _add_aurc_legend(ax, strategies_dict, method_to_category, results_df, 
                      correlation_colors, barplot_colors, legend_ncol=3)
     
     # 6. Save the final plot

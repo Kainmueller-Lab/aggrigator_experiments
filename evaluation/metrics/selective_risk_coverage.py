@@ -6,6 +6,8 @@ import torch
 from tqdm import tqdm
 from pathlib import Path 
 from typing import List, Any, Tuple, Callable, Dict, Optional
+from itertools import combinations
+from scipy.stats import wilcoxon
 from evaluation.data_utils import (
     load_unc_maps, 
     rescale_maps, 
@@ -13,7 +15,6 @@ from evaluation.data_utils import (
     _process_gt_masks, 
     process_aggr_unc
 )
-
 from evaluation.constants import CLASS_NAMES_ARCTIQUE, CLASS_NAMES_LIZARD
 from concurrent.futures import ThreadPoolExecutor
 from evaluation.metrics.accuracy_metrics import acc_score
@@ -175,6 +176,103 @@ def process_strategy(
         res = np.nan_to_num(np.array(res), nan=0).tolist()
     return strategy_idx, res
 
+# --- Bootstrapping and Statistical Testing ---
+
+def _perform_pairwise_wilcoxon_tests_on_eaurc(
+    bootstrap_samples_by_agg: Dict[str, List[float]],
+) -> pd.DataFrame:
+    """Performs one-sided pairwise Wilcoxon signed-rank tests to compare E-AURC."""
+    p_value_results = []
+    aggr_names = list(bootstrap_samples_by_agg.keys())
+
+    for agg1_name, agg2_name in combinations(aggr_names, 2):
+        samples1 = bootstrap_samples_by_agg[agg1_name]
+        samples2 = bootstrap_samples_by_agg[agg2_name]
+        min_len = min(len(samples1), len(samples2))
+        if min_len == 0: continue
+
+        # Test H1: agg1 < agg2 (lower E-AURC is better)
+        _, p_less = wilcoxon(samples1[:min_len], samples2[:min_len], alternative='less', zero_method='zsplit')
+        # Test H1: agg2 < agg1
+        _, p_greater = wilcoxon(samples1[:min_len], samples2[:min_len], alternative='greater', zero_method='zsplit')
+
+        p_value_results.append({
+            'Comparison': f'{agg1_name}_vs_{agg2_name}',
+            f'p_value ({agg1_name} < {agg2_name})': p_less,
+            f'p_value ({agg2_name} < {agg1_name})': p_greater,
+        })
+    return pd.DataFrame(p_value_results)
+
+def _compute_bootstrapped_aurc_stats(
+    aggr_unc_val: np.ndarray,
+    aggr_acc_val: np.ndarray,
+    strategy_names: List[str],
+    n_bootstraps: int = 500
+) -> Tuple[Dict, Dict[str, List[float]]]:
+    """
+    Computes AURC, E-AURC, and Selective Risks with bootstrapping.
+    """
+    n_samples, n_strategies = aggr_unc_val.shape
+    
+    # Initialize storage for bootstrapped metrics
+    bootstrapped_aurcs = {name: [] for name in strategy_names}
+    bootstrapped_eaurcs = {name: [] for name in strategy_names}
+    bootstrapped_risks = {name: [] for name in strategy_names}
+
+    print(f"--- Starting bootstrapping with {n_bootstraps} samples ---")
+    for _ in tqdm(range(n_bootstraps), desc="Bootstrapping AURC/E-AURC"):
+        indices = np.random.choice(range(n_samples), size=n_samples, replace=True)
+        
+        boot_unc = aggr_unc_val[indices, :]
+        boot_acc = aggr_acc_val[indices, :]
+
+        for i, name in enumerate(strategy_names):
+            # Ignore strategies that resulted in all NaNs
+            if np.isnan(boot_unc[:, i]).all(): continue
+
+            evaluator = StatsCache(-boot_unc[:, i], boot_acc[:, i], 10)
+            
+            bootstrapped_aurcs[name].append(evaluator.aurc / AURC_DISPLAY_SCALE)
+            bootstrapped_eaurcs[name].append(evaluator.eaurc / AURC_DISPLAY_SCALE)
+            
+            # Pad risks to a consistent length for aggregation
+            risks = evaluator.selective_risks
+            target_len = n_samples + 1
+            if len(risks) < target_len:
+                padding = np.full(target_len - len(risks), risks[-1] if len(risks) > 0 else 0)
+                risks = np.concatenate([risks, padding])
+            bootstrapped_risks[name].append(risks[:target_len])
+    
+    # Calculate final stats
+    results = {
+        "mean_aurc": [], "std_aurc": [],
+        "mean_eaurc": [], "std_eaurc": [],
+        "mean_selective_risks": [], "std_selective_risks": [],
+        "coverages": []
+    }
+    
+    for name in strategy_names:
+        results["mean_aurc"].append(np.mean(bootstrapped_aurcs[name]) if bootstrapped_aurcs[name] else np.nan)
+        results["std_aurc"].append(np.std(bootstrapped_aurcs[name]) if bootstrapped_aurcs[name] else np.nan)
+        results["mean_eaurc"].append(np.mean(bootstrapped_eaurcs[name]) if bootstrapped_eaurcs[name] else np.nan)
+        results["std_eaurc"].append(np.std(bootstrapped_eaurcs[name]) if bootstrapped_eaurcs[name] else np.nan)
+        
+        if bootstrapped_risks[name]:
+            risk_array = np.array(bootstrapped_risks[name])
+            results["mean_selective_risks"].append(np.mean(risk_array, axis=0))
+            results["std_selective_risks"].append(np.std(risk_array, axis=0))
+        else: # Handle case where a strategy failed completely
+            dummy_risks = np.full(n_samples + 1, np.nan)
+            results["mean_selective_risks"].append(dummy_risks)
+            results["std_selective_risks"].append(dummy_risks)
+
+    # Use the coverages from the last run on the full dataset as representative
+    evaluator = StatsCache(-aggr_unc_val[:, 0], aggr_acc_val[:, 0], 10)
+    for _ in range(len(results["mean_selective_risks"])):
+        results["coverages"].append(evaluator.coverages)
+        
+    return results, bootstrapped_eaurcs
+
 def _pad_selective_risks(selective_risks, pred_list):
     selective_risks = selective_risks
     target_length = len(pred_list) + 1
@@ -188,170 +286,88 @@ def _pad_selective_risks(selective_risks, pred_list):
         ])       
     return selective_risks
 
-def compute_selective_risks_coverage(uq_maps: List[np.ndarray],
-        gt_list: List[np.ndarray], 
-        pred_list: List[np.ndarray],
-        sample_names: List[str],
-        gt_labels: np.ndarray, 
-        paths: Path,  
-        task: str, 
-        model_noise: int, 
-        uq_method: str, 
-        decomp: str, 
-        variation: str, 
-        data_noise: str, 
-        strategies: Dict[str, Dict[str, Tuple[callable, Any]]],
-        num_workers: int = 4,
-        dataset_name: str = 'arctique',
-        ood: bool = False,
-        return_one_only: bool = True,
-    ) -> None:
+def compute_uncertainty_and_accuracy_scores(
+    uq_maps: List[np.ndarray],
+    gt_list: List[np.ndarray],
+    pred_list: List[np.ndarray],
+    sample_names: List[str],
+    gt_labels: np.ndarray,
+    paths: Path,
+    task: str,
+    model_noise: int,
+    uq_method: str,
+    decomp: str,
+    variation: str,
+    data_noise: str,
+    strategies: Dict[str, Dict[str, Tuple[callable, Any]]],
+    num_workers: int = 4,
+    dataset_name: str = 'arctique',
+    ood: bool = False,
+    return_one_only: bool = True,
+) -> Tuple[np.ndarray, np.ndarray, Optional[pd.DataFrame]]:
     """
-    Calculate selective risk-coverage curves for different aggregation strategies.
-    
-    Args:
-        cached_maps : cached UncertaintyMap, masks and predictions objects
-        gt_list: list of gt masks
-        pred_list: instance and semantic predictions list
-        paths: preprocess paths
-        task: Task type (e.g., "semantic" or "instance")
-        model_noise: Image noise level (OOD severity)
-        uq_method: UQ method
-        decomp: unc. decomposition absed on information theory (e.g. "pu", "au", "eu")
-        variation: variation type ingected in data (for OOD severity, e.g. "blood_cells" or "nuclei_intensity")
-        data_noise: Mask noise level (if any, seen during training)
-        strategies: aggregation strategies dictionary
-        num_workers: no. of workers for parallel processing 
-        dataset_name: selected dataset
-        ood: boolean for data_mod to perform evaluaiton on id or ood
-        return_one_only: boolean to perform evaluation on id or ood only
+    Calculates raw, per-image uncertainty and accuracy scores for all strategies.
+    This is the core data needed for subsequent bootstrapping.
     """
-    
-    idx_task = 1 if task == 'semantic' else 2 
-    # idx_task = 0 if task == 'semantic' else 1 
+    idx_task = 1 if task == 'semantic' else 2
     class_names = CLASS_NAMES_ARCTIQUE if dataset_name.startswith("arctique") else CLASS_NAMES_LIZARD
     
-    # strategies.setdefault('Spatial', {})['GMM'] = (None, None)
+    total_subkeys = sum(len(subdict) for subdict in strategies.values())
     
-    total_subkeys = sum(len(subdict) for subdict in strategies.values()) # Count total number of strategies
-    
-    # Exclude images containing only background (class 0) and preprocess gt masks 
     ind_to_rem, gt_list, pred_list = remove_background_only_images(gt_list, pred_list, idx_task, task, dataset_name)
     
-    # --- Filter sample_names and uq_maps just like gt_list and pred_list ---
-    # This ensures all lists are aligned after removing background-only images.
     sample_names = [name for i, name in enumerate(sample_names) if i not in ind_to_rem]
     uq_maps = [map for i, map in enumerate(uq_maps) if i not in ind_to_rem]
-    
-    gt_labels = gt_labels if ind_to_rem is None else np.delete(gt_labels, ind_to_rem) # Filter gt_labels too!
+    gt_labels = gt_labels if ind_to_rem is None else np.delete(gt_labels, ind_to_rem)
     gt_list_shared = _process_gt_masks(gt_list, idx_task, dataset_name)
 
-    # --- Load all three aligned GMM score arrays before the main loop ---
     aligned_gmm_scores, aligned_gmm_pixel_scores, aligned_gmm_spatial_scores = _load_and_align_gmm_scores(
         sample_names, gt_list_shared, gt_labels, dataset_name, task, variation, decomp, ood, return_one_only
     )
 
-    # Initialize arrays for storing results
     aggr_unc_val = np.zeros((len(pred_list), total_subkeys))
-    aggr_acc = np.zeros((len(pred_list), total_subkeys))
+    aggr_acc_val = np.zeros((len(pred_list), total_subkeys))
     
-    # Create list of strategies to process
-    strategy_list = []
+    shared_data = {'uq_maps': uq_maps, 'task': task, 'dataset_name': dataset_name}
+    
+    strategy_list, gmm_strategy_indices, strategy_names_ordered = [], {}, []
     idx = 0
-    gmm_strategy_indices = {} #Use a dictionary to store the index of each GMM strategy
-    
-    shared_data = {
-        'uq_maps': uq_maps,
-        'paths': paths,
-        'gt': gt_list_shared,
-        'task': task,
-        'model_noise': model_noise,
-        'uq_method': uq_method,
-        'decomp': decomp,
-        'variation': variation,
-        'data_noise': data_noise,
-        'dataset_name': dataset_name,
-        'ind_to_rem': ind_to_rem
-    }
-    
-    strategy_names_ordered = [] # To store names for DataFrame columns
     for category, methods in strategies.items():
         for method_name, (method, param) in methods.items():
-            # Check if the method is one of the GMM placeholders and store its index
             strategy_names_ordered.append(method_name)
             if method_name in ['GMM', 'GMM_pixel', 'GMM_spatial']:
-                print(f"Found GMM placeholder strategy '{method_name}' at index {idx}.")
                 gmm_strategy_indices[method_name] = idx
             strategy_list.append((idx, method, param, shared_data, category, method_name))
             idx += 1
-    
-    # Process strategies in parallel
-    aurc_res = {
-        'aurc': np.zeros((len(strategy_list))),
-        'eaurc': np.zeros((len(strategy_list))),
-        'coverages': [], #np.zeros((len(pred_list) + 1)),
-        'selective_risks': np.zeros((len(pred_list) + 1, len(strategy_list)))
-        }
-    
+
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [executor.submit(process_strategy, data) for data in strategy_list]
-        
-        for future in tqdm(futures, desc="Processing aggregation strategies"):
+        for future in tqdm(futures, desc=f"Processing strategies for {uq_method}"):
             idx, aggr_unc = future.result()
-            
-            # --- verwrite dummy GMM results with the correct aligned scores ---
-            # Retrieve the method name corresponding to the current index
             method_name = strategy_list[idx][-1]
-
-            # Create a mapping from placeholder names to their score arrays and indices
-            gmm_score_mapping = {
-                'GMM': (aligned_gmm_scores, gmm_strategy_indices.get('GMM')),
-                'GMM_pixel': (aligned_gmm_pixel_scores, gmm_strategy_indices.get('GMM_pixel')),
-                'GMM_spatial': (aligned_gmm_spatial_scores, gmm_strategy_indices.get('GMM_spatial')),
-            }
             
-            # If the current method is a GMM placeholder, replace its dummy data
-            if method_name in gmm_score_mapping:
-                scores_array, expected_idx = gmm_score_mapping[method_name]
-                if idx == expected_idx and scores_array is not None:
-                    if len(aggr_unc) == len(scores_array):
-                        print(f"Overwriting dummy values with aligned '{method_name}' scores for strategy index {idx}.")
-                        aggr_unc = scores_array
-                    else:
-                        print(f"Warning: Length mismatch for '{method_name}'. Skipping.")
-                        aggr_unc = np.full(len(aggr_unc), np.nan) # Set to NaN to ignore in metrics
-                elif scores_array is None:
-                     print(f"Warning: Scores for '{method_name}' were not loaded. Skipping.")
-                     aggr_unc = np.full(len(aggr_unc), np.nan)
-  
-            aggr_acc_val = acc_score(
-                gt_list, 
-                [pred_list[i] for i in range(len(gt_list))], #np.stack(pred_list, axis=0), 
-                list(class_names.keys()), 
-                len(class_names), 
-                shared_data
-            )
+            gmm_mapping = {'GMM': aligned_gmm_scores, 'GMM_pixel': aligned_gmm_pixel_scores, 'GMM_spatial': aligned_gmm_spatial_scores}
+            if method_name in gmm_mapping:
+                scores_array = gmm_mapping[method_name]
+                if scores_array is not None:
+                    aggr_unc = scores_array if len(aggr_unc) == len(scores_array) else np.full(len(aggr_unc), np.nan)
+                else:
+                    aggr_unc = np.full(len(aggr_unc), np.nan)
             
+            aggr_unc_val[:, idx] = aggr_unc
+            aggr_acc_val[:, idx] = acc_score(
+                gt_list, [pred_list[i] for i in range(len(gt_list))], 
+                list(class_names.keys()), len(class_names), shared_data
+                )
+    
             valid_mask = np.isnan(aggr_acc_val)
-            aggr_acc[:, idx] = np.where(valid_mask, 0, aggr_acc_val)
-            aggr_unc_val[:, idx]  = np.where(valid_mask, 0, aggr_unc)
-            
-            evaluator = StatsCache(-aggr_unc_val[:, idx], aggr_acc[:, idx], 10)
-            aurc_res['aurc'][idx] = evaluator.aurc/AURC_DISPLAY_SCALE
-            aurc_res['eaurc'][idx] = evaluator.eaurc/AURC_DISPLAY_SCALE
-            selective_risks = _pad_selective_risks(evaluator.selective_risks, pred_list) #TODO - check why for threshold aggregations for softmax we get less selective risks values 
-            aurc_res['selective_risks'][:, idx] = selective_risks
-            aurc_res['coverages'].append(evaluator.coverages)
-    
-    aurc_res['coverages'] = aurc_res['coverages'][-3] #to avoid that excluded background-only pictures cause NaNs
-    # aurc_res['coverages'] = evaluator.coverages
-    
-    # *** CREATE REPRODUCIBILITY DATAFRAME ***
+            aggr_acc_val = np.where(valid_mask, 0, aggr_acc_val)
+            aggr_unc_val = np.where(valid_mask, 0, aggr_unc_val) 
+
     repro_df = None
     if sample_names:
-        repro_df = pd.DataFrame(aggr_acc, columns=strategy_names_ordered)
-        converted_names = [name.item() if hasattr(name, 'item') else name for name in sample_names]
-        repro_df['uq_map_name'] = converted_names
+        repro_df = pd.DataFrame(aggr_unc_val, columns=strategy_names_ordered)
+        repro_df['uq_map_name'] = [name.item() if hasattr(name, 'item') else name for name in sample_names]
         repro_df['is_ood'] = gt_labels
-    
-    return aurc_res, repro_df
+
+    return aggr_unc_val, aggr_acc_val, repro_df

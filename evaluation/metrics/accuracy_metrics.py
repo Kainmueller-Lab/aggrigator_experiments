@@ -125,7 +125,7 @@ def acc_score(
     elif shared_data["dataset_name"].startswith('wormbodies'):
         dataset_config = {'num_classes': 2, 'ignore_index': True, 'ignore_value': 0, 'average': 'micro'}
     elif shared_data["dataset_name"].startswith('weedsgalore'):
-        dataset_config = {'num_classes': 3, 'ignore_index': True, 'ignore_value': 0, 'average': 'macro'}
+        dataset_config = {'num_classes': 3, 'ignore_index': True, 'ignore_value': 0, 'average': 'micro'}
     elif shared_data["dataset_name"].startswith('gta'):
         dataset_config = {'num_classes': 19, 'ignore_index': True, 'ignore_value': 18, 'average': 'macro'} #index corresponding to class 255
     elif shared_data["dataset_name"].startswith('ade20k'):
