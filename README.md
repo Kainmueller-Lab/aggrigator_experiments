@@ -57,13 +57,10 @@ Load it via `source .env` or let tools such as *direnv* / *dotenv-cli* handle it
 ---
 
 ## Evaluation
-The repository addresses five practical questions:
+To quantify the impact of choosing an aggregation method on model reliability, this repository provides performance metrics for two key downstream tasks:
 
-1. **Similarity of uncertainty scores** – see `experiments/correlation_analyses/*.ipynb`.
-2. **Reliability in real-world scenarios** – run `evaluation/scripts/evaluate_auroc.py` and `evaluation/scripts/evaluate_aurc.py`.
-3. **Influence of parameters in non-parameter-free aggregators** – *coming soon*.
-4. **Effect on model ranking in benchmarks** – *coming soon*.
-5. **Spatial measures as context-aware aggregators** – see `evaluation/analyse_spatial_methods.py`.
+1. Out-of-Distribution (OoD) Detection (cf. `evaluation/scripts/evaluate_auroc.py`)
+2. Failure Detection (cf. `evaluation/scripts/evaluate_aurc.py`)
 
 ---
 
