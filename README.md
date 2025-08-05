@@ -34,7 +34,7 @@ micromamba activate aggr_experiments
 | Path | Purpose |
 |------|---------|
 | `datasets/` | Download, convert, and standardzse the raw data used in the experiments (`*_dataset_creation.py`). |
-| `evaluation/` | Metric implementations (AUROC, AURC, Dice, etc.) and high-level evaluation scripts for comprehensive benchmarking. |
+| `evaluation/` | Metric implementations (AUROC, AURC, E_AURC, Dice, etc.) and high-level evaluation scripts for comprehensive benchmarking. |
 | `spatial/` | Code for the spatial fingerprint approach, including spatial mass ratio computation, Gaussian Mixture Model (GMM) fitting, and feature preprocessing ablations. |
 | `reproducibility/` | Lightweight scripts to reproduce key plots from the paper (e.g., Figure 4 and Figure 5b). |
 | `output/` | Generated figures (`.png`, `.html`) and result tables in CSV format. |
