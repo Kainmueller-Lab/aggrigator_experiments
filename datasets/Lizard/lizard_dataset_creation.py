@@ -11,6 +11,11 @@ from torch.utils.data import Dataset, DataLoader
 from datasets.dataset import Dataset_Class
 from pathlib import Path
 from functools import lru_cache
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 # ---- Lizard Config. Functions ----
 
@@ -394,15 +399,15 @@ def main():
     }
 
     main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
-    lmdb_path = '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
+    lmdb_path = LAB_PATH + "data/LizardRaw_new/archive/lizard_tiles.lmdb"
     
     # Define the uq_map and prediction paths based on the amsks' noise with which the model was trained        
-    map_path = Path(f'/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/uncertainty_lizard_convnextv2_tiny_{extra_info["model_noise"]}')
+    map_path = Path(f'{LAB_PATH}data/Lizard_AggroUQ/trained_2/uncertainty_lizard_convnextv2_tiny_{extra_info["model_noise"]}')
     uq_map_path = map_path.joinpath(main_folder_name)
     prediction_path = map_path.joinpath('UQ_predictions')
     
     # Define split path to exlude tiles with exceeeding and wrong padding 
-    json_path = Path(lmdb_path).parent.joinpath(f"/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
+    json_path = Path(lmdb_path).parent.joinpath(f"{LAB_PATH}data/LizardRaw_new/archive/lizard_dataset_splits_corrected.json")
     extra_info['split_path'] = json_path
     
     data_loader = LizardDataset(lmdb_path, 

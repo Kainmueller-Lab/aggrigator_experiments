@@ -2,6 +2,11 @@ import argparse
 import os
 import numpy as np
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 from evaluation.data_utils import (
     setup_paths, 
@@ -21,24 +26,24 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '--uq_path', type=str, 
-        default='/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/', help='Path to unc. evaluation results'
+        default=LAB_PATH + "vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/", help='Path to unc. evaluation results'
     )
-    # arctique: '/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/'
-    # lidc: '/fast/AG_Kainmueller/data/ValUES/'
-    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
-    # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
-    # lizard: '/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/'
-    # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/'
-    # wormbodies: '/fast/AG_Kainmueller/data/UQ_maps/wormbodies/'
+    # arctique: LAB_PATH + "vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14/"
+    # lidc: LAB_PATH + "data/ValUES/"
+    # gta_cityscapes: LAB_PATH + "data/GTA_CityScapes_UQ/"
+    # ade20k_cityscapes: LAB_PATH + "data/UQ_maps/ADE20K/"
+    # lizard: LAB_PATH + "data/Lizard_AggroUQ/trained_2/"
+    # weedsgalore: LAB_PATH + "data/weedsgalore/"
+    # wormbodies: LAB_PATH + "data/UQ_maps/wormbodies/"
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
     )
-    # arctique: '/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/'
-    # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA/'
-    # ade20k_cityscapes: '/fast/AG_Kainmueller/data/ADEChallengeData2016/'
-    # lizard: '/fast/AG_Kainmueller/data/LizardRaw_new/archive/lizard_tiles.lmdb'
-    # weedsgalore: '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/'
-    # wormbodies: '/fast/AG_Kainmueller/data/'
+    # arctique: LAB_PATH + "synth_unc_models/data/v1-0-variations/variations/"
+    # gta_cityscapes: LAB_PATH + "data/GTA/"
+    # ade20k_cityscapes: LAB_PATH + "data/ADEChallengeData2016/"
+    # lizard: LAB_PATH + "data/LizardRaw_new/archive/lizard_tiles.lmdb"
+    # weedsgalore: LAB_PATH + "data/UQ_maps/weedsgalore/"
+    # wormbodies: LAB_PATH + "data/"
     parser.add_argument(
         '--model_noise', type=int, default=0, help='Model noise level'
     )
@@ -152,7 +157,7 @@ def main():
             uq_maps = [u.array for u in uq_maps]
             
             # Define the base output directory
-            base_output_dir = Path('/fast/AG_Kainmueller/data/AggroUQ_eval_samples_vis')
+            base_output_dir = Path(LAB_PATH + "data/AggroUQ_eval_samples_vis")
 
             # Construct the full path according to the specified structure
             output_path = base_output_dir / args.dataset_name / f"{args.variation}_{combo_key}" / task / uq_method

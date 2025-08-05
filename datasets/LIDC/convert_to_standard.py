@@ -5,6 +5,12 @@ from pathlib import Path
 import glob
 import json
 
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
+
+
 def load_and_sum_nifti(file_path):
     """Load a NIfTI file and sum over the last dimension (z-axis)"""
     try:
@@ -61,14 +67,14 @@ def process_pred_folder(pred_path, ftype: str, uq_m: str):
 def create_metadata(method, method_name, ood_var, data_noise, data_type, sample_indices):
     """Create metadata dictionary for JSON file"""
     metadata = {
-        "root_dir": f"/fast/AG_Kainmueller/data/ValUES/FirstCycle/{method}/test_results/{ood_var}_fold0_seed123/",
+        "root_dir": f"{LAB_PATH}data/ValUES/FirstCycle/{method}/test_results/{ood_var}_fold0_seed123/",
         "dataset": "lidc-idri",
         "data_modality": "id" if data_noise == "0_00" else "ood",
         "image_noise": data_noise,
         "mask_noise": "0",
         "model": "uncertainty_modeling.models.unet3D_module.UNet3D",
         "uq_method": method_name,
-        "exp": f"/fast/AG_Kainmueller/data/ValUES/FirstCycle/{method}/{ood_var}_fold0_seed123/checkpoints/",
+        "exp": f"{LAB_PATH}data/ValUES/FirstCycle/{method}/{ood_var}_fold0_seed123/checkpoints/",
         "sample_idx": sample_indices,
         "calibr": False
     }
@@ -76,7 +82,7 @@ def create_metadata(method, method_name, ood_var, data_noise, data_type, sample_
 
 def main():
     # Base directory
-    base_dir = "/fast/AG_Kainmueller/data/ValUES/"
+    base_dir = LAB_PATH + "data/ValUES/"
     cycle = "FirstCycle/"
     
     # Create UQ_maps and UQ_metadata folders if they don't exist

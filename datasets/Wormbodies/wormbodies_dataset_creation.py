@@ -9,25 +9,29 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from torch.utils.data import DataLoader
 from datasets.dataset import Dataset_Class
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 ############# Configuration Paths ##############
 # ID paths 
-# image_path: /fast/AG_Kainmueller/data/data_wormbodies/train
-# mask_path: /fast/AG_Kainmueller/data/data_wormbodies/train
-# uq_map_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/dropout/au
-# pred_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_train/fg-bg/dropout/pred
+# image_path: LAB_PATH + "data/data_wormbodies/train"
+# mask_path: LAB_PATH + "data/data_wormbodies/train"
+# uq_map_path: LAB_PATH + "data/UQ_maps/wormbodies/BBBC010_train/fg-bg/dropout/au"
+# pred_path: LAB_PATH + "data/UQ_maps/wormbodies/BBBC010_train/fg-bg/dropout/pred"
 
 # OOD paths - v1 
-# image_path: /fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/images/images_bw_np
-# mask_path: /fast/AG_Kainmueller/data/Nematodes/Nematodes/Train_set_processed/resize/masks/binary
-# uq_map_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/dropout/au
-# pred_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/dropout/pred
+# image_path: LAB_PATH + "data/Nematodes/Nematodes/Train_set_processed/resize/images/images_bw_np"
+# mask_path: LAB_PATH + "data/Nematodes/Nematodes/Train_set_processed/resize/masks/binary"
+# uq_map_path: LAB_PATH + "data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/dropout/au"
+# pred_path: LAB_PATH + "data/UQ_maps/wormbodies/Nematodes_ood/fg-bg/dropout/pred"
 
 # OOD paths - v2 
-# image_path: /fast/AG_Kainmueller/data/Protists/processed/resize/images/images_bw_np
-# mask_path: /fast/AG_Kainmueller/data/Protists/processed/resize/masks/binary
-# uq_map_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/dropout/au
-# pred_path: /fast/AG_Kainmueller/data/UQ_maps/wormbodies/Protists_ood/fg-bg/dropout/pred
+# image_path: LAB_PATH + "data/Protists/processed/resize/images/images_bw_np"
+# mask_path: LAB_PATH + "data/Protists/processed/resize/masks/binary"
+# uq_map_path: LAB_PATH + "data/UQ_maps/wormbodies/Protists_ood/fg-bg/dropout/au"
+# pred_path: LAB_PATH + "data/UQ_maps/wormbodies/Protists_ood/fg-bg/dropout/pred"
 ##################################################
 
 class wormbodies_dataset(Dataset_Class):
@@ -202,10 +206,10 @@ def main():
     }
 
     main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
-    data_path = '/fast/AG_Kainmueller/data/'
+    data_path = LAB_PATH + "data/"
     
     # Define the uq_map and prediction paths based on the amsks' noise with which the model was trained        
-    uq_map_path = Path(f'/fast/AG_Kainmueller/data/{main_folder_name}/wormbodies/')
+    uq_map_path = Path(f'{LAB_PATH}data/{main_folder_name}/wormbodies/')
     
     data_loader = wormbodies_dataset(data_path, 
                                     data_path, 

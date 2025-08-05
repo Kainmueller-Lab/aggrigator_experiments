@@ -2,6 +2,12 @@ import os
 import json
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
+
+
 def extract_image_id_from_path(file_path):
     """Extract image ID from file path (e.g., '0057_06' from '/path/to/0057_06.npy')"""
     filename = os.path.basename(file_path)
@@ -55,7 +61,7 @@ def process_metrics_file(metrics_file_path, ood_var, data_noise, method_name, pe
 
 def main():
     # Base directory
-    base_dir = "/fast/AG_Kainmueller/data/ValUES/"
+    base_dir = LAB_PATH + "data/ValUES/"
     cycle = "FirstCycle/"
     
     # Create Performance_metrics folder if it doesn't exist

@@ -11,8 +11,13 @@ from torchvision.transforms.functional import rgb_to_grayscale
 from pathlib import Path
 from PIL import Image
 from functools import lru_cache
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 from datasets.dataset import Dataset_Class
+
 
 # ---- Arctique Config. Functions ----
 
@@ -400,8 +405,8 @@ def main():
     }
     
     main_folder_name = "UQ_maps" if not extra_info['spatial'] else "UQ_spatial"
-    map_path = Path('/fast/AG_Kainmueller/vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14')
-    base_path = Path('/fast/AG_Kainmueller/synth_unc_models/data/v1-0-variations/variations/')
+    map_path = Path(LAB_PATH + "vguarin/hovernext_trained_models/trained_on_cluster/uncertainty_arctique_v1-0-corrected_14")
+    base_path = Path(LAB_PATH + "synth_unc_models/data/v1-0-variations/variations/")
     
     image_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'images')
     mask_path = base_path.joinpath(extra_info['variation'], extra_info['data_noise'], 'masks')

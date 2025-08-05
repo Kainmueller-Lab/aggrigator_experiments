@@ -9,9 +9,13 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from PIL import Image
 import matplotlib.pyplot as plt
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 import sys
-sys.path.append("/fast/AG_Kainmueller/vguarin/aggrigator_experiments/")
+sys.path.append(LAB_PATH + "vguarin/aggrigator_experiments/")
 from datasets.dataset import Dataset_Class
 
 def inst_to_3c(gt_labels, lizard =  True):
@@ -286,9 +290,9 @@ class OptimizedWeedsGalore_Properties(weedsgalore_dataset):
 # ---- Main Function to to test OptimizedWeedsGalore_Properties ----   
     
 def main():
-    image_path = "/fast/AG_Kainmueller/data/weedsgalore/"
+    image_path = LAB_PATH + "data/weedsgalore/"
     mask_path = image_path
-    uq_folder =  "/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/"
+    uq_folder =  LAB_PATH + "data/UQ_maps/weedsgalore/"
     pred_folder = uq_folder
 
     extra_info = {

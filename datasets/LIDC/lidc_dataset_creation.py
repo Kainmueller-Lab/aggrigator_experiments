@@ -10,9 +10,13 @@ from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 from functools import lru_cache
 from typing import Optional, Tuple
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 import sys
-sys.path.append('/fast/AG_Kainmueller/vguarin/aggrigator_experiments/')
+sys.path.append(LAB_PATH + "vguarin/aggrigator_experiments/")
 from datasets.dataset import Dataset_Class
 
 # ---- LIDC_IDRI Config. Functions ----
@@ -482,7 +486,7 @@ class OptimizedLIDCDataset(LIDCDataset):
 def main():
     spatial = False
     main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-    base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
+    base_path = Path(LAB_PATH + "data/ValUES/")
     map_path = base_path
     
     extra_info = {

@@ -3,6 +3,11 @@ import os
 import pandas as pd
 import toml
 import json
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 def load_config(path: str) -> dict:
     """Loads a TOML configuration file."""
@@ -15,7 +20,7 @@ def run_analysis_pipeline(paths: dict):
     Finds the intersection between spatial data files and test split files,
     then stores the new subsets in the output directory, preserving the index.
     """
-    output_dir = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprints_eval_subsets/'
+    output_dir = LAB_PATH + 'vguarin/aggrigator_experiments/output/tables/spatial_fingerprints_eval_subsets/'
     os.makedirs(output_dir, exist_ok=True)
     
     try:
@@ -112,7 +117,7 @@ def run_analysis_pipeline(paths: dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Creates subsets of spatial fingerprints split by samples used in evaluation for point cloud visualization")
-    parser.add_argument('--config', type=str, default='/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/spatial_configs/arctique.toml', help='Path to config TOML file')
+    parser.add_argument('--config', type=str, default=LAB_PATH + 'vguarin/aggrigator_experiments/spatial/spatial_configs/arctique.toml', help='Path to config TOML file')
     args = parser.parse_args()
     
     config = load_config(args.config)

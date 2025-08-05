@@ -40,6 +40,7 @@ dependencies = [
     "torch",
     "torchvision",
     "tqdm",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]

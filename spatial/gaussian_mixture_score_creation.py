@@ -5,13 +5,17 @@ import os
 import matplotlib.pyplot as plt
 import argparse
 from scipy.stats import beta, norm
-from sklearn.preprocessing import PowerTransformer, QuantileTransformer, StandardScaler
+from sklearn.preprocessing import QuantileTransformer, StandardScaler
 from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import pairwise_distances
 import json
 import joblib
+from dotenv import load_dotenv
+
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
 class BetaCDFGaussianizer:
     """
@@ -873,7 +877,7 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run GMM OoD analysis on spatial, magnitude, and combined fingerprints.")
-    parser.add_argument('--config', type=str, default='/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/spatial_configs/arctique.toml', help='Path to config TOML file')
+    parser.add_argument('--config', type=str, default=LAB_PATH + 'vguarin/aggrigator_experiments/spatial/spatial_configs/arctique.toml', help='Path to config TOML file')
     args = parser.parse_args()
     
     config = load_config(args.config)

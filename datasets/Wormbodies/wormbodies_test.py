@@ -1,10 +1,15 @@
 import matplotlib.pyplot as plt
 from wormbodies_dataset_creation import wormbodies_dataset
+from dotenv import load_dotenv
+import os
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
 
-wdset = wormbodies_dataset(image_path="/fast/AG_Kainmueller/data/data_wormbodies/test", 
-                           mask_path="/fast/AG_Kainmueller/data/data_wormbodies/test",
-                           uq_map_path="/fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_test/fg-bg/dropout/eu",
-                           prediction_path="/fast/AG_Kainmueller/data/UQ_maps/wormbodies/BBBC010_test/fg-bg/dropout/pred",
+
+wdset = wormbodies_dataset(image_path=LAB_PATH + "data/data_wormbodies/test", 
+                           mask_path=LAB_PATH + "data/data_wormbodies/test",
+                           uq_map_path=LAB_PATH + "data/UQ_maps/wormbodies/BBBC010_test/fg-bg/dropout/eu",
+                           prediction_path=LAB_PATH + "data/UQ_maps/wormbodies/BBBC010_test/fg-bg/dropout/pred",
                            semantic_mapping_path="")
                                
 

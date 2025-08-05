@@ -1,12 +1,12 @@
 [paths]
-id_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_crops_vs_weed_maize_0_00_dropout_pu.csv'
-ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_crops_vs_weed_maize_1_00_dropout_pu.csv'
-id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_weedsgalore_crops_vs_weed_maize_dropout_pu_0_00.csv' 
-ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_weedsgalore_crops_vs_weed_maize_dropout_pu_1_00.csv'
+id_csv_path_spatial = LAB_PATH + 'vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_crops_vs_weed_maize_0_00_dropout_pu.csv'
+ood_csv_path_spatial = LAB_PATH + 'vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_weedsgalore_crops_vs_weed_maize_1_00_dropout_pu.csv'
+id_csv_path_magnitude = LAB_PATH + 'vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_weedsgalore_crops_vs_weed_maize_dropout_pu_0_00.csv' 
+ood_csv_path_magnitude = LAB_PATH + 'vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_weedsgalore_crops_vs_weed_maize_dropout_pu_1_00.csv'
 
 [splits]
-id_json_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/splits/crops_vs_weed_weedsgalore_maize_pu_test_split.json'
-ood_json_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/splits/crops_vs_weed_weedsgalore_maize_pu_ood_split.json'
+id_json_path_spatial = LAB_PATH + 'vguarin/aggrigator_experiments/spatial/splits/crops_vs_weed_weedsgalore_maize_pu_test_split.json'
+ood_json_path_spatial = LAB_PATH + 'vguarin/aggrigator_experiments/spatial/splits/crops_vs_weed_weedsgalore_maize_pu_ood_split.json'
 
 [dataset]
 task = 'crops_vs_weed'

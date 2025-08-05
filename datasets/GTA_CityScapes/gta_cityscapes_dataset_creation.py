@@ -8,10 +8,11 @@ from PIL import Image
 from pathlib import Path
 from torch.utils.data import DataLoader 
 import matplotlib.pyplot as plt
+from dotenv import load_dotenv
 
-# sys.path.append("C:/Users/cwinklm/Documents/aggrigator_experiments/datasets/")
-# sys.path.append('/fast/AG_Kainmueller/vguarin/aggrigator_experiments/')
-# print(sys.path)
+load_dotenv()
+LAB_PATH = os.getenv('LAB_PATH')
+
 from datasets.dataset import Dataset_Class
 from .cityscapes_labels import labels, trainId2label #from cityscapes_labels import (without dot) if you directly run this script or the tutorial !
 
@@ -439,7 +440,7 @@ def main():
         'split' : None
     }
 
-    base_path = "/fast/AG_Kainmueller/data"
+    base_path = LAB_PATH + "data"
     data_folder_name = "/GTA/OriginalData" # /GTA/CityScapesOriginalData or /GTA/OriginalData
     
     if data_folder_name.startswith('/GTA/City'):
