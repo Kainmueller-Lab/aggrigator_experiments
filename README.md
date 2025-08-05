@@ -33,13 +33,13 @@ micromamba activate aggr_experiments
 
 | Path | Purpose |
 |------|---------|
-| `datasets/` | Download, convert, and standardise the raw datasets used in the experiments (`*_dataset_creation.py`). |
-| `evaluation/` | Metric implementations (AUROC, AURC, Dice, etc.) and high-level evaluation scripts. |
-| `spatial/` | Implementation of the spatial fingerprint approach (Gaussian-mixture embeddings, score creation, visualisation). |
-| `reproducibility/` | Tiny helper scripts that reproduce the main paper tables/figures. |
-| `output/` | Generated figures (`.png`, `.html`) and CSV result tables. |
-| `tests/` | PyTest unit tests that guard core functionality. |
-| `environment.yml / pyproject.toml` | Conda & Poetry dependency specifications. |
+| `datasets/` | Download, convert, and standardzse the raw data used in the experiments (`*_dataset_creation.py`). |
+| `evaluation/` | Metric implementations (AUROC, AURC, Dice, etc.) and high-level evaluation scripts for comprehensive benchmarking. |
+| `spatial/` | Code for the spatial fingerprint approach, including spatial mass ratio computation, Gaussian Mixture Model (GMM) fitting, and feature preprocessing ablations. |
+| `reproducibility/` | Lightweight scripts to reproduce key plots from the paper (e.g., Figure 4 and Figure 5b). |
+| `output/` | Generated figures (`.png`, `.html`) and result tables in CSV format. |
+| `tests/` | Unit tests (using PyTest) to ensure the reliability of core functionalities. |
+| `environment.yml / pyproject.toml` | Environment and dependency specifications using Conda & Poetry. |
 
 ---
 
