@@ -29,7 +29,7 @@ micromamba activate aggr_experiments
 
 ---
 
-## 🗺️ Repository Map
+## Repository Map
 
 | Path | Purpose |
 |------|---------|
