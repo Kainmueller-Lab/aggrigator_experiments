@@ -1,0 +1,44 @@
+feature,mode,auroc,delta
+ALL_FEATURES,baseline,0.8152,0.0
+moran,removal,0.752,-0.06320000000000003
+entropy,removal,0.8216,0.006399999999999961
+eds,removal,0.8160000000000001,0.0008000000000000229
+mean,removal,0.8311999999999999,0.015999999999999903
+above_threshold_mean_0.3,removal,0.8408,0.025599999999999956
+above_threshold_mean_0.5,removal,0.8191999999999999,0.0039999999999998925
+above_threshold_mean_0.7,removal,0.8152,0.0
+above_threshold_mean_0.9,removal,0.816,0.0007999999999999119
+above_threshold_mean_0.95,removal,0.8248,0.009599999999999942
+above_quantile_mean_0.3,removal,0.8383999999999999,0.023199999999999887
+above_quantile_mean_0.5,removal,0.8024,-0.012800000000000034
+above_quantile_mean_0.7,removal,0.836,0.02079999999999993
+above_quantile_mean_0.9,removal,0.8119999999999999,-0.0032000000000000917
+above_quantile_mean_fg_ratio,removal,0.7975999999999999,-0.01760000000000017
+patch_aggregation_10,removal,0.7872,-0.028000000000000025
+patch_aggregation_20,removal,0.8119999999999999,-0.0032000000000000917
+patch_aggregation_40,removal,0.8088,-0.006400000000000072
+patch_aggregation_80,removal,0.8096,-0.005600000000000049
+patch_aggregation_100,removal,0.8311999999999999,0.015999999999999903
+"class_mean_w_equal_weights_configurable_{'include_background': False, 'ignore_index': 0}",removal,0.8016,-0.013600000000000056
+"class_mean_weighted_by_occurrence_configurable_{'include_background': False, 'ignore_index': 0}",removal,0.816,0.0007999999999999119
+moran,standalone,0.9632,0.1479999999999999
+entropy,standalone,0.5128,-0.3024
+eds,standalone,0.5207999999999999,-0.2944000000000001
+mean,standalone,0.5408,-0.2744000000000001
+above_threshold_mean_0.3,standalone,0.712,-0.10320000000000007
+above_threshold_mean_0.5,standalone,0.508,-0.30720000000000003
+above_threshold_mean_0.7,standalone,0.7919999999999999,-0.02320000000000011
+above_threshold_mean_0.9,standalone,0.7703999999999999,-0.04480000000000017
+above_threshold_mean_0.95,standalone,0.7432,-0.07200000000000006
+above_quantile_mean_0.3,standalone,0.624,-0.19120000000000004
+above_quantile_mean_0.5,standalone,0.6776,-0.13760000000000006
+above_quantile_mean_0.7,standalone,0.7240000000000001,-0.09119999999999995
+above_quantile_mean_0.9,standalone,0.78,-0.03520000000000001
+above_quantile_mean_fg_ratio,standalone,0.7991999999999999,-0.016000000000000125
+patch_aggregation_10,standalone,0.6552,-0.16000000000000003
+patch_aggregation_20,standalone,0.6432,-0.17200000000000004
+patch_aggregation_40,standalone,0.6336000000000002,-0.18159999999999987
+patch_aggregation_80,standalone,0.6487999999999999,-0.1664000000000001
+patch_aggregation_100,standalone,0.5903999999999999,-0.2248000000000001
+"class_mean_w_equal_weights_configurable_{'include_background': False, 'ignore_index': 0}",standalone,0.8512000000000001,0.03600000000000003
+"class_mean_weighted_by_occurrence_configurable_{'include_background': False, 'ignore_index': 0}",standalone,0.6864,-0.12880000000000003

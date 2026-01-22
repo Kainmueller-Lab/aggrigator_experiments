@@ -1,8 +1,8 @@
 [paths]
-id_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_lizard_semantic_glas_set_0_00_tta_pu.csv'
-ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_lizard_semantic_glas_set_1_00_tta_pu.csv'
-id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_lizard_semantic_glas_set_tta_pu_0_00.csv'
-ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_lizard_semantic_glas_set_tta_pu_1_00.csv'
+id_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_lizard_semantic_glas_set_0_00_dropout_pu.csv'
+ood_csv_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/spatial_fingerprint_lizard_semantic_glas_set_1_00_dropout_pu.csv'
+id_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_lizard_semantic_glas_set_dropout_pu_0_00.csv'
+ood_csv_path_magnitude = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/output/tables/aggregation_value_summary_joint_noise_lizard_semantic_glas_set_dropout_pu_1_00.csv'
 
 [splits]
 id_json_path_spatial = '/fast/AG_Kainmueller/vguarin/aggrigator_experiments/spatial/splits/semantic_lizard_glas_set_pu_test_split.json' #already has the correct padded tiles inside
@@ -14,4 +14,4 @@ dataset_name = 'lizard'
 variation = 'glas_set' 
 
 [pm]
-uq_method = 'tta'
+uq_method = 'dropout'
