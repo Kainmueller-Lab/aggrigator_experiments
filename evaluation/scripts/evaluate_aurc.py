@@ -44,8 +44,9 @@ def variation_name():
 def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
     """Clears the content of the CSV file if it exists."""
     # Check selective risk-classification file's existence 
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
     csv_file = output_path.joinpath(
-        f'tables/aurc_{args.data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.real_task}_{args.variation}_{args.data_mod}.csv'
+        f'tables/aurc_{args.data_mod}/aurc_data_{args.aggregator_type}_aggr_{uq_methods[0]}_{args.real_task}_{args.variation}_{args.data_mod}.csv'
     )
     # Ensure directory exists
     csv_file.parent.mkdir(exist_ok=True, parents=True)
@@ -57,7 +58,7 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"{csv_file} does not exist yet.")
         
     # Check aurc barplots file's existence
-    aurc_csv_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    aurc_csv_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}'
     if args.spatial: 
         aurc_csv_name += f'_{args.spatial}'
     aurc_csv_file = output_path.joinpath(f'tables/aurc_{args.data_mod}/{aurc_csv_name}_aurc_{args.data_mod}_results.csv')
@@ -69,7 +70,7 @@ def clear_csv_file(output_path: Path, args: argparse.Namespace) -> None:
         print(f"{aurc_csv_file} does not exist yet.")
     
     # Check aurc barplots file's existence
-    eaurc_csv_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    eaurc_csv_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}'
     if args.spatial: 
         eaurc_csv_name += f'_{args.spatial}'
     eaurc_csv_file = output_path.joinpath(f'tables/eaurc_{args.data_mod}/{aurc_csv_name}_eaurc_{args.data_mod}_results.csv')
@@ -264,7 +265,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
         p_values_df = _perform_pairwise_wilcoxon_tests_on_eaurc(eaurc_bootstrap_samples)
         
         # Step 5: Save results to CSV
-        base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+        base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}'
         if args.spatial: base_name += f'_{args.spatial}'
         
         # Save main AURC/E-AURC results
@@ -320,7 +321,7 @@ def run_aurc_evaluation(args: argparse.Namespace, paths: DataPaths) -> None:
             final_repro_df.drop(columns=['noise_level_id', 'is_ood'], inplace=True)
             final_repro_df.rename(columns=AGGREGATOR_NAME_MAPPING, inplace=True)
             
-            base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+            base_name = f'{args.real_task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}'
             if args.spatial: base_name += f'_{args.spatial}'
             repro_path = paths.output.joinpath(f'tables/eaurc_reproducibility_repo/{base_name}.csv')
             final_repro_df.to_csv(repro_path, index=False)

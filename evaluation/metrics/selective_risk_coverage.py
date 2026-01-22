@@ -29,6 +29,7 @@ def _load_and_align_gmm_scores(
     dataset_name: str,
     task: str,
     variation: str,
+    uq_method: str,
     decomp: str,
     ood: bool,
     return_one_only: bool,
@@ -46,7 +47,7 @@ def _load_and_align_gmm_scores(
         A NumPy array of GMM scores perfectly aligned with the input lists, or None if it fails.
     """
     # Construct the GMM scores filename and path
-    scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores_standardize.csv"
+    scores_filename = f"{task}_{dataset_name}_{variation}_{uq_method}_{decomp}_scores_standardize.csv"
     scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
     
     if not os.path.exists(scores_filepath):
@@ -322,7 +323,7 @@ def compute_uncertainty_and_accuracy_scores(
     gt_list_shared = _process_gt_masks(gt_list, idx_task, dataset_name)
 
     aligned_gmm_scores, aligned_gmm_pixel_scores, aligned_gmm_spatial_scores = _load_and_align_gmm_scores(
-        sample_names, gt_list_shared, gt_labels, dataset_name, task, variation, decomp, ood, return_one_only
+        sample_names, gt_list_shared, gt_labels, dataset_name, task, variation, uq_method, decomp, ood, return_one_only
     )
 
     aggr_unc_val = np.zeros((len(pred_list), total_subkeys))

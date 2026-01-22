@@ -181,6 +181,8 @@ def get_or_create_split(id_full_df: pd.DataFrame, split_dir: str, base_filename:
     Checks for existing train/test split JSON files. If they don't exist,
     creates a 50/50 split and saves it. Correctly handles string-based indices.
     """
+    parts = base_filename.split('_')
+    base_filename = '_'.join(parts[:4] + parts[5:]) if len(parts) == 6 else '_'.join(parts[:3] + parts[4:])
     train_split_path = os.path.join(split_dir, f"{base_filename}_train_split.json")
     test_split_path = os.path.join(split_dir, f"{base_filename}_test_split.json")
 
@@ -213,6 +215,8 @@ def get_or_create_ood_split(ood_full_df: pd.DataFrame, split_dir: str, base_file
     """
     Gets or creates a 50/50 split for OOD data to ensure a balanced evaluation set.
     """
+    parts = base_filename.split('_')
+    base_filename = '_'.join(parts[:3] + parts[4:]) if len(parts) == 5 else '_'.join(parts[:2] + parts[3:])
     ood_split_path = os.path.join(split_dir, f"{base_filename}_ood_split.json")
     if os.path.exists(ood_split_path):
         print(f"Found existing OOD split file. Loading from:\n  - {ood_split_path}")
@@ -800,15 +804,15 @@ def run_analysis_pipeline(paths: dict, base_filename: str):
                 model_roc_name = f"{ftype}_{method}"
                 if (p**2 / n) > P2_N_RATIO_THRESHOLD:
                     results, gmm_ensemble = run_gmm_ensemble_ood_detection(train_proc, test_proc, ood_proc)
-                    save_gmm_artifacts(gmm_ensemble, res_dir, base_filename, model_roc_name)
-                    save_gmm_geometry_info(gmm_ensemble, train_proc, res_dir, base_filename, model_roc_name)
-                    save_gmm_eigenvalue_info(gmm_ensemble, res_dir, base_filename, model_roc_name)
+                    # save_gmm_artifacts(gmm_ensemble, res_dir, base_filename, model_roc_name)
+                    # save_gmm_geometry_info(gmm_ensemble, train_proc, res_dir, base_filename, model_roc_name)
+                    # save_gmm_eigenvalue_info(gmm_ensemble, res_dir, base_filename, model_roc_name)
                 else:
                     n_components = find_best_gmm(train_proc, model_type=ftype)
                     gmm, _ = build_id_gmm_model(train_proc, n_components)
-                    save_gmm_artifacts(gmm, res_dir, base_filename, model_roc_name)
-                    save_gmm_geometry_info(gmm, train_proc, res_dir, base_filename, model_roc_name)
-                    save_gmm_eigenvalue_info(gmm, res_dir, base_filename, model_roc_name)
+                    # save_gmm_artifacts(gmm, res_dir, base_filename, model_roc_name)
+                    # save_gmm_geometry_info(gmm, train_proc, res_dir, base_filename, model_roc_name)
+                    # save_gmm_eigenvalue_info(gmm, res_dir, base_filename, model_roc_name)
                     id_test_scores = calculate_nll_scores(test_proc, gmm, train_proc)
                     id_test_scores['is_ood'] = 0
                     ood_scores = pd.DataFrame()
@@ -894,10 +898,11 @@ if __name__ == "__main__":
         main_loop_executed = True
         task = config['dataset']['task']
         original_variation = config['dataset']['variation']
+        uq_method = config['pm']['uq_method']
         for var in ['malignancy', 'texture']:
             print(f"\n\n{'='*25} PROCESSING VARIATION: {var.upper()} {'='*25}")
             current_paths = {k: v.replace(original_variation, var) for k, v in analysis_paths_templates.items()}
-            base_filename = f"{task}_{dataset_name}_{var}_pu"
+            base_filename = f"{task}_{dataset_name}_{var}_{uq_method}_pu"
             run_analysis_pipeline(current_paths, base_filename)
             
     if dataset_name.startswith('arctique'):
@@ -905,6 +910,7 @@ if __name__ == "__main__":
         original_task = config['dataset']['task']
         original_variation = config['dataset']['variation']
         original_noise = config['dataset']['noise_level']
+        uq_method = config['pm']['uq_method']
         for task, var, ns in zip(['semantic', 'instance'], ['blood_cells', 'nuclei_intensity'], ['0_75', '0_50']):
             print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()}; VARIATION: {var.upper()}  {'='*25}")
             current_paths = {
@@ -916,23 +922,25 @@ if __name__ == "__main__":
                 )
                 for k, v in analysis_paths_templates.items()
             }
-            base_filename = f"{task}_{dataset_name}_{var}_pu"
+            base_filename = f"{task}_{dataset_name}_{var}_{uq_method}_pu"
             run_analysis_pipeline(current_paths, base_filename)
             
     if dataset_name.startswith('lizard'):
         main_loop_executed = True
         original_task = config['dataset']['task']
         original_variation = config['dataset']['variation']
+        uq_method = config['pm']['uq_method']
         for task in ['semantic', 'instance']:
             print(f"\n\n{'='*25} PROCESSING TASK: {task.upper()}")
             current_paths = {k: v.replace(original_task, task) for k, v in analysis_paths_templates.items()}
-            base_filename = f"{task}_{dataset_name}_{original_variation}_pu"
+            base_filename = f"{task}_{dataset_name}_{original_variation}_{uq_method}_pu"
             run_analysis_pipeline(current_paths, base_filename)
     
     if dataset_name.startswith('wormbodies'):
         main_loop_executed = True
         original_task = config['dataset']['task']
         original_variation = config['dataset']['variation']
+        uq_method = config['pm']['uq_method']
         for var in ['nematodes', 'protists']:
             print(f"\n\n{'='*25} PROCESSING VARIATION: {var.upper()} {'='*25}")
             current_paths = {
@@ -942,14 +950,15 @@ if __name__ == "__main__":
                 for k, v in analysis_paths_templates.items()
             }
             print(current_paths)
-            base_filename = f"{original_task}_{dataset_name}_{var}_pu"
+            base_filename = f"{original_task}_{dataset_name}_{var}_{uq_method}_pu"
             run_analysis_pipeline(current_paths, base_filename)
 
     if not main_loop_executed:
         print("\n\nStandard dataset detected. Running a single analysis.")
         task = config['dataset']['task']
         variation = config['dataset']['variation']
-        base_filename = f"{task}_{dataset_name}_{variation}_pu" if variation else f"{task}_{dataset_name}_pu" 
+        uq_method = config['pm']['uq_method']
+        base_filename = f"{task}_{dataset_name}_{variation}_{uq_method}_pu" if variation else f"{task}_{dataset_name}_{uq_method}_pu" 
         run_analysis_pipeline(analysis_paths_templates, base_filename)
 
     print(f"\n{'='*25} ANALYSIS COMPLETE {'='*25}")

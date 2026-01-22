@@ -294,6 +294,7 @@ def create_auroc_barplot(
     task: str,
     variation: str,
     dataset_name: str,
+    uq_method: str,
     decomp: str,
     output_path: Path,
     spatial: str = None,
@@ -367,7 +368,7 @@ def create_auroc_barplot(
     plt.tight_layout(rect=[0, 0.05, 1, 0.90]) # Adjust rect to make space for legend
     
     # Save the plot
-    _save_plot(fig, output_path, task, dataset_name, variation, decomp, spatial)
+    _save_plot(fig, output_path, task, dataset_name, variation, uq_method, decomp, spatial)
     plt.close()
 
 # --- Helper Functions  ---
@@ -387,6 +388,7 @@ def create_single_auroc_barplot(
     task: str,
     variation: str,
     dataset_name: str,
+    uq_method: str,
     decomp: str,
     output_path: Path,
     spatial: Optional[str] = None,
@@ -409,6 +411,8 @@ def create_single_auroc_barplot(
         Variation type
     dataset_name : str
         Dataset analyzed (e.g. 'lizard')
+    uq_method : str
+        Uncertainty quantification method to evaluate (e.g. 'dropout')
     decomp : str
         Uncertainty component tested ('pu', 'eu' or 'au')
     output_path : Path
@@ -496,7 +500,7 @@ def create_single_auroc_barplot(
     # Add title
     _add_title(ax, task, variation)
     # Save plot
-    _save_plot(fig, output_path, task, dataset_name, variation, decomp, spatial)
+    _save_plot(fig, output_path, task, dataset_name, variation, uq_method, decomp, spatial)
     
     plt.close()  # Close figure to free memory
 
@@ -681,10 +685,10 @@ def _add_title(ax, task: str, variation: str) -> None:
     )
     ax.set_title(title_text, fontsize=16, pad=20)
     
-def _save_plot(fig, output_path: Path, task: str, dataset_name: str, 
-              variation: str, decomp: str, spatial: Optional[str]) -> None:
+def _save_plot(fig, output_path: Path, task: str, dataset_name: str, variation: str, 
+               uq_method: str, decomp: str, spatial: Optional[str]) -> None:
     """Save the plot to file."""
-    file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{decomp}'
+    file_name = f'ood_auroc_{task}_{dataset_name}_{variation}_{uq_method}_{decomp}'
     if spatial:
         file_name += f'_{spatial}'
     
@@ -899,9 +903,10 @@ def _save_aurc_data(data_dict: Dict, output_path: Path, args: argparse.Namespace
         data_mod = 'id'
     else:
         data_mod = 'id_ood'
-        
+    
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')] #Temporary placeholder to then adjust the functions in view of multiple uncertainty methods used 
     csv_file = output_path.joinpath(
-        f'tables/aurc_{data_mod}/aurc_data_{args.aggregator_type}_aggr_multi_uq_methods_{args.task}_{args.variation}_{data_mod}.csv'
+        f'tables/aurc_{data_mod}/aurc_data_{args.aggregator_type}_aggr_{uq_methods[0]}_{args.task}_{args.variation}_{data_mod}.csv'
     )
     
     # Ensure directory exists
@@ -1019,7 +1024,8 @@ def _generate_single_metric_report(metric_name: str,
     print(results_df[['Aggregator', metric_name, f'{metric_name}_std']])
 
     # Save results to a CSV file
-    csv_name = f'{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}'
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
+    csv_name = f'{args.task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}'
     if args.spatial:
         csv_name += f'_{args.spatial}'
     
@@ -1206,9 +1212,10 @@ def _save_aurc_plot(output_path: Path, args: argparse.Namespace, ood: bool, retu
         data_mod = 'id'
     else:
         data_mod = 'id_ood'
-        
+    
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
     output_file = output_path.joinpath(
-        f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}.png'
+        f'figures/aurc_{data_mod}/{data_mod}_aurc_{args.task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}.png'
     )
     
     # Ensure directory exists
@@ -1225,7 +1232,8 @@ def _save_metric_barplot(output_path: Path, args: argparse.Namespace, data_mod: 
     figure_dir = output_path.joinpath(f'figures/{metric_name_lower}_{data_mod}')
     figure_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f'{data_mod}_{metric_name_lower}_{args.task}_{args.dataset_name}_{args.variation}_{args.decomp}_barplot.png'
+    uq_methods = [uq.strip() for uq in args.uq_methods.split(',')]
+    filename = f'{data_mod}_{metric_name_lower}_{args.task}_{args.dataset_name}_{args.variation}_{uq_methods[0]}_{args.decomp}_barplot.png'
     output_file = figure_dir.joinpath(filename)
     
     plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Adjust layout to prevent label cutoff

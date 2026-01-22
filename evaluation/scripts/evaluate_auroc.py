@@ -26,10 +26,11 @@ from evaluation.constants import (
 
 # ---- Script to evaluate AUROC for OoD detection for various aggregation methods and create comparison plots
     
-def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: str, decomp: str, spatial: str = None) -> None:
+def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: str, 
+                   uq_method: str, decomp: str, spatial: str = None) -> None:
     """Clears the content of the CSV file if it exists."""
     # Define path and csv name
-    csv_name = f'{task}_{dataset_name}_{variation}_{decomp}'
+    csv_name = f'{task}_{dataset_name}_{variation}_{uq_method}_{decomp}'
     if spatial: 
         csv_name += f'_{spatial}'
         
@@ -61,8 +62,8 @@ def clear_csv_file(output_path: Path, task: str, dataset_name: str, variation: s
     if repro_csv_file.exists(): repro_csv_file.unlink()
     print("Cleared previous CSV files.")
 
-def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variation: str, dataset_name: str, 
-                      decomp: str, output_path: Path, n_bootstraps: int, spatial: str = None, ignore_index: int = 0) -> pd.DataFrame:
+def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variation: str, dataset_name: str, decomp: str,
+                      uq_method: str, output_path: Path, n_bootstraps: int, spatial: str = None, ignore_index: int = 0) -> pd.DataFrame:
     """Process all strategies for a single combo key."""
     print(f"Processing combo key: {combo_key}")
     
@@ -82,6 +83,7 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
         task=task,
         variation=variation,
         decomp=decomp,
+        uq_method=uq_method,
         n_bootstraps=n_bootstraps,
         output_path=output_path, 
     )
@@ -90,7 +92,7 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
         print("P-Value Results:\n", p_values_df)
     
     # Save results to CSV
-    csv_name = f'{task}_{dataset_name}_{variation}_{decomp}'
+    csv_name = f'{task}_{dataset_name}_{variation}_{uq_method}_{decomp}'
     if spatial: 
         csv_name += f'_{spatial}'
     
@@ -115,7 +117,7 @@ def process_combo_key(concatenated_data: dict, combo_key: str, task: str, variat
         
     return auroc_df, repro_df
 
-def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dataset_name: str, output_path: Path, decomp: str = "pu", 
+def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dataset_name: str, output_path: Path, uq_method: str, decomp: str = "pu", 
                          spatial: str = None, noise_levels: List[str] = None, ignore_index: int = 0, n_bootstraps: int = 500) -> None:
     """
     Create comparative bar plots of image-level AUROC values for different combo keys and UQ methods.
@@ -131,6 +133,8 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
     dataset_name : str
     output_path : Path
         Path to save output
+    uq_method : str, 
+        Uncertainty quantification method to evaluate (e.g. 'dropout')
     decomp : str, optional
         Decomposition component, by default "pu"
     spatial : str, optional
@@ -143,7 +147,7 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
         Np. of bootstrap samples to use for cgenertaing confidence intervals
     """
     # Clear previous results
-    clear_csv_file(output_path, task, dataset_name, variation, decomp, spatial)
+    clear_csv_file(output_path, task, dataset_name, variation, uq_method, decomp, spatial)
     
     # Generate combo keys from noise levels or extract from concatenated_data
     if noise_levels:
@@ -164,7 +168,7 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
     for combo_key in combo_keys:
         df, repro_df = process_combo_key(
             concatenated_data, combo_key, task, variation, dataset_name, 
-            decomp, output_path, n_bootstraps, spatial, ignore_index
+            decomp, uq_method, output_path, n_bootstraps, spatial, ignore_index
         )
         results.append(df)
         if repro_df is not None: all_repro_dfs.append(repro_df)
@@ -183,7 +187,7 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
         final_repro_df.rename(columns=AGGREGATOR_NAME_MAPPING, inplace=True)
         final_repro_df.set_index('uq_map_name', inplace=True)
         
-        base_name = f'{task}_{dataset_name}_{variation}_{decomp}'
+        base_name = f'{task}_{dataset_name}_{variation}_{uq_method}_{decomp}'
         if spatial: base_name += f'_{spatial}'
         repro_path = output_path.joinpath(f'tables/auroc_reproducibility_repo/{base_name}.csv')
         final_repro_df.to_csv(repro_path)
@@ -198,6 +202,7 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
             task,
             variation,
             dataset_name,
+            uq_method,
             decomp,
             output_path,
             spatial
@@ -211,6 +216,7 @@ def run_auroc_evaluation(concatenated_data: Dict, task: str, variation: str, dat
             task,
             variation,
             dataset_name,
+            uq_method,
             decomp,
             output_path,
             spatial
@@ -235,7 +241,7 @@ def parse_arguments() -> argparse.Namespace:
     # gta_cityscapes: '/fast/AG_Kainmueller/data/GTA_CityScapes_UQ/'
     # ade20k_cityscapes: '/fast/AG_Kainmueller/data/UQ_maps/ADE20K/'
     # lizard: '/fast/AG_Kainmueller/data/Lizard_AggroUQ/trained_2/'
-    # weedsgalore: '/fast/AG_Kainmueller/data/weedsgalore/'
+    # weedsgalore: '/fast/AG_Kainmueller/data/UQ_maps/weedsgalore/'
     # wormbodies: '/fast/AG_Kainmueller/data/UQ_maps/wormbodies/'
     parser.add_argument(
         '--label_path', type=str, help='Path to labels'
@@ -267,7 +273,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--uq_methods', type=str, default='softmax,ensemble,dropout,tta', 
         help='Comma-separated list of image noise levels'
-    )
+     )
     parser.add_argument(
         '--metadata', type=str, default=True, 
         help='Read the metadata file if it is stored in the old UQ_metadata format'
@@ -344,6 +350,7 @@ def main():
         variation=args.variation,
         dataset_name=args.dataset_name,
         output_path=paths.output,
+        uq_method=uq_methods[0],  # Assuming single UQ method for simplicity; modify as needed
         decomp=args.decomp,
         spatial=args.spatial,
         noise_levels=noise_levels,

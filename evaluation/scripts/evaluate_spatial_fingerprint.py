@@ -8,9 +8,9 @@ import time
 from pathlib import Path
 from joblib import Parallel, delayed
 
-from aggrigator.uncertainty_maps import UncertaintyMap
-from aggrigator.spatial_decomposition import spatial_decomposition # NOTE: This is only available on the develop branch of the aggrigator repo. Use "pip install -e ." to install the package.
-# from spatial_decomposition import UncertaintyMap, spatial_decomposition
+# from aggrigator.uncertainty_maps import UncertaintyMap
+# from aggrigator.spatial_decomposition import spatial_decomposition # NOTE: This is only available on the develop branch of the aggrigator repo. Use "pip install -e ." to install the package.
+from spatial_decomposition import UncertaintyMap, spatial_decomposition
 
 
 
@@ -302,7 +302,7 @@ if __name__ == "__main__":
                     'variation' : 'glas_set',
                     'model_noise' : 0,
                     'data_noise': noise_level,
-                    'uq_method' : 'dropout',
+                    'uq_method' : args.uq_method,
                     'decomp' : 'pu',
                     'spatial' : False,
                     'metadata' : False,
@@ -385,7 +385,7 @@ if __name__ == "__main__":
                 'variation' : 'cityscapes', 
                 'model_noise' : 0,
                 'data_noise': '0_00', #0_00 for evaluating on GTA iD test set 
-                'uq_method': 'dropout',
+                'uq_method': args.uq_method,
                 'decomp' : 'pu',
                 'spatial' : None,
                 'split_path' : "/fast/AG_Kainmueller/data/GTA_ValUES_splits/GTA_id_test", # GTA_id_test is the file name for the GTA iD test set samples

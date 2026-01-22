@@ -165,6 +165,7 @@ def _evaluate_gmm_strategy(
     task: str,
     variation: str,
     decomp: str,
+    uq_method: str,
     n_bootstraps: int
 ) -> Optional[Tuple[List[Dict], Dict[str, List[float]]]]:
     """Loads, aligns, and evaluates the pre-computed GMM score with bootstrapping."""
@@ -172,7 +173,7 @@ def _evaluate_gmm_strategy(
     if 'sample_names' not in cached_maps[first_uq_method]:
         return None, None
 
-    scores_filename = f"{task}_{dataset_name}_{variation}_{decomp}_scores_standardize.csv"
+    scores_filename = f"{task}_{dataset_name}_{variation}_{uq_method}_{decomp}_scores_standardize.csv"
     scores_filepath = os.path.join(os.getcwd(), "spatial", "results", scores_filename)
 
     if not os.path.exists(scores_filepath):
@@ -249,6 +250,7 @@ def evaluate_all_strategies(
     task: str,
     variation: str,
     decomp: str,
+    uq_method: str,
     n_bootstraps: int,
     output_path : Path,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -266,14 +268,14 @@ def evaluate_all_strategies(
 
     # Step 2: Evaluate the GMM spatial aggregator
     gmm_results, gmm_bootstrap_samples, gmm_scores_df = _evaluate_gmm_strategy(
-        cached_maps, noise_level, dataset_name, task, variation, decomp, n_bootstraps
+        cached_maps, noise_level, dataset_name, task, variation, decomp, uq_method, n_bootstraps
     )
     if gmm_results:
         auroc_stats.extend(gmm_results)
         if gmm_bootstrap_samples:
             bootstrap_samples.update(gmm_bootstrap_samples)
     
-   # Step 3: Create the reproducibility DataFrame for this specific comparison
+    # Step 3: Create the reproducibility DataFrame for this specific comparison
     repro_df = None
     first_uq_method = next(iter(cached_maps.keys()))
     sample_names = cached_maps[first_uq_method].get('sample_names', [])

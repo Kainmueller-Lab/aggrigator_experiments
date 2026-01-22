@@ -15,4 +15,4 @@
 
 echo "Job ID: $SLURM_JOB_ID"
 
-python evaluation/scripts/evaluate_spatial_fingerprint.py --dataset 'weedsgalore' --uq_method 'dropout'
+python evaluation/scripts/evaluate_spatial_fingerprint.py --dataset 'gta' --uq_method 'softmax'

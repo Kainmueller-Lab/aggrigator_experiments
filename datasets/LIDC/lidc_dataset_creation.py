@@ -338,7 +338,7 @@ class LIDCDataset(Dataset_Class):
         data = {
             'image': self.get_image(idx),
             'mask': cons_mask,
-            'individual_masks' : indiv_mask,
+            'individual_masks': indiv_mask,
             'uq_map': self.get_uq_map(idx),
             'prediction': self.get_prediction(idx),
             'sample_name': self.get_sample_name(idx),
@@ -482,7 +482,7 @@ class OptimizedLIDCDataset(LIDCDataset):
 def main():
     spatial = False
     main_folder_name = "UQ_maps" if not spatial else "UQ_spatial"
-    base_path = Path('/fast/AG_Kainmueller/data/ValUES/')
+    base_path = Path('cd /fast/AG_Kainmueller/data/ValUES/')
     map_path = base_path
     
     extra_info = {
