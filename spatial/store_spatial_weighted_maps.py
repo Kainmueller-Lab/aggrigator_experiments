@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 
-from spatial_decomposition import spatial_decomposition #TODO - later it will be part of the methods of aggrigator and will import from it
+from aggrigator.spatial_decomposition import spatial_decomposition
 from aggrigator.uncertainty_maps import UncertaintyMap
 from evaluation.data_utils import load_unc_maps
 
